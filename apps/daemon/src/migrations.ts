@@ -27,7 +27,7 @@ import { outsideGrantTables, outsideOAuthTables } from "./external-mcp/tables.ts
  */
 export const devicePersonStep = `ALTER TABLE devices ADD COLUMN person INTEGER;`;
 
-const migrations = [
+export const migrations = [
   `CREATE TABLE events (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, thread_id TEXT NOT NULL,
     at INTEGER NOT NULL, type TEXT NOT NULL, payload JSON NOT NULL
@@ -327,7 +327,7 @@ function removeUpgradeBackups(db: DatabaseSync): void {
 }
 const UPGRADE_BACKUP = /^\d{1,6}\.backup(\.partial)?$/;
 
-const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
+export const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
 function location(db: DatabaseSync): string {
   return db.location() ?? "the daemon database";
 }

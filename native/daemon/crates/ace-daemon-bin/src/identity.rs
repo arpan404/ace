@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The daemon's pinned TLS identity: `<home>/tls/cert.pem` and `tls/key.pem`, made
+//! on first use in memory, with the same shape `apps/daemon/src/tls-identity.ts`
+//! and `self-signed-certificate.ts` write (RSA-2048, SHA-256, `CN=ace`, ten years),
+//! and its fingerprint: the SHA-256 of the certificate's SubjectPublicKeyInfo.
+//!
+//! Paired devices pin that fingerprint, so an existing identity is never
+//! regenerated while its files are readable (`pin continuity`,
+//! `docs/transport/behaviour.md` §6).
+//!
+//! TypeScript cases ported: `apps/daemon/src/tls-identity.process.test.ts`
+//! ("makes the identity once and keeps it across loads", "a fingerprint is the
+//! certificate's public key, not the certificate") and the pinned-handshake
+//! cases of `apps/daemon/src/tls-identity-node.process.test.ts`.
+
+use std::io;
+use std::path::Path;
+
+mod certificate;
+
+/// The identity's bytes and the fingerprint a client pins.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Identity {
+    pub key_pem: Vec<u8>,
+    pub cert_pem: Vec<u8>,
+    /// Lower-case hex of the SHA-256 over the certificate's SPKI DER.
+    pub fingerprint: String,
+}
+
+/// Why the identity could not be made or read.
+#[derive(Debug)]
+pub enum IdentityError {
+    /// OpenSSL refused or is missing: TypeScript's own sentence.
+    Generate,
+    Io {
+        action: String,
+        source: io::Error,
+    },
+    /// The certificate's public key could not be read from its DER.
+    Certificate,
+}
+
+impl std::fmt::Display for IdentityError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Generate => {
+                formatter.write_str("Cannot generate TLS identity. Install OpenSSL and retry.")
+            }
+            Self::Io { action, source } => write!(formatter, "{action}: {source}"),
+            Self::Certificate => {
+                formatter.write_str("The TLS certificate has no readable public key")
+            }
+        }
+    }
+}
+
+impl std::error::Error for IdentityError {}
+
+fn io_error(action: impl Into<String>, source: io::Error) -> IdentityError {
+    IdentityError::Io {
+        action: action.into(),
+        source,
+    }
+}
+
+/// `loadIdentity`: make the identity when the home has none, then read it.
+pub async fn load(home: &Path) -> Result<Identity, IdentityError> {
+    let directory = home.join("tls");
+    if !directory.exists() {
+        generate(home, &directory)?;
+    }
+    let key_path = directory.join("key.pem");
+    let cert_path = directory.join("cert.pem");
+    set_private(&key_path).map_err(|error| io_error("Cannot restrict the TLS key", error))?;
+    let key_pem =
+        std::fs::read(&key_path).map_err(|error| io_error("Cannot read the TLS key", error))?;
+    let cert_pem = std::fs::read(&cert_path)
+        .map_err(|error| io_error("Cannot read the TLS certificate", error))?;
+    let fingerprint = fingerprint(&cert_pem)?;
+    Ok(Identity {
+        key_pem,
+        cert_pem,
+        fingerprint,
+    })
+}
+
+/// Make the identity in memory and publish it whole: a temporary directory
+/// renamed into place, so a failure leaves nothing half made.
+fn generate(home: &Path, directory: &Path) -> Result<(), IdentityError> {
+    let pair = certificate::self_signed(crate::clock::system_now(), 3650)
+        .ok_or(IdentityError::Generate)?;
+    let id = crate::ids::uuid_v4().unwrap_or_else(|_| "identity".to_owned());
+    let temporary = home.join(format!("tls-{id}"));
+    create_private_dir(&temporary)
+        .map_err(|error| io_error("Cannot make the TLS directory", error))?;
+    let made = (|| -> io::Result<()> {
+        super::home::create_private(&temporary.join("key.pem"), &pair.key_pem)?;
+        super::home::create_private(&temporary.join("cert.pem"), &pair.cert_pem)?;
+        Ok(())
+    })();
+    if let Err(error) = made {
+        let _ = std::fs::remove_dir_all(&temporary);
+        return Err(io_error("Cannot write the TLS identity", error));
+    }
+    let _ = set_private(&temporary.join("key.pem"));
+    if let Err(error) = std::fs::rename(&temporary, directory) {
+        let _ = std::fs::remove_dir_all(&temporary);
+        return Err(io_error("Cannot publish the TLS identity", error));
+    }
+    Ok(())
+}
+
+/// The fingerprint `publicKeyFingerprint` computes: SHA-256 over the SPKI DER,
+/// from its one owner in `ace-transport`.
+pub fn fingerprint(cert_pem: &[u8]) -> Result<String, IdentityError> {
+    ace_transport::tls::identity::public_key_fingerprint(cert_pem).ok_or(IdentityError::Certificate)
+}
+
+#[cfg(unix)]
+fn set_private(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_private(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    std::fs::create_dir(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TempDir;
+    use sha2::{Digest, Sha256};
+
+    /// `tls-identity.process.test.ts`: "makes the identity once and keeps it
+    /// across loads": a paired device's pin keeps matching after a restart.
+    #[tokio::test]
+    async fn the_identity_is_made_once_and_kept_across_loads() {
+        let home = TempDir::new("ace-identity");
+        let Ok(first) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
+        };
+        assert_eq!(first.fingerprint.len(), 64);
+        assert!(
+            first
+                .fingerprint
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "a lower-case hex fingerprint"
+        );
+        assert!(home.path().join("tls/cert.pem").exists());
+        assert!(home.path().join("tls/key.pem").exists());
+        let second = load(home.path()).await;
+        let Ok(second) = second else {
+            panic!("the identity loads again");
+        };
+        assert_eq!(second, first);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for (path, mode) in [
+                (home.path().join("tls"), 0o700),
+                (home.path().join("tls/key.pem"), 0o600),
+            ] {
+                let actual = std::fs::metadata(path)
+                    .map(|meta| meta.permissions().mode())
+                    .unwrap_or(0);
+                assert_eq!(actual & 0o777, mode);
+            }
+        }
+    }
+
+    /// `tls-identity.process.test.ts`: "a fingerprint is the certificate's public
+    /// key, not the certificate": OpenSSL's own SPKI digest is the same value.
+    #[tokio::test]
+    async fn the_fingerprint_is_the_certificates_public_key() {
+        let home = TempDir::new("ace-identity-spki");
+        let Ok(identity) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
+        };
+        let cert = home.path().join("tls/cert.pem");
+        let pubkey = tokio::process::Command::new("openssl")
+            .args(["x509", "-in"])
+            .arg(&cert)
+            .args(["-pubkey", "-noout"])
+            .output()
+            .await;
+        let Ok(pubkey) = pubkey else {
+            return;
+        };
+        let pem = home.path().join("spki.pem");
+        if std::fs::write(&pem, &pubkey.stdout).is_err() {
+            return;
+        }
+        let der = tokio::process::Command::new("openssl")
+            .args(["pkey", "-pubin", "-outform", "der", "-in"])
+            .arg(&pem)
+            .output()
+            .await;
+        let Ok(der) = der else {
+            return;
+        };
+        if !der.status.success() {
+            return;
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(&der.stdout);
+        let digest = hasher.finalize();
+        let expected: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(identity.fingerprint, expected);
+    }
+
+    /// A certificate that is not one is refused rather than given a fingerprint.
+    #[test]
+    fn a_document_without_a_certificate_is_refused() {
+        assert!(fingerprint(b"not a certificate").is_err());
+    }
+}
+
+#[cfg(test)]
+mod loadable {
+    use super::*;
+    use crate::test_support::TempDir;
+
+    #[tokio::test]
+    async fn the_identity_is_a_usable_tls_identity() {
+        let home = TempDir::new("ace-identity-load");
+        let Ok(identity) = load(home.path()).await else {
+            panic!("the identity is generated in memory");
+        };
+        let loaded = ace_transport::TlsIdentity::from_pem(&identity.cert_pem, &identity.key_pem);
+        assert!(loaded.is_ok(), "{:?}", loaded.err().map(|e| e.to_string()));
+        let provider = ace_transport::process_provider();
+        assert!(provider.is_ok(), "the process provider installs");
+        let again = ace_transport::TlsIdentity::from_pem(&identity.cert_pem, &identity.key_pem);
+        assert!(again.is_ok(), "{:?}", again.err().map(|e| e.to_string()));
+    }
+
+    /// macOS's `/usr/bin/openssl` is LibreSSL, whose `req -x509` writes an X.509
+    /// v1 certificate. A home the TypeScript daemon made with it must still load
+    /// (a home is never migrated by switching daemons).
+    #[tokio::test]
+    async fn a_version_one_certificate_still_loads() {
+        let home = TempDir::new("ace-identity-v1");
+        let key = home.path().join("key.pem");
+        let cert = home.path().join("cert.pem");
+        let made = tokio::process::Command::new("/usr/bin/openssl")
+            .args([
+                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650",
+                "-subj", "/CN=ace", "-keyout",
+            ])
+            .arg(&key)
+            .arg("-out")
+            .arg(&cert)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+        if !matches!(made, Ok(status) if status.success()) {
+            return;
+        }
+        let key_pem = std::fs::read(&key).unwrap_or_default();
+        let cert_pem = std::fs::read(&cert).unwrap_or_default();
+        let loaded = ace_transport::TlsIdentity::from_pem(&cert_pem, &key_pem);
+        assert!(loaded.is_ok(), "{:?}", loaded.err().map(|e| e.to_string()));
+        assert!(
+            fingerprint(&cert_pem).is_ok(),
+            "a v1 certificate has a fingerprint"
+        );
+    }
+}

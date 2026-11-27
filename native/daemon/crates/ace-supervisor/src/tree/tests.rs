@@ -394,3 +394,45 @@ fn capture_at_its_limit_says_truncated() {
 }
 
 mod stop;
+
+/// `signalVerifiedTree`: the leader and its descendants are signalled by their own
+/// starts, and a leader whose pid is someone else now (or gone) sends nothing.
+#[test]
+fn a_verified_tree_is_signalled_and_a_reused_leader_is_not() {
+    let fake = machine(&[
+        (1, 0, "init"),
+        (100, 1, "leader"),
+        (200, 100, "child"),
+        (300, 200, "grandchild"),
+    ]);
+    let signalled = signal_verified_tree(100, "leader", SignalName::Kill, &fake);
+    assert_eq!(
+        signalled,
+        vec![
+            member(100, "leader"),
+            member(200, "child"),
+            member(300, "grandchild")
+        ]
+    );
+    let mut signals = fake.signals.borrow().clone();
+    signals.sort();
+    assert_eq!(
+        signals,
+        vec![
+            "SIGKILL 100:leader",
+            "SIGKILL 200:child",
+            "SIGKILL 300:grandchild"
+        ]
+    );
+
+    // The pid now names another process than the one recorded: nothing is sent.
+    let reused = machine(&[(1, 0, "init"), (100, 1, "someone-else")]);
+    assert!(signal_verified_tree(100, "leader", SignalName::Kill, &reused).is_empty());
+    assert!(reused.signals.borrow().is_empty());
+    assert!(reused.table.borrow().contains_key(&100));
+
+    // The leader is gone: nothing is sent, even if something sits in its group.
+    let gone = machine(&[(1, 0, "init"), (200, 100, "orphan")]);
+    assert!(signal_verified_tree(100, "leader", SignalName::Kill, &gone).is_empty());
+    assert!(gone.signals.borrow().is_empty());
+}

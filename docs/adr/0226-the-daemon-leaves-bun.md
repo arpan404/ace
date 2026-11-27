@@ -579,6 +579,11 @@ work:
   its endpoint (socket, HTTP and process tests) run against `ace-daemon-bin` as each slice they
   need lands. Together with the ported Rust tests they replace the "both legs" proof. The
   cross-mode gate becomes a home booted alternately by the Bun daemon and `ace-daemon-bin`.
+  One home either daemon writes: `apps/daemon/src/migrations.ts` stays the database schema's one
+  source, and `ace-store`'s steps, upgrade floor and required thread columns are generated from it
+  by `scripts/generate-rust-schema.ts`, which `check:daemon-native` regenerates and fails on a
+  diff, as it does for the wire types and the route table. `ace-daemon-bin` runs the same steps
+  under the same rules and the same refusals, so neither daemon migrates a home by switching.
 - **The inversion gate changes.** §5's gates 1 to 4 lose their object, since no JavaScript runs in
   `ace-daemon-bin`. Gate 5 (every switch default-on for one release) is replaced by: the TypeScript
   server and process files pass against `ace-daemon-bin` on macOS, Linux and the Windows VM, the

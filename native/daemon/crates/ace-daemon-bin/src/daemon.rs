@@ -1,0 +1,441 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The daemon's start and stop order, composed from the modules beside this one.
+//!
+//! This is `index.ts`'s `startDaemon` and `process-daemon.ts` reduced to slice 1:
+//! the home, the lock, the log, the run marker, the store's open, the token and
+//! host id, the listeners and the endpoint file, then signals or a stop request,
+//! then the orderly shutdown that records how the run ended.
+//!
+//! TypeScript cases ported: `apps/daemon/src/lifecycle.process.test.ts`
+//! ("a daemon starts, listens, and stops in order", "a second start on the same
+//! home exits lock-held"), `apps/daemon/src/cli-stop.process.test.ts`
+//! ("`ace stop` prints the receipt and the process is gone"), and
+//! `apps/daemon/src/cli-start.process.test.ts` ("`ace start --json` prints the
+//! five keys", "a newer data format is refused with exit 65", "a taken port is
+//! address-in-use").
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use tokio::sync::mpsc;
+
+mod signals;
+mod wiring;
+
+use self::signals::{Signals, StopReason, wait_for_stop};
+use self::wiring::{address_in_use, fields_value, print_started, remote_plan};
+
+use crate::config::Config;
+use crate::exit_codes::ExitCode;
+use crate::home;
+use crate::http::HttpConfig;
+use crate::lock::{Lock, LockError};
+use crate::log::Log;
+use crate::receipt::{Admission, State};
+use crate::run_marker::Run;
+use crate::session;
+use crate::store::Store;
+use crate::token;
+use crate::transport::Transport;
+
+/// `shutdownDeadline("Daemon", ..., 7_000)`: how long the orderly stop may take.
+const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(7);
+
+/// What `main` prints once the daemon listens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Output {
+    /// `ace start` and `ace serve`: the lines a person reads.
+    Text,
+    /// `ace serve --json`: the object the launcher and the desktop app read.
+    Json,
+}
+
+/// A start that could not complete: the exit code and the sentence to print.
+#[derive(Debug)]
+pub struct FailedStart {
+    pub code: ExitCode,
+    pub message: String,
+}
+
+impl FailedStart {
+    fn failed(message: impl Into<String>) -> Self {
+        Self {
+            code: ExitCode::Failed,
+            message: message.into(),
+        }
+    }
+}
+
+/// `startDaemon` + `runDaemonProcess`: run until a signal or a stop request, then
+/// shut down in order and return the process's exit code.
+pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart> {
+    // The process's lifetime is installed before anything can advertise the
+    // endpoint, as `runDaemonProcess` installs it before startup: a signal that
+    // arrives right after `ace start` prints its line still stops the daemon.
+    let signals = Signals::install();
+    let data_dir = config.data_dir.clone();
+    // The home's format is settled before anything opens or writes in it.
+    let prepared = match home::prepare(&data_dir, home::HOME_FORMAT_VERSION, home::now_ms()) {
+        Ok(state) => state,
+        Err(error) => {
+            if let home::HomeError::Live { home, pid, message } = &error {
+                // Nothing moved: the old home's daemon still holds it.
+                let log = Log::open(&data_dir, config.log_level);
+                log.log(
+                    "warn",
+                    message,
+                    serde_json::json!({
+                        "home": home.display().to_string(),
+                        "pid": pid,
+                    }),
+                );
+            } else if let home::HomeError::NewerData {
+                home,
+                stored,
+                supported,
+                message,
+            } = &error
+            {
+                let log = Log::open(&data_dir, config.log_level);
+                log.log(
+                    "error",
+                    message,
+                    serde_json::json!({
+                        "home": home.display().to_string(),
+                        "storedFormat": stored,
+                        "supportedFormat": supported,
+                        "dataFormat": home::format_name(home::HOME_FORMAT_VERSION),
+                    }),
+                );
+            }
+            return Err(FailedStart {
+                code: if error.is_newer_data() {
+                    ExitCode::NewerData
+                } else {
+                    ExitCode::Failed
+                },
+                message: error.to_string(),
+            });
+        }
+    };
+    let lock = Lock::acquire(&data_dir).map_err(|error| match error {
+        LockError::Held(held) => FailedStart {
+            code: ExitCode::LockHeld,
+            message: held.to_string(),
+        },
+        LockError::Failed(message) => FailedStart::failed(message),
+    })?;
+    // Under the lock, again: a newer build may have set this home aside in between.
+    if let Err(error) = home::prepare(&data_dir, home::HOME_FORMAT_VERSION, home::now_ms()) {
+        return Err(FailedStart {
+            code: if error.is_newer_data() {
+                ExitCode::NewerData
+            } else {
+                ExitCode::Failed
+            },
+            message: error.to_string(),
+        });
+    }
+    let log = Arc::new(Log::open(&data_dir, config.log_level));
+    if let home::State::Fresh {
+        backup,
+        previous_format,
+        release,
+    } = &prepared
+    {
+        // The person's only record of where their history went (`home-backup-log.ts`).
+        let _ = std::fs::write(
+            backup.join("README.txt"),
+            format!(
+                "This is the ace data home that was set aside when ace started fresh (formerly {previous_format}).\nIt is safe to keep for reference or delete.\n"
+            ),
+        );
+        log.log(
+            "info",
+            "Started with a fresh data home; the old data was backed up",
+            serde_json::json!({
+                "backup": backup.display().to_string(),
+                "previousFormat": previous_format,
+                "release": release,
+            }),
+        );
+    }
+    log.log(
+        "info",
+        "Daemon modules loaded",
+        serde_json::json!({
+            "version": config.version,
+            "aceClient": config.ace_client,
+        }),
+    );
+    if config.safe_mode {
+        log.log(
+            "warn",
+            "Daemon starting in safe mode",
+            serde_json::json!({}),
+        );
+    }
+    if config.maintenance {
+        log.log(
+            "info",
+            "Daemon starting in maintenance",
+            serde_json::json!({"maintenance": true}),
+        );
+    }
+    let owner = crate::ids::uuid_v4().ok();
+    let kernel_start = crate::process::kernel_start();
+    let run = match Run::begin(
+        &data_dir,
+        i64::from(std::process::id()),
+        home::now_ms() as f64,
+        owner.as_deref(),
+        kernel_start.as_deref(),
+    ) {
+        Ok(run) => {
+            let (level, message, fields) = run.previous_line();
+            log.log(level, message, fields_value(fields));
+            Some(run)
+        }
+        Err(error) => {
+            log.log(
+                "warn",
+                "Daemon run marker could not be written",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            None
+        }
+    };
+    let began = std::time::Instant::now();
+    let store = match crate::store::open_while_busy(
+        || Store::open(&data_dir),
+        &crate::store::BUSY_DELAYS_MS,
+        |attempt, delay, error| {
+            log.log(
+                "warn",
+                "The event store is busy; opening it again shortly",
+                serde_json::json!({"attempt": attempt, "delayMs": delay, "error": error.to_string()}),
+            );
+        },
+    )
+    .await
+    {
+        Ok(store) => store,
+        Err(error) => {
+            log.log(
+                "error",
+                "Daemon startup failed",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            return Err(if error.incompatible {
+                FailedStart {
+                    code: ExitCode::IncompatibleData,
+                    message: error.message,
+                }
+            } else {
+                FailedStart::failed(error.to_string())
+            });
+        }
+    };
+    log.log(
+        "info",
+        "Event store opened",
+        serde_json::json!({"durationMs": began.elapsed().as_millis()}),
+    );
+    // What the previous run left running, and what cannot be proven either way, before any
+    // service starts (ADR 0186's stop ownership by evidence).
+    let inventory = crate::inventory::Inventory::begin(&data_dir, &log).map_err(|error| {
+        log.log(
+            "error",
+            "Daemon startup failed",
+            serde_json::json!({"error": error}),
+        );
+        FailedStart::failed(error)
+    })?;
+    let tokens = token::load(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
+    let host_id =
+        token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
+    // The hello and authentication T2 owns, opened on the store's own database.
+    let auth = Arc::new(
+        crate::auth::DaemonAuth::open(
+            store.connection(),
+            &tokens.token,
+            &host_id,
+            store.head_seq(),
+        )
+        .map_err(|error| {
+            FailedStart::failed(format!("Cannot open the daemon's devices: {error}"))
+        })?,
+    );
+    // Startup's gate: a hello before it opens is told services are starting, and
+    // `/v1/status` reports it.
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Where a pairing link points: filled once the remote listener binds.
+    let pairing_origin: Arc<std::sync::Mutex<Option<crate::http::PairingOrigin>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let (stop, mut stopped) = mpsc::unbounded_channel::<StopReason>();
+    let home_for_stop = data_dir.clone();
+    let stop_for_http = stop.clone();
+    let accepted: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let accepted_for_http = Arc::clone(&accepted);
+    let log_for_stop = Arc::clone(&log);
+    let http = HttpConfig {
+        version: config.version.clone(),
+        allowed_origins: config.web_origins.clone(),
+        auth: Arc::clone(&auth),
+        ready: Arc::clone(&ready),
+        pairing: Arc::clone(&pairing_origin),
+        on_stop: Arc::new(
+            move |admission: Admission, caller: Vec<crate::peer::Member>| {
+                if !caller.is_empty() {
+                    log_for_stop.log(
+                        "info",
+                        "Stop request caller verified",
+                        serde_json::json!({"processes": caller.len()}),
+                    );
+                }
+                // The receipt is written before the answer leaves, so `ace stop`
+                // never reads a stale one.
+                let _ = crate::receipt::write(
+                    &home_for_stop,
+                    &admission.receipt_id,
+                    State::Pending,
+                    home::now_ms() as f64,
+                    None,
+                    false,
+                );
+                *accepted_for_http
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner()) = Some(admission.receipt_id);
+                let _ = stop_for_http.send(StopReason {
+                    source: "stop-request",
+                    signal: None,
+                });
+            },
+        ),
+    };
+    let plan = match remote_plan(&config).await {
+        Ok(plan) => plan,
+        Err(error) => {
+            // Listening never waits for remote access: a listener that cannot
+            // start is said and the daemon keeps its loopback listener.
+            log.log(
+                "warn",
+                "Remote access is configured but cannot start",
+                serde_json::json!({"error": error}),
+            );
+            None
+        }
+    };
+    let authenticator: Arc<dyn session::Authenticator> = auth.clone();
+    // Test-only shorter timers, so a program test need not wait a minute.
+    let test_ms = |name: &str, default_ms: u64| {
+        crate::testing::var(name)
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(default_ms)
+    };
+    let limits = session::Limits {
+        hello: Duration::from_millis(test_ms("ACE_TEST_HELLO_MS", 5000)),
+        idle: Duration::from_millis(test_ms("ACE_TEST_IDLE_MS", 60_000)),
+    };
+    let transport = match Transport::bind(
+        http,
+        config.port,
+        plan,
+        authenticator,
+        Arc::clone(&ready),
+        limits,
+        Arc::clone(&log),
+    )
+    .await
+    {
+        Ok(transport) => transport,
+        Err(error) => {
+            log.log(
+                "error",
+                "Daemon startup failed",
+                serde_json::json!({"error": error.to_string()}),
+            );
+            return Err(FailedStart {
+                code: if address_in_use(&error) {
+                    ExitCode::AddressInUse
+                } else {
+                    ExitCode::Failed
+                },
+                message: error.to_string(),
+            });
+        }
+    };
+    if let Some(remote) = &transport.remote {
+        let origin = remote.url.replacen("wss://", "https://", 1);
+        *pairing_origin
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(crate::http::PairingOrigin {
+            origin,
+            fingerprint: remote.fingerprint.clone(),
+        });
+    }
+    let endpoint = crate::endpoint::write(&data_dir, &transport.http_url())
+        .map_err(|error| FailedStart::failed(error.to_string()))?;
+    log.log(
+        "info",
+        "Daemon listening",
+        serde_json::json!({"url": transport.url(), "sinceSpawnMs": began.elapsed().as_millis()}),
+    );
+    print_started(&transport, &tokens.path, output);
+    // A test-only hold lets `cold-start` see the progress frame a client gets
+    // while a real daemon's services are still starting.
+    if let Some(hold) =
+        crate::testing::var("ACE_TEST_STARTUP_HOLD_MS").and_then(|value| value.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(hold)).await;
+    }
+    ready.store(true, std::sync::atomic::Ordering::Release);
+    let reason = wait_for_stop(&mut stopped, signals).await;
+    log.log(
+        "info",
+        "Daemon stopping",
+        serde_json::json!({"source": reason.source, "signal": reason.signal}),
+    );
+    // The shutdown is bounded; what it could not finish is named in its receipt.
+    let closing = async {
+        transport.close(Duration::from_secs(1)).await;
+        store.close();
+    };
+    let overran = tokio::time::timeout(SHUTDOWN_DEADLINE, closing)
+        .await
+        .is_err();
+    let admission = accepted
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+    if let Some(admission) = admission {
+        let _ = crate::receipt::write(
+            &data_dir,
+            &admission,
+            if overran {
+                State::Failed
+            } else {
+                State::Succeeded
+            },
+            home::now_ms() as f64,
+            overran.then_some("Daemon cleanup failed or exceeded its deadline"),
+            false,
+        );
+    }
+    if let Some(run) = &run {
+        let overran = if overran {
+            vec!["listeners".to_owned()]
+        } else {
+            Vec::new()
+        };
+        run.stopped(reason.source, reason.signal, &overran);
+    }
+    inventory.close();
+    crate::endpoint::retire(Some(&endpoint));
+    lock.release();
+    Ok(if overran {
+        ExitCode::Failed
+    } else {
+        ExitCode::Ok
+    })
+}

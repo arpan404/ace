@@ -5,6 +5,7 @@
 //! crate directly.
 
 pub mod reads;
+pub mod schema;
 #[allow(unsafe_code)]
 pub mod sqlite;
 pub mod stmt_cache;
