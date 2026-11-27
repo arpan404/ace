@@ -35,13 +35,14 @@ async function open() {
 
 const labels = (ways: { label: string }[]) => ways.map((way) => way.label);
 
-test("each provider offers its sign-in ways and never asks for an API key on the phone", async () => {
+test("each provider offers its browser sign-in ways; keys come only as their own ways", async () => {
   const { ask } = await open();
   const codex = (await ask({ type: "accounts.screen", provider: "codex" })).screen;
   expect(labels(codex.ways)).toEqual(["Sign in with the browser"]);
   expect(labels(codex.reauth)).toEqual(["Sign in again"]);
-  // Codex takes keys, but only through ace on the computer (ADR 0002's provider_auth channel).
-  expect(codex.apiKey).toMatch(/^Add an API key in ace on .+\.$/);
+  // Codex takes keys: off the relay, the page says where they go instead of offering one.
+  expect(codex.keyWays).toEqual([]);
+  expect(codex.apiKey).toMatch(/only through ace's relay/);
   const claude = (await ask({ type: "accounts.screen", provider: "claude" })).screen;
   expect(labels(claude.ways)).toEqual(["Sign in with the browser"]);
   expect(claude.apiKey).toBeNull();
