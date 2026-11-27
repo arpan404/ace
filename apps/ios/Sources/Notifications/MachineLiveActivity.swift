@@ -90,18 +90,39 @@ enum MachineSlots {
     }
 }
 
-/// The phone's Live Activity tokens: the app's push-to-start token and each slot's activity
-/// update token, with the activity it belongs to, so the end of an older activity in a slot
-/// never drops a newer one's token.
+/// The phone's Live Activity tokens: the app's push-to-start token, and the update token of
+/// each slot's one activity. Tokens belong to an activity, never to a slot: a second activity in a
+/// slot (a push-to-start racing the app's own start) is refused, and an activity once retired
+/// (ended, dismissed, refused, or its slot given to another machine) can't send one again.
 struct LiveActivityTokens: Equatable, Sendable {
-    struct Held: Equatable, Sendable { let activity: String; let token: String }
     var start: String?
-    private(set) var bySlot: [Int: Held] = [:]
+    /// Each slot's one activity, by id.
+    private(set) var owner: [Int: String] = [:]
+    private var tokens: [String: String] = [:]
+    private var retired: Set<String> = []
 
-    mutating func received(_ token: String, slot: Int, activity: String) { bySlot[slot] = Held(activity: activity, token: token) }
-    /// The activity ended or was dismissed: its token goes on the next sync.
-    mutating func ended(activity: String) { bySlot = bySlot.filter { $0.value.activity != activity } }
-    func activityToken(slot: Int) -> String? { bySlot[slot]?.token }
+    /// `activity` holds `slot` unless another one already does; false: it is a duplicate to end.
+    mutating func adopt(_ activity: String, slot: Int) -> Bool {
+        guard !retired.contains(activity) else { return false }
+        if let held = owner[slot], held != activity { return false }
+        owner[slot] = activity
+        return true
+    }
+    /// A token from an activity that holds a slot; anything else's is dropped.
+    mutating func received(_ token: String, activity: String) {
+        guard !retired.contains(activity), owner.values.contains(activity) else { return }
+        tokens[activity] = token
+    }
+    /// The activity ended, was dismissed or refused: its token goes on the next sync, for good.
+    mutating func retire(activity: String) {
+        retired.insert(activity)
+        tokens.removeValue(forKey: activity)
+        owner = owner.filter { $0.value != activity }
+    }
+    mutating func retire(slot: Int) {
+        if let activity = owner[slot] { retire(activity: activity) }
+    }
+    func activityToken(slot: Int) -> String? { owner[slot].flatMap { tokens[$0] } }
 
     /// `liveActivity` for one machine's `notifications.sync`; nil while Live Activities are off in
     /// ace or in iOS Settings, or the machine has no slot, so the machine drops both tokens.
@@ -151,7 +172,8 @@ struct ShownActivity: Equatable, Sendable {
     var frequentUpdates: Bool { authorization.frequentPushesEnabled }
     private(set) var tokens = LiveActivityTokens() { didSet { if tokens != oldValue { onChange?() } } }
     var onChange: (@MainActor () -> Void)?
-    private var watching: Set<String> = []
+    /// Each held activity's token and state tasks, cancelled once it is retired.
+    private var watching: [String: [Task<Void, Never>]] = [:]
 
     init() {
         Self.endEarlierActivities()
@@ -183,7 +205,12 @@ struct ShownActivity: Equatable, Sendable {
     var running: Set<Int> {
         Set(Activity<MachineActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }.map(\.attributes.slot))
     }
-    func shown(_ slot: Int) -> ShownActivity? { live(slot).first.map { ShownActivity(id: $0.id, state: $0.content.state) } }
+    /// The slot's own activity (the one holding it), never a duplicate on its way out.
+    func shown(_ slot: Int) -> ShownActivity? {
+        let all = live(slot)
+        let held = all.first { $0.id == tokens.owner[slot] } ?? all.first
+        return held.map { ShownActivity(id: $0.id, state: $0.content.state) }
+    }
     private func activity(_ id: String) -> Activity<MachineActivityAttributes>? {
         Activity<MachineActivityAttributes>.activities.first { $0.id == id && ($0.activityState == .active || $0.activityState == .stale) }
     }
@@ -209,21 +236,36 @@ struct ShownActivity: Equatable, Sendable {
         await target.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .after(dismissAt))
     }
 
-    /// Follows one activity's update token, and drops it once the activity ends or is dismissed.
+    /// Takes an activity into its slot and follows its update token until it ends or is
+    /// dismissed. A second one in a slot that is still held ends at once, its token unused.
     private func watch(_ activity: Activity<MachineActivityAttributes>) {
-        guard watching.insert(activity.id).inserted else { return }
-        nonisolated(unsafe) let target = activity
         let slot = activity.attributes.slot, id = activity.id
-        Task { [weak self] in
-            for await data in target.pushTokenUpdates { self?.tokens.received(Self.hex(data), slot: slot, activity: id) }
+        guard watching[id] == nil else { return }
+        nonisolated(unsafe) let target = activity
+        // A holder that ended unseen (between launches) gives way.
+        if let held = tokens.owner[slot], held != id, self.activity(held) == nil { retire(held) }
+        guard tokens.adopt(id, slot: slot) else {
+            tokens.retire(activity: id)
+            Task { await target.end(nil, dismissalPolicy: .immediate) }
+            return
         }
-        Task { [weak self] in
+        let token = Task { [weak self] in
+            for await data in target.pushTokenUpdates {
+                guard !Task.isCancelled else { return }
+                self?.tokens.received(Self.hex(data), activity: id)
+            }
+        }
+        let state = Task { [weak self] in
             for await state in target.activityStateUpdates where state == .ended || state == .dismissed {
-                self?.tokens.ended(activity: id)
-                self?.watching.remove(id)
+                self?.retire(id)
                 return
             }
         }
+        watching[id] = [token, state]
+    }
+    private func retire(_ id: String) {
+        tokens.retire(activity: id)
+        watching.removeValue(forKey: id)?.forEach { $0.cancel() }
     }
     private nonisolated static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 

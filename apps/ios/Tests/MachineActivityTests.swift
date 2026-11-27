@@ -145,18 +145,33 @@ import Testing
         #expect(MachineSlots.assign("new", kept: full, attached: Set(full.keys))["new"] == nil)
     }
 
-    @Test func anEndedActivityTakesOnlyItsOwnTokenAndTurningLiveActivitiesOffDropsTheSyncField() throws {
+    @Test func aDuplicateActivityInASlotNeverReplacesTheHoldersToken() {
+        var tokens = LiveActivityTokens()
+        #expect(tokens.adopt("local", slot: 0))
+        tokens.received("aa", activity: "local")
+        // A push-to-start lands in the same slot: refused, and its token never counts.
+        #expect(!tokens.adopt("pushed", slot: 0))
+        tokens.received("bb", activity: "pushed")
+        tokens.retire(activity: "pushed")
+        #expect(tokens.activityToken(slot: 0) == "aa")
+        // The holder ends; a late token from it changes nothing, and the next one takes the slot.
+        tokens.retire(activity: "local")
+        tokens.received("late", activity: "local")
+        #expect(tokens.activityToken(slot: 0) == nil)
+        #expect(!tokens.adopt("local", slot: 0))
+        #expect(tokens.adopt("next", slot: 0))
+        tokens.received("cc", activity: "next")
+        #expect(tokens.activityToken(slot: 0) == "cc")
+    }
+
+    @Test func turningLiveActivitiesOffDropsTheSyncField() throws {
         var tokens = LiveActivityTokens()
         tokens.start = "ef"
-        tokens.received("aa", slot: 0, activity: "old")
-        tokens.received("bb", slot: 0, activity: "new")
-        tokens.ended(activity: "old")
-        #expect(tokens.activityToken(slot: 0) == "bb")
+        _ = tokens.adopt("a", slot: 0)
+        tokens.received("bb", activity: "a")
         let field = try #require(tokens.sync(on: true, slot: 0, environment: .sandbox, frequentUpdates: false))
         #expect(field["startToken"] as? String == "ef" && field["activityToken"] as? String == "bb")
         #expect(field["slot"] as? Int == 0 && field["environment"] as? String == "sandbox" && field["frequentUpdates"] as? Bool == false)
-        tokens.ended(activity: "new")
-        #expect(tokens.sync(on: true, slot: 0, environment: .sandbox, frequentUpdates: true)?["activityToken"] == nil)
         // Off in ace or in iOS Settings, or no slot: no `liveActivity` at all.
         #expect(tokens.sync(on: false, slot: 0, environment: .sandbox, frequentUpdates: true) == nil)
         #expect(tokens.sync(on: true, slot: nil, environment: .sandbox, frequentUpdates: true) == nil)
