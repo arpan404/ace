@@ -57,9 +57,18 @@ extension ClientModel {
         browser.setShowingBrowser(false)
         browser.leaveBrowser()
     }
-    /// The app went to the background from the Browser: its sound stops unless the page floats.
-    func browserBackground() {
-        guard browser.threadId != nil, !browser.pipActive, !browser.pipArmed else { return }
+    /// How long leaving the app waits for AVKit to float the page before its sound stops.
+    static let pipStartWindow: Duration = .seconds(3)
+    /// The app went to the background from the Browser: the page's sound keeps playing only while
+    /// it floats. A float that may still start (another app may hold picture-in-picture) gets
+    /// `pipStartWindow`; if none is on screen by then, the sound stops here and in the pane report.
+    func browserBackground(sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) async {
+        guard browser.threadId != nil, browser.soundHere, !browser.pipActive else { return }
+        if browser.pipArmed || browser.pipFloating {
+            let subscription = browser.subscription
+            do { try await sleep(Self.pipStartWindow) } catch { return }
+            guard browser.subscription == subscription, !browser.pipActive else { return }
+        }
         browserSound(false)
     }
     private func browserPipCommand(_ command: PipLifecycle.Command) {

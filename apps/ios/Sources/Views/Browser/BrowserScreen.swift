@@ -124,7 +124,7 @@ struct BrowserScreen: View {
         } message: { Text(browser.problem?.message ?? "") }
         .onChange(of: scenePhase, initial: true) { _, phase in
             browser.setVisible(phase == .active)
-            if phase == .background { model.browserBackground() }
+            if phase == .background { Task { await model.browserBackground() } }
             // Back in front, a device tab takes this machine's ports again; in the background
             // they go, with their connections. Inactive (Control Centre over the app) keeps them.
             if phase == .active { model.frontDeviceTab() } else if phase == .background { model.hideDeviceTabs() }
