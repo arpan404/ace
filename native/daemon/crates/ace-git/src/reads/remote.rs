@@ -222,11 +222,11 @@ fn file_url_path(value: &str) -> String {
         .get(7..)
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
         .unwrap_or("");
+    let rest = strip_url_query_fragment(rest);
     let (authority, path) = match rest.find('/') {
         Some(index) => (&rest[..index], &rest[index..]),
-        None => (rest, ""),
+        None => (rest, "/"),
     };
-    let path = strip_url_query_fragment(path);
     let path = percent_decode(path).unwrap_or_else(|| path.to_owned());
     if path.len() >= 3 && is_drive(&path[1..]) {
         return path[1..].to_owned();
@@ -258,7 +258,7 @@ fn percent_decode(text: &str) -> Option<String> {
 
 /// One key for every spelling of the same repository.
 pub fn normalize_remote_url(url: &str, base: &str) -> String {
-    let value = url.trim();
+    let value = crate::core::reviewer::ecma_trim(url);
     if starts_with_ignore_ascii_case(value, "file://") {
         return local_path(&file_url_path(value), base);
     }
@@ -572,16 +572,18 @@ mod tests {
 
     #[test]
     fn a_local_remote_naming_an_emoji_keys_its_path_and_file_urls_drop_a_query_and_fragment() {
-        // A relative path whose first seven bytes end inside the emoji: byte slicing would panic.
+        // A relative path whose byte 7 falls inside the 4-byte emoji (not a char boundary):
+        // byte slicing `file://` without char-safe indexing would panic.
         assert_eq!(
-            normalize_remote_url("../\u{1F600}-repo", "/repos/base"),
-            "/repos/\u{1F600}-repo"
+            normalize_remote_url("../x\u{1F600}-repo", "/repos/base"),
+            "/repos/x\u{1F600}-repo"
         );
         assert_eq!(
-            normalize_remote_url("\u{1F600}-repo.git", "/repos"),
-            "/repos/\u{1F600}-repo.git"
+            normalize_remote_url("xxx\u{1F600}-repo.git", "/repos"),
+            "/repos/xxx\u{1F600}-repo.git"
         );
-        // `new URL` reads the pathname alone: a query and a fragment are not path bytes.
+        // `new URL` reads the pathname alone: a query and a fragment are stripped before
+        // splitting authority, and host-only file URLs keep `/`.
         assert_eq!(
             normalize_remote_url("file:///tmp/repo?x=1#frag", "/"),
             "/tmp/repo"
@@ -593,6 +595,29 @@ mod tests {
         assert_eq!(
             normalize_remote_url("file:///srv/app%20name.git?depth=1", "/"),
             "/srv/app name.git"
+        );
+        assert_eq!(
+            normalize_remote_url("file://localhost?x=/tmp", "/repos"),
+            "/"
+        );
+        assert_eq!(
+            normalize_remote_url("file://localhost#frag/x", "/repos"),
+            "/"
+        );
+        assert_eq!(normalize_remote_url("file://localhost", "/repos"), "/");
+        assert_eq!(normalize_remote_url("file://server", "/repos"), "/server");
+        assert_eq!(
+            normalize_remote_url("file://server?x=/tmp", "/repos"),
+            "/server"
+        );
+        // ECMAScript trim: U+FEFF is trimmed; U+0085 is not.
+        assert_eq!(
+            normalize_remote_url("\u{FEFF}https://github.com/o/r.git\u{FEFF}", "/"),
+            "github.com/o/r"
+        );
+        assert_eq!(
+            normalize_remote_url("\u{0085}repo.git", "/repos"),
+            "/repos/\u{0085}repo.git"
         );
     }
 

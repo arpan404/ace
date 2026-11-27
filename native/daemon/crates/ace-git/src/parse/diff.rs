@@ -82,8 +82,8 @@ pub fn parse_diff(bytes: &[u8]) -> Result<Vec<DiffFile>, GitError> {
         if !mode_schema(old_mode) || !mode_schema(new_mode) {
             return Err(malformed("raw diff"));
         }
-        hash(old_sha)?;
-        hash(new_sha)?;
+        hash(old_sha).map_err(|_| malformed("raw diff"))?;
+        hash(new_sha).map_err(|_| malformed("raw diff"))?;
         let status = diff_status(code)?;
         let first_path = path_schema(records.next()?).ok_or_else(|| malformed("diff path"))?;
         let renamed = status == "R" || status == "C";
@@ -207,8 +207,12 @@ mod tests {
             }
             let error = parse_diff(&output).expect_err("malformed");
             assert_eq!(error.code, GitErrorCode::MalformedOutput, "{record}");
-            if record.contains("M50") || record.contains(" Ax") {
-                assert_eq!(error.message, "Malformed Git raw diff");
+            if record.contains("M50")
+                || record.contains(" Ax")
+                || record.contains(" Z\0")
+                || record.contains(" abc ")
+            {
+                assert_eq!(error.message, "Malformed Git raw diff", "{record}");
             }
         }
     }
