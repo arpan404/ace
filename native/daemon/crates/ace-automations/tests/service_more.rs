@@ -320,6 +320,17 @@ fn a_file_retry_persists_the_new_failure_and_only_a_success_clears_it() {
         Some("Project folder unavailable")
     );
     assert!(service.retry("triage", None).is_err());
+    assert_eq!(
+        h.store
+            .metadata("triage")
+            .expect("meta")
+            .expect("job")
+            .trigger_error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("Project folder unavailable"),
+        "the failed retry keeps the recorded health"
+    );
     h.workspace.fail.set(false);
     service.retry("triage", None).expect("healed");
     assert!(
@@ -328,9 +339,19 @@ fn a_file_retry_persists_the_new_failure_and_only_a_success_clears_it() {
             .expect("meta")
             .expect("job")
             .trigger_error
-            .is_none()
+            .is_some(),
+        "a subscription is not healthy until it reports readiness"
     );
     let revision = service.watch_revision("triage").expect("revision");
+    service.watch_ready("triage", revision).expect("ready");
+    assert!(
+        h.store
+            .metadata("triage")
+            .expect("meta")
+            .expect("job")
+            .trigger_error
+            .is_none()
+    );
     service
         .receive_file_event("triage", revision, "after-retry", variables("src/main.ts"))
         .expect("event");
@@ -654,5 +675,81 @@ fn a_held_occurrence_fires_once_its_window_passes_without_a_wakeup() {
     assert!(
         service.tick().expect("tick").is_none(),
         "the occurrence fires once"
+    );
+}
+
+#[test]
+fn a_schedule_retry_clears_health_and_rearms_the_timer_for_its_new_deadline() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&scheduled("skip", 0), None).expect("scheduled");
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("UPDATE automation_state SET state='not json' WHERE id='triage'")
+        .expect("corrupt");
+    raw.close().expect("close");
+    service.stop();
+    service.start().expect("start");
+    assert!(service.armed_delay().is_none());
+    assert!(
+        h.store
+            .metadata("triage")
+            .expect("meta")
+            .expect("job")
+            .trigger_error
+            .is_some()
+    );
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec(&format!(
+        "UPDATE automation_state SET state='{{\"at\":{START},\"ordinal\":1}}' WHERE id='triage'"
+    ))
+    .expect("restore");
+    raw.close().expect("close");
+    h.clock.0.set(START + 3 * 3_600_000);
+    service.retry("triage", None).expect("retry");
+    assert_eq!(service.armed_delay().expect("delay"), 60_000);
+    let job = h.store.metadata("triage").expect("meta").expect("job");
+    assert_eq!(job.due, Some(START + DAY));
+    assert!(job.trigger_error.is_none());
+}
+
+#[test]
+fn a_github_retry_moves_the_deadline_and_rearms_the_timer() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let mut github = definition();
+    github.trigger = Trigger::Github {
+        repository: "user/project".to_owned(),
+        event: "pr_changed".to_owned(),
+        label: None,
+        pull_request: None,
+        poll_interval_ms: 60_000,
+    };
+    service.put(&github, None).expect("put");
+    assert!(service.tick().expect("tick").is_none());
+    assert_eq!(service.armed_delay().expect("delay"), 60_000);
+    h.clock.0.set(START - 60_000 + 1000);
+    service.retry("triage", None).expect("retry");
+    assert_eq!(service.armed_delay().expect("delay"), 0);
+    assert_eq!(
+        h.store
+            .metadata("triage")
+            .expect("meta")
+            .and_then(|job| job.due),
+        Some(START - 60_000 + 1000)
     );
 }

@@ -1338,7 +1338,8 @@ impl<'a> Service<'a> {
                         return Err(error);
                     }
                 }
-                self.store.clear_trigger_error(id)?;
+                // Health clears when this subscription reports readiness, never on subscribe
+                // success alone.
             }
             Trigger::Schedule { schedule } => {
                 let recurrence = crate::recurrence::Recurrence::compile(schedule.clone())?;
@@ -1368,6 +1369,8 @@ impl<'a> Service<'a> {
             }
             Trigger::Manual | Trigger::Webhook => {}
         }
+        // A retry that moves a deadline re-arms the one timer for it.
+        self.arm();
         Ok(())
     }
 
