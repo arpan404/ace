@@ -366,10 +366,13 @@ dependencies = [
  "base64",
  "chacha20poly1305",
  "data-encoding",
+ "flate2",
  "hmac",
  "sha2 0.11.1",
  "tempfile",
  "thiserror",
+ "tungstenite",
+ "url",
  "x25519-dalek",
  "zeroize",
 ]
@@ -691,6 +694,7 @@ dependencies = [
  "cipher",
  "cpufeatures 0.3.1",
  "rand_core 0.10.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -703,6 +707,7 @@ dependencies = [
  "chacha20",
  "cipher",
  "poly1305",
+ "zeroize",
 ]
 
 [[package]]
@@ -3915,6 +3920,9 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.10.4",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "sha1",
  "thiserror",
 ]

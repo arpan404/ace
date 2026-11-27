@@ -247,3 +247,42 @@ fn a_vanished_session_does_not_keep_the_daemons_bytes() {
     assert_eq!(admission.held().bytes, 0);
     assert_eq!(admission.held().sessions, 0);
 }
+
+#[test]
+fn a_confirmation_that_lands_first_is_not_closed_by_its_deadline() {
+    let (clock, admission) = admission(NK_LIMITS);
+    let expired = Arc::new(Mutex::new(0));
+    let late = Arc::clone(&expired);
+    let session = admission
+        .admit("phone", move || *late.lock().unwrap() += 1)
+        .unwrap();
+    assert!(session.confirm());
+    clock.advance(5_000);
+    assert!(!session.closed(), "a confirmed session keeps its channel");
+    assert_eq!(
+        *expired.lock().unwrap(),
+        0,
+        "the deadline's effect never ran"
+    );
+    // And the confirmation is idempotent, not a second transition.
+    assert!(session.confirm());
+}
+
+#[test]
+fn a_session_its_deadline_ended_can_no_longer_confirm() {
+    let (clock, admission) = admission(NK_LIMITS);
+    let expired = Arc::new(Mutex::new(0));
+    let late = Arc::clone(&expired);
+    let session = admission
+        .admit("phone", move || *late.lock().unwrap() += 1)
+        .unwrap();
+    clock.advance(5_000);
+    assert_eq!(*expired.lock().unwrap(), 1, "the deadline closed it");
+    assert!(
+        !session.confirm(),
+        "the deadline won, so no device effect may run"
+    );
+    assert!(session.closed());
+    assert!(!session.confirm(), "the session cannot be revived");
+    assert_eq!(*expired.lock().unwrap(), 1);
+}

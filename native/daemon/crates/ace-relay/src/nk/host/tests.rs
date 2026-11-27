@@ -368,3 +368,71 @@ fn a_confirmation_after_the_deadline_ran_does_not_run_the_device_effects() {
             .is_none()
     );
 }
+
+#[test]
+fn unreadable_first_message_bytes_are_refused_and_wiped() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    // Not UTF-8 at all: the refusal comes before any parse, and the buffer still holds what a
+    // client's first message can hold.
+    let mut payload = zeroize::Zeroizing::new(vec![0xff, 0xfe, 0x00, b'g']);
+    assert!(
+        host.admit_bytes(&mut payload, &ephemeral(1), || {})
+            .is_none()
+    );
+    assert!(
+        payload.iter().all(|byte| *byte == 0),
+        "the plaintext is wiped on the invalid-UTF-8 path"
+    );
+}
+
+#[test]
+fn an_admission_keeps_neither_the_ticket_nor_the_grant_it_checked() {
+    let mut f = setup();
+    let paired = {
+        let code = f
+            .auth
+            .pairing(&[Scope::Read], &Default::default())
+            .unwrap()
+            .code;
+        f.auth.redeem(&code, "Phone", None, None).unwrap()
+    };
+    let device = f.auth.device_bearer(&paired.token).unwrap();
+    let ticket = f.auth.ticket(&device, "relay-key").unwrap().ticket;
+    let payload = ace_json::parse(&format!(
+        "{{\"type\":\"hello.early\",\"protocolVersion\":1,\"deviceId\":\"{}\",\
+         \"ticket\":\"{ticket}\"}}",
+        paired.device.id
+    ))
+    .unwrap();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: None,
+    };
+    let accepted = host
+        .admit(&payload, &ephemeral(1), || {})
+        .expect("the ticket is spent and the device admitted");
+    assert!(accepted.early.ticket.is_none(), "the spent ticket is gone");
+    assert!(accepted.early.grant.is_none());
+
+    drop(accepted);
+
+    // The grant path clears it too; the account id is what the channel's check keeps.
+    let mut account_host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let accepted = account_host
+        .admit(&early("phone"), &ephemeral(2), || {})
+        .expect("an admission");
+    assert!(accepted.early.grant.is_none(), "the checked grant is gone");
+}

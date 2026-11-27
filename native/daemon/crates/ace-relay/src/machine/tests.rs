@@ -6,8 +6,9 @@
 use ace_json::Value;
 
 use super::{
-    Admission, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots, URGENT, WAITING, answer,
-    hosted_relay_carries, incoming, refusal, transfer_chunk, welcome,
+    Admission, HOSTED_RELAY_REFUSAL, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots,
+    TRANSFER_PIECE_BASE64, URGENT, WAITING, answer, hosted_relay_answer, hosted_relay_carries,
+    incoming, refusal, transfer_chunk, welcome,
 };
 
 fn json(text: &str) -> Value {
@@ -109,14 +110,14 @@ fn a_finished_work_slot_goes_straight_to_the_next_waiting_call() {
     }
     assert_eq!(slots.arrive(50, false), Admission::Wait);
     assert_eq!(slots.arrive(51, false), Admission::Wait);
-    assert_eq!(slots.finish(false), Some(50));
-    assert_eq!(slots.finish(false), Some(51));
-    assert_eq!(slots.finish(false), None);
+    assert_eq!(slots.finish(1, false), Some(50));
+    assert_eq!(slots.finish(50, false), Some(51));
+    assert_eq!(slots.finish(51, false), None);
     assert_eq!(slots.running(), PARALLEL - 1);
     assert_eq!(slots.waiting(), 0);
     // Urgent slots never hand on to the work line.
     slots.arrive(60, true);
-    assert_eq!(slots.finish(true), None);
+    assert_eq!(slots.finish(60, true), None);
     assert_eq!(slots.urgent(), 0);
 }
 
@@ -203,6 +204,50 @@ fn the_hosted_relay_carries_control_and_final_payloads_and_bulk_within_eight_mib
 #[test]
 fn a_transfer_chunk_s_base64_decodes_for_the_target() {
     assert_eq!(transfer_chunk("aGVsbG8="), Some(b"hello".to_vec()));
-    assert_eq!(transfer_chunk(""), Some(Vec::new()));
+    // The schema's data is `^[A-Za-z0-9+/]*={0,2}$`: padding is not required, and `Buffer.from`
+    // reads it either way.
+    assert_eq!(transfer_chunk("aGVsbG8"), Some(b"hello".to_vec()));
+    // `.min(1)`, and one piece at most.
+    assert_eq!(transfer_chunk(""), None);
     assert_eq!(transfer_chunk("!!!"), None);
+    assert!(transfer_chunk(&"A".repeat(TRANSFER_PIECE_BASE64)).is_some());
+    assert_eq!(transfer_chunk(&"A".repeat(TRANSFER_PIECE_BASE64 + 4)), None);
+}
+
+#[test]
+fn a_cancel_names_the_exact_call_in_either_lane() {
+    let mut slots = Slots::new();
+    assert_eq!(slots.arrive(1, false), Admission::Run { urgent: false });
+    assert_eq!(slots.arrive(2, true), Admission::Run { urgent: true });
+    assert!(slots.cancel(2), "a running urgent call aborts");
+    assert!(
+        !slots.cancel(3),
+        "an id that is not running is not cancellable because others are"
+    );
+    assert!(slots.cancel(1), "a running work call aborts");
+
+    let mut slots = Slots::new();
+    for id in 10..10 + PARALLEL as u64 {
+        slots.arrive(id, false);
+    }
+    assert_eq!(slots.arrive(99, false), Admission::Wait);
+    assert!(slots.cancel(99), "a waiting call leaves the line");
+    assert_eq!(slots.waiting(), 0);
+}
+
+#[test]
+fn a_transfer_ace_s_relay_will_not_carry_is_answered_finally() {
+    let answer = hosted_relay_answer(7);
+    assert_eq!(answer.get("id").and_then(Value::as_u64), Some(7));
+    assert_eq!(answer.get("status").and_then(Value::as_u64), Some(501));
+    let body = answer.get("body").unwrap();
+    assert_eq!(
+        body.get("error").and_then(Value::as_str),
+        Some("not_supported")
+    );
+    assert_eq!(
+        body.get("message").and_then(Value::as_str),
+        Some(HOSTED_RELAY_REFUSAL)
+    );
+    assert_eq!(body.get("final"), Some(&Value::Bool(true)));
 }

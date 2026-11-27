@@ -245,3 +245,35 @@ fn files_routing_and_support_exports_follow_the_typescript_conditions() {
         Ok(())
     );
 }
+
+#[test]
+fn an_account_channels_authority_is_its_admission_check_on_every_request() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::AccountChannels;
+
+    let live = Arc::new(AtomicBool::new(true));
+    let mut channels: AccountChannels<u64> = AccountChannels::new();
+    let check = Arc::clone(&live);
+    channels.watch(7, Box::new(move || check.load(Ordering::SeqCst)));
+    // An account device holds admin for as long as it stays admitted, whatever scope is asked.
+    assert_eq!(channels.authorizes(&7), Some(true));
+    assert!(channels.lapsed().is_empty());
+    // The account changes (a revocation, a lapsed grant, a left organization).
+    live.store(false, Ordering::SeqCst);
+    assert_eq!(
+        channels.authorizes(&7),
+        Some(false),
+        "later traffic is refused by the same check"
+    );
+    assert_eq!(
+        channels.lapsed(),
+        vec![7],
+        "the established channel is named for closing"
+    );
+    // A paired device's channel has no check and falls back to its stored scopes.
+    assert_eq!(channels.authorizes(&8), None);
+    channels.forget(&7);
+    assert!(channels.is_empty());
+}

@@ -96,6 +96,10 @@ merged.
 7. **HTTP and relay.**
    - Adds: T5's routes and T6's relay.
    - Needs: slice 1.
+   - Blocked: the relay's file (attachment) credit channel. `native/files` exposes only `files-safe`
+     and `files-io` today, with no attachment or credit API, so the Rust relay has no owner to
+     hand an attachment to; it stays unbuilt until those crates expose one (no seam is invented in
+     the meantime). Everything else in T6 proceeds without it.
 8. **Default on.** ADR 0226's amended gate: every server and process file passes against
    `ace-daemon-bin` on macOS, Linux and the Windows VM, the cross-mode runs pass both ways,
    `bench:daemon` is no worse, and §8's rollback runs pass.

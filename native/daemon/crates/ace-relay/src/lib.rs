@@ -8,6 +8,7 @@
 
 pub mod channel;
 pub mod cipher;
+pub mod codec;
 pub mod error;
 pub mod host;
 pub mod http;
@@ -19,12 +20,22 @@ pub mod socket;
 pub mod wire;
 
 pub use channel::{
-    ATTACHMENT_BACKPRESSURE, Attachment, CHUNK_BUDGET, CONTROL_BACKPRESSURE, CONTROL_BUDGET,
-    ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input, chunk_room,
-    control_room, files_routes_to_scoped, support_local_only,
+    ATTACHMENT_BACKPRESSURE, AccountChannels, Attachment, CHUNK_BUDGET, CONTROL_BACKPRESSURE,
+    CONTROL_BUDGET, ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input,
+    chunk_room, control_room, files_routes_to_scoped, support_local_only,
 };
 pub use cipher::{CipherState, Snapshot};
+pub use codec::flow::{
+    CREDIT_FLAG, FLOW_WINDOW, FlowCredit, credit_fragment, fragment_cost, read_credit,
+};
+pub use codec::{
+    Assembler, BINARY_MESSAGE_LIMIT, CHUNK, Codec, DEFLATE_THRESHOLD, Kind, LOGICAL_MESSAGE_LIMIT,
+    Message, PLAIN_HIGH_WATER, REKEY_INTERVAL, Received,
+};
 pub use error::RelayError;
+pub use host::connect::{HostConnect, HostRelay, LinkChannel, NkAcceptor, connect_host};
+pub use host::frame_io::FrameIo;
+pub use host::link::{Link, Timeouts, relay_address};
 pub use host::{
     Backoff, ClientSlots, ControlMessage, FirstMessage, HTTP_FEATURE, HostOptions, HttpAnswer,
     MEDIA_FEATURE, Registration, RegistrationWait, RejectReason, Reservation, authorize_first,
@@ -32,7 +43,8 @@ pub use host::{
 };
 pub use http::{HOOKS_PATH, RelayHttpTarget, relay_http_enabled, relay_http_target};
 pub use machine::{
-    Admission, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots, URGENT, WAITING, answer,
+    Admission, HOSTED_RELAY_REFUSAL, HOSTED_RELAY_TRANSFER_BYTES, Incoming, PARALLEL, Slots,
+    TRANSFER_PIECE_BASE64, TRANSFER_PIECE_BYTES, URGENT, WAITING, answer, hosted_relay_answer,
     hosted_relay_carries, incoming, refusal, transfer_chunk, welcome,
 };
 pub use nk::admission::{
@@ -51,8 +63,8 @@ pub use nk::host::{
     AccountAdmission, NkAccepted, NkAccount, NkHost, account_device_actor, main_actor,
 };
 pub use noise::{
-    Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx,
-    SessionKeys, XX_PROTOCOL, fingerprint, host_id,
+    KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, NoiseNk, NoiseXx, SessionKeys,
+    XX_PROTOCOL, fingerprint, host_id,
 };
 pub use route::{RelayPairingRoute, RelayRoute, relay_pairing, relay_route};
 pub use socket::{

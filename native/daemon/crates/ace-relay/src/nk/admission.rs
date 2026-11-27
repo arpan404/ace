@@ -299,11 +299,10 @@ impl NkAdmission {
                     return;
                 };
                 let session = NkSession { inner };
-                if session.settled() {
-                    return;
+                // One step: a confirmation that landed first wins, and the channel keeps.
+                if session.expire() {
+                    expire();
                 }
-                session.close();
-                expire();
             }),
         );
         session.store_cancel(cancel);

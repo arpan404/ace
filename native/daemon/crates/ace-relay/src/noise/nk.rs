@@ -6,8 +6,7 @@
 use zeroize::Zeroizing;
 
 use super::{
-    Ephemeral, KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, SessionKeys, Symmetric,
-    split,
+    KeyPair, MAX_MESSAGE, NK_FIRST_MESSAGE_MINIMUM, NK_PROTOCOL, SessionKeys, Symmetric, split,
 };
 use crate::error::RelayError;
 
@@ -29,7 +28,7 @@ pub struct NoiseNk {
 impl NoiseNk {
     /// The client: the responder's static key is known before the handshake, so it binds both
     /// ends' hashes with it.
-    pub fn initiator(remote_static: &[u8; 32], ephemeral: Ephemeral, prologue: &[u8]) -> Self {
+    pub fn initiator(remote_static: &[u8; 32], ephemeral: KeyPair, prologue: &[u8]) -> Self {
         let mut sym = Symmetric::new(NK_PROTOCOL, prologue);
         sym.mix_hash(remote_static);
         Self {
@@ -38,7 +37,7 @@ impl NoiseNk {
             failed: false,
             sym,
             static_key: None,
-            ephemeral: Some(ephemeral.key()),
+            ephemeral: Some(ephemeral),
             remote_ephemeral: None,
             remote_static: Some(*remote_static),
             transport: None,
@@ -47,7 +46,7 @@ impl NoiseNk {
     }
 
     /// The daemon: its static key is the one the client pinned.
-    pub fn responder(static_key: KeyPair, ephemeral: Ephemeral, prologue: &[u8]) -> Self {
+    pub fn responder(static_key: KeyPair, ephemeral: KeyPair, prologue: &[u8]) -> Self {
         let mut sym = Symmetric::new(NK_PROTOCOL, prologue);
         sym.mix_hash(&static_key.public);
         Self {
@@ -56,7 +55,7 @@ impl NoiseNk {
             failed: false,
             sym,
             static_key: Some(static_key),
-            ephemeral: Some(ephemeral.key()),
+            ephemeral: Some(ephemeral),
             remote_ephemeral: None,
             remote_static: None,
             transport: None,
@@ -104,19 +103,26 @@ impl NoiseNk {
 
     fn write(&mut self, payload: &[u8]) -> Result<Vec<u8>, RelayError> {
         let public = self.own_ephemeral()?.public;
-        let private = self.own_ephemeral()?.private().to_owned();
         self.sym.mix_hash(&public);
         if self.step == 0 {
             // The initiator's first message: DH(own ephemeral, the responder's static key).
             let remote = self
                 .remote_static
                 .ok_or(RelayError::Noise("Missing remote key"))?;
-            self.sym.mix_key(&private, &remote)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &remote)?;
         } else {
             let remote = self
                 .remote_ephemeral
                 .ok_or(RelayError::Noise("Missing remote key"))?;
-            self.sym.mix_key(&private, &remote)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &remote)?;
         }
         let mut message = Vec::with_capacity(32 + payload.len() + 16);
         message.extend_from_slice(&public);
@@ -162,16 +168,18 @@ impl NoiseNk {
         self.sym.mix_hash(&remote);
         if self.step == 0 {
             // The responder: DH(own static, e).
-            let static_private = self
+            let static_key = self
                 .static_key
                 .as_ref()
-                .map(|static_key| static_key.private().to_owned())
                 .ok_or(RelayError::Noise("Missing static key"))?;
-            self.sym.mix_key(&static_private, &remote)?;
+            self.sym.mix_key(static_key, &remote)?;
         } else {
             // The initiator: DH(own ephemeral, re).
-            let ephemeral = self.own_ephemeral()?.private().to_owned();
-            self.sym.mix_key(&ephemeral, &remote)?;
+            let ephemeral = self
+                .ephemeral
+                .as_ref()
+                .ok_or(RelayError::Noise("Missing ephemeral key"))?;
+            self.sym.mix_key(ephemeral, &remote)?;
         }
         let payload = self.sym.decrypt(&message[32..])?;
         self.step += 1;
