@@ -192,6 +192,7 @@ name = "ace-devices"
 version = "0.1.0"
 dependencies = [
  "ace-json",
+ "ace-mcp",
  "ace-supervisor",
  "base64",
  "flate2",
