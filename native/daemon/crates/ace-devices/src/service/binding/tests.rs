@@ -256,17 +256,42 @@ fn a_persons_supersede_retires_the_agents_bind_and_its_obsolete_finish_changes_n
 }
 
 #[test]
+fn a_recording_published_after_re_enable_survives_the_old_disable_completion() {
+    let mut session = bound("t1");
+    let disabled = begin_disable(&mut session);
+
+    // Devices are on again: the device binds afresh and a recording publishes
+    // before the old disable's stop returns.
+    let Bind::Cleanup { epoch, .. } =
+        begin_bind(&mut session, "t2", "agent-1").expect("a new bind")
+    else {
+        panic!("a newer cleanup");
+    };
+    finish_bind(&mut session, "t2", epoch, false, true).expect("bound");
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    finish_disable(&mut session, disabled);
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "the newer recording survives the old disable's completion"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+}
+
+#[test]
 fn disabling_frees_every_device_and_bumps_its_epoch() {
     let mut session = bound("t1");
     let before = session.binding_epoch;
-    begin_disable(&mut session);
+    let epoch = begin_disable(&mut session);
     assert_eq!(session.thread_id, None);
     assert_eq!(
         session.binding_epoch,
         before + 1,
         "a pending bind is passed"
     );
-    finish_disable(&mut session);
+    finish_disable(&mut session, epoch);
     assert_eq!(session.completed, None);
     assert_eq!(session.recording_artifact, None);
 }

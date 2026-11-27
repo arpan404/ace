@@ -185,17 +185,24 @@ pub fn finish_bind(
 
 /// `disableDeviceSessions`: turning devices off frees every device from its
 /// thread before its resources are stopped, and retires any bind still in flight
-/// so a later bind does not find a reservation nobody will finish.
-pub fn begin_disable(session: &mut Session) {
+/// so a later bind does not find a reservation nobody will finish. Returns the
+/// epoch the disable moved to, which its completion carries back.
+pub fn begin_disable(session: &mut Session) -> u64 {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.thread_id = None;
     session.changing_binding = false;
     session.binding_owner = None;
     super::control::invalidate_pending_control(session);
+    session.binding_epoch
 }
 
-/// The stop ran: the published recording it may have left is cleared.
-pub fn finish_disable(session: &mut Session) {
+/// The stop ran: the published recording it may have left is cleared, unless a
+/// later bind or disable passed this one while it was out. A recording published
+/// after re-enable belongs to that newer epoch and stays.
+pub fn finish_disable(session: &mut Session, epoch: u64) {
+    if session.binding_epoch != epoch {
+        return;
+    }
     session.completed = None;
     session.recording_artifact = None;
 }

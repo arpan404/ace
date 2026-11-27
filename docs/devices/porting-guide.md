@@ -316,3 +316,6 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   `AggregateError` before `assignController` runs, so the cleanup failure answers a hand-back or a
   drop that landed meanwhile; Rust answers `controlChanged` for the assignment whose revision moved
   while its cleanup failed, and lets the failure win only for a disable, which moves the generation.
+- **D4, a disable's delayed completion.** TypeScript clears `completed` and `recordingArtifact` after
+  the stop's await without checking the epoch, so a recording published after devices come back is
+  erased; Rust carries the disable's epoch and clears only the recording its own disable left.
