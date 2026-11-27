@@ -29,7 +29,7 @@ export type OptionalCapability =
   | "socketBytes";
 
 /** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
-export type KeptValueKey = "review" | "files" | "runAlerts";
+export type KeptValueKey = "review" | "files" | "runAlerts" | "pushAddress";
 
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";

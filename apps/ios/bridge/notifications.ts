@@ -128,8 +128,13 @@ export class NotificationBridge {
   #push: PhonePush | null = null;
   /** Swift's Live Activity tokens for this machine; registered with the address. */
   #liveActivity: PhoneLiveActivity | undefined;
-  /** The tokens this connection's daemon was last registered with. */
-  #toldLiveActivity: PhoneLiveActivity | undefined;
+  /**
+   * The tokens this connection's daemon was last registered with; null: none; undefined: not
+   * known (a new connection), so the next reconcile registers them again.
+   */
+  #toldLiveActivity: PhoneLiveActivity | null | undefined;
+  /** The push address last registered with this machine, kept between launches. */
+  #pushKept: KeptValue | undefined;
   /** What this connection has told the daemon; unknown again after every reconnect. */
   #daemon: NotificationAddress | "unregistered" | undefined;
   /**
@@ -164,7 +169,13 @@ export class NotificationBridge {
     now?: () => number,
     /** How far this machine's runs were said, kept between launches (`run-alerts.ts`). */
     runProgress?: KeptValue,
+    /**
+     * The push address this machine last registered, kept between launches, so a cold wake can
+     * update its Live Activity tokens while UIKit has yet to return the alert token.
+     */
+    pushKept?: KeptValue,
   ) {
+    this.#pushKept = pushKept;
     this.requestMs = requestMs;
     this.#client = client;
     this.#minuteOfDay = minuteOfDay;
@@ -361,6 +372,7 @@ export class NotificationBridge {
     // APNs registration is asynchronous on a cold wake. Keep the daemon's existing push
     // address until UIKit gives this runtime a token or the phone explicitly mutes alerts.
     if (this.#enabled && this.#appState === "background" && !this.#push) {
+      await this.#reconcileLiveActivity();
       await this.#catchUp();
       return;
     }
@@ -368,11 +380,13 @@ export class NotificationBridge {
       ? phoneAddress(this.#pushRefused ? null : this.#push)
       : "unregistered";
     const told = this.#daemon;
-    const liveActivity = want === "unregistered" ? undefined : this.#liveActivity;
+    const liveActivity = want === "unregistered" ? null : (this.#liveActivity ?? null);
     const current =
       (want === "unregistered" || told === undefined || told === "unregistered"
         ? want === told
-        : sameAddress(want, told)) && sameLiveActivity(liveActivity, this.#toldLiveActivity);
+        : sameAddress(want, told)) &&
+      this.#toldLiveActivity !== undefined &&
+      sameLiveActivity(liveActivity, this.#toldLiveActivity);
     if (!current) {
       const connection = this.#connection;
       try {
@@ -401,8 +415,54 @@ export class NotificationBridge {
       if (connection !== this.#connection) return;
       this.#daemon = want;
       this.#toldLiveActivity = liveActivity;
+      await this.#keepPush(want === "unregistered" || want.channel !== "push" ? null : this.#push);
     }
     if (want !== "unregistered") await this.#catchUp();
+  }
+  /**
+   * The cold-wake window: alerts are on but UIKit hasn't returned this launch's APNs token yet.
+   * The daemon keeps the alert address it has; Live Activity tokens that arrived, or went, in
+   * the meantime are registered with that same kept address, so the wake ending first can't
+   * leave the daemon without the update token, or holding one the phone dropped.
+   */
+  async #reconcileLiveActivity(): Promise<void> {
+    const liveActivity = this.#liveActivity ?? null;
+    if (
+      this.#toldLiveActivity !== undefined &&
+      sameLiveActivity(liveActivity, this.#toldLiveActivity)
+    )
+      return;
+    const kept = await this.#keptPush();
+    if (!kept) return; // No address known to keep: the token goes once UIKit answers.
+    const device = phoneAddress(kept);
+    const connection = this.#connection;
+    try {
+      await this.#client.request({
+        type: "notification.register",
+        device,
+        ...(liveActivity ? { liveActivity } : {}),
+      });
+    } catch {
+      return; // The next sync tries again.
+    }
+    if (connection !== this.#connection) return;
+    this.#daemon = device;
+    this.#toldLiveActivity = liveActivity;
+  }
+  async #keptPush(): Promise<PhonePush | null> {
+    try {
+      const parsed = PhonePush.safeParse(await this.#pushKept?.load());
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  }
+  async #keepPush(push: PhonePush | null): Promise<void> {
+    try {
+      await this.#pushKept?.save(push);
+    } catch {
+      // The next registration keeps it again.
+    }
   }
   /**
    * Tells the daemon this phone handled a live alert, so it doesn't push it too (ADR 0106): Swift
@@ -648,10 +708,7 @@ function unparsable(error: unknown): boolean {
   );
 }
 /** The same tokens, environment, frequency and slot: nothing new to register. */
-function sameLiveActivity(
-  a: PhoneLiveActivity | undefined,
-  b: PhoneLiveActivity | undefined,
-): boolean {
+function sameLiveActivity(a: PhoneLiveActivity | null, b: PhoneLiveActivity | null): boolean {
   if (!a || !b) return a === b;
   return (
     a.startToken === b.startToken &&

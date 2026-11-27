@@ -138,6 +138,15 @@ it("a daemon that rejects one registration still registers push when the phone s
   );
 });
 
+/** What Swift adds while Live Activities are on in ace and in iOS Settings. */
+const liveActivity = (activityToken?: string) => ({
+  startToken: "ef".repeat(32),
+  ...(activityToken ? { activityToken } : {}),
+  environment: "production" as const,
+  frequentUpdates: true,
+  slot: 3,
+});
+
 it("a wake can read the missed feed while UIKit has yet to return its push token", async () => {
   const { daemon, act, of } = await phone();
   act({
@@ -155,13 +164,45 @@ it("a wake can read the missed feed while UIKit has yet to return its push token
   expect(daemon.notifications.address(device)?.channel).toBe("push");
 });
 
-/** What Swift adds while Live Activities are on in ace and in iOS Settings. */
-const liveActivity = (activityToken?: string) => ({
-  startToken: "ef".repeat(32),
-  ...(activityToken ? { activityToken } : {}),
-  environment: "production" as const,
-  frequentUpdates: true,
-  slot: 3,
+it("a cold wake registers a new Live Activity token, and its removal, before UIKit returns the alert token", async () => {
+  const { daemon, act, of } = await phone();
+  const push = pushKey("ab".repeat(32));
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "foreground",
+    cursor: 0,
+    push,
+    liveActivity: liveActivity(),
+  });
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(liveActivity()));
+  await vi.waitFor(() => expect(of("notifications.feedComplete")).toHaveLength(1));
+  daemon.disconnectAll();
+  // Woken in the background: ActivityKit's update token arrives before UIKit's APNs token.
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "background",
+    cursor: 0,
+    liveActivity: liveActivity("12".repeat(32)),
+  });
+  await vi.waitFor(() =>
+    expect(daemon.notifications.liveActivity(device)?.activityToken).toBe("12".repeat(32)),
+  );
+  // The alert address the daemon had stays as it was.
+  expect(daemon.notifications.address(device)).toEqual({
+    channel: "push",
+    platform: "phone",
+    ...push,
+  });
+  // The activity ends in the same window: its token goes, the alert address still stays.
+  act({ type: "notifications.sync", enabled: true, appState: "background", cursor: 0 });
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toBeUndefined());
+  expect(daemon.notifications.address(device)).toEqual({
+    channel: "push",
+    platform: "phone",
+    ...push,
+  });
 });
 
 it("Live Activity tokens reach the machine with the registration and go when they are turned off", async () => {

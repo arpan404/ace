@@ -381,6 +381,7 @@ async function start(json: string): Promise<void> {
     undefined,
     () => host.now(),
     keptValue("runAlerts"),
+    keptValue("pushAddress"),
   );
   const owner = client;
   // An organization's host: the member's standing is kept proven on each socket (ADR 0206 §2.2).
