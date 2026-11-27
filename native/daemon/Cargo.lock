@@ -313,6 +313,7 @@ dependencies = [
  "ace-json",
  "fancy-regex",
  "jiff",
+ "regress",
  "serde",
  "serde_json",
  "unicode-segmentation",

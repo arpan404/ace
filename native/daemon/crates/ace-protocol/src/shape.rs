@@ -496,54 +496,19 @@ fn fits_num(bounds: &NumBounds, value: &Value) -> bool {
     true
 }
 
-/// A JavaScript regular expression, with ECMAScript's ASCII `\w` and `\d` (and ASCII `\s`),
-/// compiled as Rust's syntax allows. A pattern Rust cannot compile (`(?=`, back references)
-/// never matches here; the generator's property check names it rather than letting it pass.
+/// A JavaScript regular expression: ECMAScript semantics for `\w`, `\d` and `\s`. Lookaheads
+/// still use `fancy-regex`; ordinary patterns use `regress`, which implements ECMAScript's
+/// classes exactly (the TypeScript's patterns are JavaScript regexes, not Rust ones).
 fn matches_pattern(pattern: &str, text: &str) -> bool {
-    let pattern = js_pattern(pattern);
-    fancy_regex::Regex::new(&pattern).is_ok_and(|regex| regex.is_match(text).unwrap_or(false))
-}
-
-/// Rewrite `\w`, `\d` and `\s` (and their negations) to their ECMAScript character classes.
-fn js_pattern(pattern: &str) -> String {
-    let mut out = String::with_capacity(pattern.len() + 16);
-    let mut chars = pattern.chars().peekable();
-    let mut in_class = false;
-    while let Some(character) = chars.next() {
-        match character {
-            '[' => {
-                in_class = true;
-                out.push(character);
-            }
-            ']' => {
-                in_class = false;
-                out.push(character);
-            }
-            '\\' => {
-                let Some(next) = chars.next() else {
-                    out.push('\\');
-                    break;
-                };
-                match (next, in_class) {
-                    ('w', false) => out.push_str("[A-Za-z0-9_]"),
-                    ('W', false) => out.push_str("[^A-Za-z0-9_]"),
-                    ('d', false) => out.push_str("[0-9]"),
-                    ('D', false) => out.push_str("[^0-9]"),
-                    ('s', false) => out.push_str("[ \\t\\n\\r\\x0B\\x0C]"),
-                    ('S', false) => out.push_str("[^ \\t\\n\\r\\x0B\\x0C]"),
-                    ('w', true) => out.push_str("A-Za-z0-9_"),
-                    ('d', true) => out.push_str("0-9"),
-                    ('s', true) => out.push_str(" \\t\\n\\r\\x0B\\x0C"),
-                    _ => {
-                        out.push('\\');
-                        out.push(next);
-                    }
-                }
-            }
-            _ => out.push(character),
-        }
+    if pattern.contains("(?=")
+        || pattern.contains("(?!")
+        || pattern.contains("(?<=")
+        || pattern.contains("(?<!")
+    {
+        return fancy_regex::Regex::new(pattern)
+            .is_ok_and(|regex| regex.is_match(text).unwrap_or(false));
     }
-    out
+    regress::Regex::new(pattern).is_ok_and(|regex| regex.find(text).is_some())
 }
 
 /// Zod's `email` format: one `@`, a non-empty local part and a dotted domain, no whitespace.
@@ -702,4 +667,46 @@ fn datetime(text: &str) -> bool {
         return false;
     };
     hours <= 23 && minutes <= 59
+}
+
+#[cfg(test)]
+mod tests {
+    use ace_json::{JsString, Value};
+
+    use super::{NumBounds, Shape, StrBounds, StrCheck, fits};
+
+    fn text(value: &str) -> Value {
+        Value::String(JsString::from(value))
+    }
+
+    #[test]
+    fn trimmed_string_bounds_apply_after_trimming() {
+        let shape = Shape::Str(&StrBounds {
+            checks: &[StrCheck::Trim, StrCheck::Min(1), StrCheck::Max(60)],
+        });
+        assert!(!fits(&shape, &text("   ")));
+        assert!(fits(&shape, &text("  x  ")));
+    }
+
+    #[test]
+    fn non_finite_numbers_are_refused() {
+        let shape = Shape::Num(&NumBounds {
+            min: None,
+            min_inclusive: true,
+            max: None,
+            max_inclusive: true,
+            integral: false,
+        });
+        assert!(!fits(
+            &shape,
+            &Value::Number(ace_json::Number::from(f64::INFINITY))
+        ));
+        assert!(fits(&shape, &Value::Number(ace_json::Number::from(1.5))));
+    }
+
+    #[test]
+    fn ecma_word_class_does_not_match_unicode_letters() {
+        assert!(!super::matches_pattern(r"^[\w.-]+$", "é"));
+        assert!(super::matches_pattern(r"^[\w.-]+$", "a.b"));
+    }
 }
