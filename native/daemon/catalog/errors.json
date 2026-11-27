@@ -517,5 +517,15 @@
       "message": "The connection to that machine dropped during the call",
       "hint": "The action may or may not have run there. Check with a read-only tool before trying again."
     }
+  },
+  "permissionHints": {
+    "screenRecording": "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper.",
+    "accessibility": "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper."
+  },
+  "fallbacks": {
+    "missing": {
+      "message": "This failure has no entry in ace's error catalog",
+      "hint": "Reinstall ace; its error catalog is incomplete."
+    }
   }
 }
