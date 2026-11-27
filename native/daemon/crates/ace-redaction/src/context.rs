@@ -105,6 +105,28 @@ impl Context {
     }
 }
 
+/// The exact values a redactor masks from a caller's environment: every non-operational,
+/// non-empty entry whose value is at least four UTF-16 units or whose name says it is a
+/// secret. The TypeScript composes the same two filters (`index.ts:38-60`), and
+/// [`Lexical::new`] uses this list.
+pub fn environment_values(env: &[(String, String)]) -> Vec<String> {
+    let context = Context {
+        env: env.to_vec(),
+        ..Context::default()
+    };
+    context
+        .sensitive_environment()
+        .into_iter()
+        .filter(|(name, value)| ace_json::utf16_len(value) >= 4 || is_secret_key(name))
+        .map(|(_, value)| value.to_owned())
+        .collect()
+}
+
+/// A matcher over [`environment_values`].
+pub fn environment_matcher(env: &[(String, String)]) -> EnvironmentMatcher {
+    EnvironmentMatcher::new(&environment_values(env))
+}
+
 /// The lexical rules, built once per redactor.
 #[derive(Debug)]
 pub(crate) struct Lexical {
@@ -158,11 +180,7 @@ impl Lexical {
             None
         };
         let sensitive = context.sensitive_environment();
-        let values: Vec<&str> = sensitive
-            .iter()
-            .filter(|(name, value)| ace_json::utf16_len(value) >= 4 || is_secret_key(name))
-            .map(|(_, value)| *value)
-            .collect();
+        let values: Vec<String> = environment_values(&context.env);
         let short_values = sensitive
             .iter()
             .map(|(_, value)| *value)
