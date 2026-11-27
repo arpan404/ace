@@ -41,21 +41,28 @@ fn status_schema(value: &str) -> bool {
     matches!(value, "A" | "M" | "D" | "R" | "C" | "T")
 }
 
-fn diff_status_code(code: &str) -> Result<String, GitError> {
-    match code.chars().next() {
-        Some('R' | 'C') => {
-            if code.len() < 2 || !code[1..].bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(malformed("raw diff"));
-            }
-            if count(&code[1..])? > 100 {
-                return Err(malformed("similarity score"));
-            }
-            Ok(code[..1].to_owned())
+/// The raw record's code as its schema reads it, `^(?:[AMDT]|[RC]\d+)$`: a code that doesn't
+/// fit is `raw diff` (the schema's own context) and a score above 100 is `similarity score`.
+fn diff_status(code: &str) -> Result<String, GitError> {
+    let mut characters = code.chars();
+    let Some(first) = characters
+        .next()
+        .filter(|first| status_schema(&first.to_string()))
+    else {
+        return Err(malformed("raw diff"));
+    };
+    if matches!(first, 'R' | 'C') {
+        let score = characters.as_str();
+        if score.is_empty() || !score.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(malformed("raw diff"));
         }
-        Some(first @ ('A' | 'M' | 'D' | 'T')) if code.len() == 1 => Ok(first.to_string()),
-        Some('Z') => Err(malformed("diff status")),
-        _ => Err(malformed("raw diff")),
+        if count(score)? > 100 {
+            return Err(malformed("similarity score"));
+        }
+    } else if characters.next().is_some() {
+        return Err(malformed("raw diff"));
     }
+    Ok(first.to_string())
 }
 
 /// Parses the raw records, then the numstat records that must correspond to them.
@@ -77,10 +84,7 @@ pub fn parse_diff(bytes: &[u8]) -> Result<Vec<DiffFile>, GitError> {
         }
         hash(old_sha)?;
         hash(new_sha)?;
-        let status = diff_status_code(code)?;
-        if !status_schema(&status) {
-            return Err(malformed("diff status"));
-        }
+        let status = diff_status(code)?;
         let first_path = path_schema(records.next()?).ok_or_else(|| malformed("diff path"))?;
         let renamed = status == "R" || status == "C";
         let path = if renamed {
