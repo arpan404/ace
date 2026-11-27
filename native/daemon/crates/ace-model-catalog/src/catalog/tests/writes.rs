@@ -56,7 +56,7 @@ fn a_queued_write_for_the_old_login_never_lands_on_the_new_one() {
     .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(listed(&catalog).models.len(), 1, "the new login loaded");
     fixture.spawn.drain();
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
         stored.iter().all(|entry| entry
@@ -106,7 +106,7 @@ fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
         Err(CatalogError::SessionGenerationChanged),
         "the queued write refuses a login it no longer belongs to"
     );
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
         stored
@@ -145,7 +145,7 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
     );
     fixture.spawn.drain();
     settle(session, &fixture.spawn, "the session write").unwrap_or_else(|error| panic!("{error}"));
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
         stored.iter().all(|entry| entry
@@ -369,7 +369,7 @@ fn close_drains_a_write_accepted_before_it_started() {
         }
     };
     closed.unwrap_or_else(|error| panic!("{error}"));
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert_eq!(
         stored[0]
@@ -410,7 +410,7 @@ fn a_session_token_from_before_an_invalidation_never_lands_on_the_replacement() 
         "an old session report",
     );
     assert_eq!(refused, Err(CatalogError::SessionGenerationChanged));
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     assert!(
         storage.load().unwrap_or_default().is_empty(),
         "the old session's report never reached storage"
@@ -440,7 +440,7 @@ fn a_session_token_from_before_a_home_change_is_refused_even_with_the_same_login
         "the old home's session report",
     );
     assert_eq!(refused, Err(CatalogError::SessionGenerationChanged));
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     assert!(storage.load().unwrap_or_default().is_empty());
 }
 

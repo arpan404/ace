@@ -98,7 +98,7 @@ fn removing_an_instance_cancels_its_refresh_and_deletes_its_cached_rows() {
     .unwrap_or_else(|error| panic!("{error}"));
     assert!(!catalog.has_instance("account"));
     assert!(listed(catalog).models.is_empty());
-    let mut storage = shared.clone();
+    let storage = shared.clone();
     assert!(
         storage
             .load()

@@ -11,8 +11,8 @@ use crate::cache::{CacheEntry, CacheError, SharedStorage};
 
 /// Runs one storage call, turning a panic into a malformed-entry failure.
 pub(crate) fn guarded<T>(
-    storage: &mut SharedStorage,
-    call: impl FnOnce(&mut SharedStorage) -> Result<T, CacheError>,
+    storage: &SharedStorage,
+    call: impl FnOnce(&SharedStorage) -> Result<T, CacheError>,
 ) -> Result<T, CacheError> {
     match catch_unwind(AssertUnwindSafe(|| call(storage))) {
         Ok(result) => result,
@@ -20,14 +20,20 @@ pub(crate) fn guarded<T>(
     }
 }
 
-pub(crate) fn replace(storage: &mut SharedStorage, entry: &CacheEntry) -> Result<(), CacheError> {
-    guarded(storage, |storage| storage.replace(entry))
+pub(crate) fn replace(
+    storage: &SharedStorage,
+    entry: &CacheEntry,
+    is_current: &dyn Fn() -> bool,
+) -> Result<bool, CacheError> {
+    guarded(storage, |storage| {
+        storage.replace_if_current(entry, is_current)
+    })
 }
 
-pub(crate) fn close(storage: &mut SharedStorage) -> Result<(), CacheError> {
+pub(crate) fn close(storage: &SharedStorage) -> Result<(), CacheError> {
     guarded(storage, |storage| storage.close())
 }
 
-pub(crate) fn load(storage: &mut SharedStorage) -> Result<Vec<CacheEntry>, CacheError> {
+pub(crate) fn load(storage: &SharedStorage) -> Result<Vec<CacheEntry>, CacheError> {
     guarded(storage, |storage| storage.load())
 }

@@ -215,7 +215,7 @@ impl Actor {
             }
             if self.terminate {
                 drop(receiver);
-                self.finish_run();
+                self.lane.shutdown();
                 return;
             }
             match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
@@ -227,13 +227,13 @@ impl Actor {
                         self.handle_envelope(envelope);
                     }
                     drop(receiver);
-                    self.finish_run();
+                    self.lane.shutdown();
                     return;
                 }
             }
             if self.terminate {
                 drop(receiver);
-                self.finish_run();
+                self.lane.shutdown();
                 return;
             }
         }
@@ -241,13 +241,10 @@ impl Actor {
 
     fn handle_envelope(&mut self, envelope: Envelope) {
         self.handle_command(envelope.command);
+        self.lane.pump();
         if let Some(ack) = envelope.ack {
             let _ = ack.send(());
         }
-    }
-
-    fn finish_run(&mut self) {
-        self.lane.shutdown();
     }
 
     fn handle_command(&mut self, command: Command) {

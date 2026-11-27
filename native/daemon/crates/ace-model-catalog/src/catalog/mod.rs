@@ -416,8 +416,7 @@ impl Catalog {
         check_durations(&options)?;
         let spacing = AcpProbeSpacing::new(options.acp_probe_interval_ms)
             .map_err(|_| CatalogError::Duration)?;
-        let mut storage = options.storage.clone();
-        let stored = storage::load(&mut storage)?;
+        let stored = storage::load(&options.storage)?;
         if stored.len() > crate::cache::MAX_PERSISTED_INSTANCES {
             return Err(CatalogError::TooManyCachedInstances);
         }
@@ -461,7 +460,7 @@ impl Catalog {
         };
         let closed = Arc::new(Mutex::new(None));
         let instance_ids = Arc::new(Mutex::new(BTreeSet::new()));
-        let lane = storage_lane::StorageLane::new(storage.clone(), reporter.clone());
+        let lane = storage_lane::StorageLane::new(storage, reporter.clone())?;
         let actor = actor::Actor::new(
             inner,
             stored,

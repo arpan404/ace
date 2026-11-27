@@ -38,22 +38,26 @@ struct FailingRemove {
 }
 
 impl crate::cache::CatalogStorage for ClosingStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.check()?;
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
         self.check()?;
-        self.inner.replace(entry)
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         self.check()?;
         self.inner.remove(instance)
     }
 
-    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+    fn close(&self) -> Result<(), crate::cache::CacheError> {
         self.check()?;
         self.closed.store(true, Ordering::SeqCst);
         Ok(())
@@ -61,15 +65,19 @@ impl crate::cache::CatalogStorage for ClosingStorage {
 }
 
 impl crate::cache::CatalogStorage for FailingRemove {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        self.inner.replace(entry)
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         if self.failures.load(Ordering::SeqCst) > 0 {
             self.failures.fetch_sub(1, Ordering::SeqCst);
             return Err(crate::cache::CacheError::Malformed);
@@ -258,7 +266,7 @@ fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
     )
     .unwrap_or_else(|error| panic!("{error}"));
     settle(catalog.close(), &fixture.spawn, "the close").unwrap_or_else(|error| panic!("{error}"));
-    let mut storage = storage.clone();
+    let storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
         stored.iter().any(
@@ -359,7 +367,7 @@ fn a_dropped_invalidation_still_deletes_the_revoked_row() {
         gate.open();
         let _ = settle(flight, &fixture.spawn, "the flight the revocation drained");
         fixture.spawn.drain();
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             storage.load().unwrap_or_default().is_empty(),
             "the revoked row's choices are deleted"
@@ -401,7 +409,7 @@ fn a_dropped_removal_leaves_no_reservation() {
         gate.open();
         let _ = settle(flight, &fixture.spawn, "the flight the removal waited for");
         fixture.spawn.drain();
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             storage.load().unwrap_or_default().is_empty(),
             "the removed row's choices are deleted"
@@ -453,7 +461,7 @@ fn a_second_removal_shares_the_first_ones_deletion() {
         );
         a.unwrap_or_else(|error| panic!("{error}"));
         b.unwrap_or_else(|error| panic!("{error}"));
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             storage.load().unwrap_or_default().is_empty(),
             "the row's choices are deleted once"

@@ -517,7 +517,7 @@ fn an_invalidation_never_waits_on_the_write_it_drains() {
             "an invalidation and the flight it drains",
         );
         revoked.unwrap_or_else(|error| panic!("{error}"));
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             storage.load().unwrap_or_default().is_empty(),
             "the revoked row's choices are deleted"
@@ -1102,7 +1102,7 @@ fn a_commit_held_past_its_deadline_never_writes_and_reports_a_timeout() {
         drop(held);
         let status = settle(flight, &fixture.spawn, "the flight whose queue was held");
         assert_eq!(status.error, Some(StatusError::Timeout));
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             storage.load().unwrap_or_default().is_empty(),
             "a discovery that outlived its deadline never reaches the cache"

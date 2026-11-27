@@ -423,12 +423,23 @@ pub fn decode_entries(
 }
 
 /// The persistence port: one entry per instance, whole entries only.
-pub trait CatalogStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError>;
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError>;
-    fn remove(&mut self, instance: &str) -> Result<(), CacheError>;
+pub trait CatalogStorage: Send + Sync {
+    fn load(&self) -> Result<Vec<CacheEntry>, CacheError>;
+    /// Checks ownership at the commit boundary after staging or waiting for I/O.
+    /// Return `Ok(false)` and discard staged data when the operation lost ownership.
+    /// The backend must linearize an authorized commit before a following operation
+    /// on this instance. Calls for different instances can overlap.
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, CacheError>;
+    fn replace(&self, entry: &CacheEntry) -> Result<(), CacheError> {
+        self.replace_if_current(entry, &|| true).map(|_| ())
+    }
+    fn remove(&self, instance: &str) -> Result<(), CacheError>;
     /// Releases the storage's own resources. The default keeps in-memory stores open.
-    fn close(&mut self) -> Result<(), CacheError> {
+    fn close(&self) -> Result<(), CacheError> {
         Ok(())
     }
 }
@@ -436,7 +447,7 @@ pub trait CatalogStorage {
 /// The bounds every storage implementation keeps, and an in-memory one for tests.
 #[derive(Debug, Default)]
 pub struct MemoryStorage {
-    entries: BTreeMap<String, CacheEntry>,
+    entries: std::sync::Mutex<BTreeMap<String, CacheEntry>>,
 }
 
 impl MemoryStorage {
@@ -450,14 +461,22 @@ impl MemoryStorage {
 }
 
 impl CatalogStorage for MemoryStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError> {
-        if self.entries.len() > MAX_PERSISTED_INSTANCES {
+    fn load(&self) -> Result<Vec<CacheEntry>, CacheError> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if entries.len() > MAX_PERSISTED_INSTANCES {
             return Err(CacheError::TooManyInstances);
         }
-        Ok(std::mem::take(&mut self.entries).into_values().collect())
+        Ok(std::mem::take(&mut *entries).into_values().collect())
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, CacheError> {
         validate_entry(entry)?;
         let payload = encode_entry(entry)?;
         let bytes = serde_json::to_string(&payload)
@@ -473,9 +492,12 @@ impl CatalogStorage for MemoryStorage {
         {
             return Err(CacheError::EntryTooLarge);
         }
-        if !self.entries.contains_key(&entry.instance) {
-            let same_kind = self
-                .entries
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !entries.contains_key(&entry.instance) {
+            let same_kind = entries
                 .values()
                 .filter(|existing| Self::kind(existing.provider) == acp)
                 .count();
@@ -488,12 +510,19 @@ impl CatalogStorage for MemoryStorage {
                 return Err(CacheError::InstanceLimit);
             }
         }
-        self.entries.insert(entry.instance.clone(), entry.clone());
-        Ok(())
+        let entry = entry.clone();
+        if !is_current() {
+            return Ok(false);
+        }
+        entries.insert(entry.instance.clone(), entry);
+        Ok(true)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
-        self.entries.remove(instance);
+    fn remove(&self, instance: &str) -> Result<(), CacheError> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(instance);
         Ok(())
     }
 }
@@ -656,7 +685,7 @@ mod tests {
 
     #[test]
     fn storage_keeps_one_entry_per_instance_within_its_caps() {
-        let mut storage = MemoryStorage::new();
+        let storage = MemoryStorage::new();
         let first = decode_entry(&entry(vec![row("a")])).unwrap_or_else(|_| panic!("decodes"));
         storage.replace(&first).unwrap_or_else(|_| panic!("stores"));
         let loaded = storage.load().unwrap_or_else(|_| panic!("loads"));
@@ -689,7 +718,7 @@ mod tests {
 
     #[test]
     fn the_write_caps_are_64_cli_accounts_and_512_acp_agents() {
-        let mut storage = MemoryStorage::new();
+        let storage = MemoryStorage::new();
         for index in 0..CLI_INSTANCE_LIMIT {
             storage
                 .replace(&stored(ProviderKind::Codex, &format!("cli-{index}")))
@@ -717,7 +746,7 @@ mod tests {
 
     #[test]
     fn an_acp_entry_is_held_to_256_kib_while_a_cli_entry_may_reach_4_mib() {
-        let mut storage = MemoryStorage::new();
+        let storage = MemoryStorage::new();
         let mut acp = stored(ProviderKind::Acp, "agent");
         let agent = ModelInstance::cli("agent", ProviderKind::Acp, "", "/repo");
         let mut padded = ace_models::row::base(&agent, "model", "model", &json!({}));
@@ -758,7 +787,7 @@ mod tests {
 
     #[test]
     fn a_row_past_512_and_a_malformed_permission_mode_are_refused_on_write() {
-        let mut storage = MemoryStorage::new();
+        let storage = MemoryStorage::new();
         let mut entry = stored(ProviderKind::Codex, "account");
         let agent = ModelInstance::cli("account", ProviderKind::Codex, "", "/repo");
         entry.models = (0..513)
@@ -773,7 +802,7 @@ mod tests {
 
     #[test]
     fn every_permission_mode_is_parsed_like_the_protocol_does() {
-        let mut storage = MemoryStorage::new();
+        let storage = MemoryStorage::new();
         let mut entry = stored(ProviderKind::Codex, "account");
         for modes in [
             json!([null]),
@@ -811,39 +840,35 @@ mod tests {
 
 /// A storage port shared by the catalog's flights and its spawned writes.
 #[derive(Clone)]
-pub struct SharedStorage(std::sync::Arc<std::sync::Mutex<Box<dyn CatalogStorage + Send>>>);
+pub struct SharedStorage(Arc<dyn CatalogStorage>);
 
 impl SharedStorage {
-    pub fn new(storage: impl CatalogStorage + Send + 'static) -> Self {
-        Self(std::sync::Arc::new(std::sync::Mutex::new(Box::new(
-            storage,
-        ))))
+    pub fn new(storage: impl CatalogStorage + 'static) -> Self {
+        Self(Arc::new(storage))
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Box<dyn CatalogStorage + Send>> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    pub fn load(&self) -> Result<Vec<CacheEntry>, CacheError> {
+        self.0.load()
     }
 
-    pub fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError> {
-        let mut guard = self.lock();
-        guard.as_mut().load()
+    pub fn replace(&self, entry: &CacheEntry) -> Result<(), CacheError> {
+        self.0.replace(entry)
     }
 
-    pub fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
-        let mut guard = self.lock();
-        guard.as_mut().replace(entry)
+    pub(crate) fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, CacheError> {
+        self.0.replace_if_current(entry, is_current)
     }
 
-    pub fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
-        let mut guard = self.lock();
-        guard.as_mut().remove(instance)
+    pub fn remove(&self, instance: &str) -> Result<(), CacheError> {
+        self.0.remove(instance)
     }
 
-    pub fn close(&mut self) -> Result<(), CacheError> {
-        let mut guard = self.lock();
-        guard.as_mut().close()
+    pub fn close(&self) -> Result<(), CacheError> {
+        self.0.close()
     }
 }
 

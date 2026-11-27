@@ -73,6 +73,7 @@ impl Actor {
     }
 
     pub(crate) fn storage_done(&mut self, key: u64, outcome: Outcome) {
+        self.lane.completed(key);
         self.pending_storage = self.pending_storage.saturating_sub(1);
         let Some(wait) = self.storage_waits.remove(&key) else {
             self.after_event();

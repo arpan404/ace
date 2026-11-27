@@ -30,15 +30,19 @@ struct OrderedStorage {
 }
 
 impl CatalogStorage for OrderedStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        self.inner.replace(entry)
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         if self.closed.load(Ordering::SeqCst) {
             self.order.lock().unwrap().push("late-remove");
         }
@@ -46,7 +50,7 @@ impl CatalogStorage for OrderedStorage {
         self.inner.remove(instance)
     }
 
-    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+    fn close(&self) -> Result<(), crate::cache::CacheError> {
         self.order.lock().unwrap().push("close");
         self.closed.store(true, Ordering::SeqCst);
         Ok(())
@@ -158,7 +162,7 @@ fn a_dropped_invalidation_waiting_on_its_predecessor_never_deletes_early() {
             "the second revocation waits for the first"
         );
         drop(second);
-        let mut storage = storage.clone();
+        let storage = storage.clone();
         assert!(
             !storage.load().unwrap_or_default().is_empty(),
             "no deletion ran while the predecessor still waited"
@@ -186,15 +190,19 @@ struct HostileStorage {
 }
 
 impl CatalogStorage for HostileStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        self.inner.replace(entry)
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         if self.panic_remove.load(Ordering::SeqCst) > 0 {
             self.panic_remove.fetch_sub(1, Ordering::SeqCst);
             panic!("storage remove panicked");
@@ -202,7 +210,7 @@ impl CatalogStorage for HostileStorage {
         self.inner.remove(instance)
     }
 
-    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+    fn close(&self) -> Result<(), crate::cache::CacheError> {
         if self.panic_close.load(Ordering::SeqCst) > 0 {
             self.panic_close.fetch_sub(1, Ordering::SeqCst);
             panic!("storage close panicked");
@@ -424,19 +432,23 @@ struct DropProbeStorage {
 }
 
 impl CatalogStorage for DropProbeStorage {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        self.inner.replace(entry)
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         self.inner.remove(instance)
     }
 
-    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+    fn close(&self) -> Result<(), crate::cache::CacheError> {
         self.inner.close()
     }
 }
@@ -574,31 +586,33 @@ fn a_spawner_that_panics_still_settles_its_task() {
 /// Storage whose first write blocks the lane until the test releases it.
 struct BlockingFirstReplace {
     inner: MemoryStorage,
-    release: std::sync::mpsc::Receiver<()>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
     blocked: Arc<AtomicBool>,
     writes: Arc<Mutex<Vec<String>>>,
-    first: bool,
 }
 
 impl CatalogStorage for BlockingFirstReplace {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        if self.first {
-            self.first = false;
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        if entry.instance == "slow" {
             self.blocked.store(true, Ordering::SeqCst);
-            let _ = self.release.recv();
+            let _ = self.release.lock().unwrap().recv();
         }
-        self.writes
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(entry.instance.clone());
-        self.inner.replace(entry)
+        let written = self.inner.replace_if_current(entry, is_current)?;
+        if written {
+            self.writes.lock().unwrap().push(entry.instance.clone());
+        }
+        Ok(written)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         self.inner.remove(instance)
     }
 }
@@ -613,10 +627,9 @@ fn a_stalled_storage_lane_never_stalls_the_catalog_and_a_deadline_wins_at_the_wr
         let writes = Arc::new(Mutex::new(Vec::new()));
         let storage = SharedStorage::new(BlockingFirstReplace {
             inner: MemoryStorage::new(),
-            release: blocked_on,
+            release: Mutex::new(blocked_on),
             blocked: blocked.clone(),
             writes: writes.clone(),
-            first: true,
         });
         let discover = FakeDiscover::new(|request, _signal| {
             Box::pin(async move { Ok(models(&request.instance, &["gpt-6-sol"])) })
@@ -646,7 +659,8 @@ fn a_stalled_storage_lane_never_stalls_the_catalog_and_a_deadline_wins_at_the_wr
             listed.models.is_empty(),
             "the fast row lists while slow writes"
         );
-        // The fast commit queues behind the stalled write, then loses to its deadline.
+        // Keep the fast result queued on its own instance until the deadline fires.
+        let fast_turn = catalog.reserve_turn("fast");
         let mut fast_flight = Box::pin(catalog.refresh_state("fast", RefreshCause::Background));
         assert!(poll_once(fast_flight.as_mut()).is_pending());
         for _ in 0..100 {
@@ -658,6 +672,7 @@ fn a_stalled_storage_lane_never_stalls_the_catalog_and_a_deadline_wins_at_the_wr
         }
         fixture.spawn.drain();
         fixture.deadlines.fire(1_000.0 + 1_000.0);
+        drop(fast_turn);
         release
             .send(())
             .unwrap_or_else(|error| panic!("release the lane: {error}"));
@@ -687,15 +702,19 @@ struct PanicOnceRemove {
 }
 
 impl CatalogStorage for PanicOnceRemove {
-    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+    fn load(&self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
         self.inner.load()
     }
 
-    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
-        self.inner.replace(entry)
+    fn replace_if_current(
+        &self,
+        entry: &CacheEntry,
+        is_current: &dyn Fn() -> bool,
+    ) -> Result<bool, crate::cache::CacheError> {
+        self.inner.replace_if_current(entry, is_current)
     }
 
-    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+    fn remove(&self, instance: &str) -> Result<(), crate::cache::CacheError> {
         if self.panics.load(Ordering::SeqCst) > 0 {
             self.panics.fetch_sub(1, Ordering::SeqCst);
             panic!("storage remove panicked before deleting");
@@ -944,5 +963,46 @@ fn an_error_handler_can_list_its_catalog() {
         assert_eq!(result.recv().unwrap(), 1);
         target.lock().unwrap().take();
         settle(catalog.close(), &spawn, "close").unwrap();
+    });
+}
+
+#[test]
+fn a_blocked_replace_does_not_hold_up_another_accounts_commit() {
+    within(5, "unrelated durable writes", || {
+        let (release, blocked_on) = std::sync::mpsc::channel();
+        let blocked = Arc::new(AtomicBool::new(false));
+        let storage = SharedStorage::new(BlockingFirstReplace {
+            inner: MemoryStorage::new(),
+            release: Mutex::new(blocked_on),
+            blocked: blocked.clone(),
+            writes: Arc::new(Mutex::new(Vec::new())),
+        });
+        let fixture = fixture(
+            vec![
+                instance(ProviderKind::Codex, "slow"),
+                instance(ProviderKind::Codex, "fast"),
+            ],
+            storage,
+            FakeDiscover::new(|request, _| {
+                Box::pin(async move { Ok(models(&request.instance, &["model"])) })
+            }),
+        );
+        let mut slow = Box::pin(fixture.catalog.load("slow"));
+        assert!(poll_once(slow.as_mut()).is_pending());
+        while !blocked.load(Ordering::SeqCst) {
+            fixture.spawn.drain();
+        }
+        settle(fixture.catalog.load("fast"), &fixture.spawn, "fast commit").unwrap();
+        assert_eq!(
+            fixture
+                .catalog
+                .list(ModelFilter::instance("fast"), 0, 100)
+                .unwrap()
+                .models
+                .len(),
+            1
+        );
+        release.send(()).unwrap();
+        settle(slow, &fixture.spawn, "slow commit").unwrap();
     });
 }
