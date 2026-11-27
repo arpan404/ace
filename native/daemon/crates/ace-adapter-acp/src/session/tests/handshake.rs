@@ -367,3 +367,147 @@ fn system_prompt_append_carries_lease_or_developer_instructions() {
         );
     }
 }
+
+/// The initialize reply every open in these cases answers with.
+fn initialize_reply(id: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "protocolVersion": 1,
+            "agentInfo": { "name": "gemini-cli", "version": "0.45.0" },
+            "agentCapabilities": {
+                "loadSession": true,
+                "promptCapabilities": { "image": true, "embeddedContext": true },
+                "mcpCapabilities": { "http": false, "sse": false }
+            }
+        }
+    })
+}
+
+/// The session reply that opens the session.
+fn session_reply(id: Value, session: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "sessionId": session,
+            "modes": { "currentModeId": "default", "availableModes": [{ "id": "default", "name": "Default" }] }
+        }
+    })
+}
+
+/// `openWithSignIn`'s second attempt (`packages/provider-kit/src/acp-sign-in.ts:30`): after an
+/// open that needed sign-in, the retry re-sends only the session request — never `initialize` —
+/// with the same parameters and its own stall deadline, and its reply settles the second call.
+#[test]
+fn a_sign_in_retry_resends_only_the_session_request() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-sign-in-retry",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let mut opening = core.start_open(10);
+    ack_writes(&mut core, &mut opening);
+    let init_id = sent_json_messages(&opening)[0]
+        .get("id")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let mut step =
+        core.stdout_bytes(format!("{}\n", initialize_reply(&init_id).to_json()).as_bytes());
+    ack_writes(&mut core, &mut step);
+    let session_request = sent_json_messages(&step)
+        .into_iter()
+        .find(|message| message.get("method").and_then(Value::as_str) == Some("session/new"))
+        .unwrap_or_else(|| panic!("session/new went out: {step:?}"));
+    let first_params = session_request
+        .get("params")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let first_id = session_request.get("id").cloned().unwrap_or(Value::Null);
+
+    // The agent answers that it needs a sign-in: the first call settles failed.
+    let denied = core.stdout_bytes(
+        format!(
+            "{}\n",
+            json!({ "jsonrpc": "2.0", "id": first_id, "error": { "code": -32000, "message": "Authentication required" } })
+                .to_json()
+        )
+        .as_bytes(),
+    );
+    assert_eq!(settlements(&denied, 10).len(), 1, "the first open settles");
+
+    // The retry sends that same request again, and nothing else.
+    let mut retried = core.retry_open_session(11);
+    ack_writes(&mut core, &mut retried);
+    let sent = sent_json_messages(&retried);
+    assert_eq!(
+        sent.len(),
+        1,
+        "one request, never initialize again: {retried:?}"
+    );
+    assert_eq!(
+        sent[0].get("method").and_then(Value::as_str),
+        Some("session/new")
+    );
+    assert_eq!(sent[0].get("params"), Some(&first_params));
+    assert!(
+        retried.iter().any(|effect| matches!(
+            effect,
+            AcpEffect::ArmTimer { key, .. } if key.ends_with(":open")
+        )),
+        "the retry is bounded by the open stall deadline"
+    );
+
+    let retry_id = sent[0].get("id").cloned().unwrap_or(Value::Null);
+    let opened = core
+        .stdout_bytes(format!("{}\n", session_reply(retry_id, "sess-retry").to_json()).as_bytes());
+    let settled = settlements(&opened, 11);
+    assert_eq!(
+        settled.len(),
+        1,
+        "the second call settles on the retry: {opened:?}"
+    );
+    assert!(settled[0].is_ok());
+}
+
+/// The retry answers where there is nothing to re-send (`openWithSignIn` is only called after
+/// `initialize`): before it, on a closed session, and while another open runs.
+#[test]
+fn a_sign_in_retry_refuses_before_initialize_closed_or_while_opening() {
+    let (mut core, _) = AcpCore::new(AcpCoreConfig::new(
+        "t-sign-in-guards",
+        "/work",
+        AcpSessionQuirks::generic(),
+    ));
+    let early = core.retry_open_session(1);
+    assert_eq!(
+        settlements(&early, 1),
+        vec![Err((
+            CODE_OPEN_FAILED.to_owned(),
+            "ACP session did not initialize".to_owned()
+        ))]
+    );
+
+    core.closed = true;
+    let closed = core.retry_open_session(2);
+    assert_eq!(
+        settlements(&closed, 2),
+        vec![Err((
+            CODE_OPEN_FAILED.to_owned(),
+            "ACP session closed".to_owned()
+        ))]
+    );
+    core.closed = false;
+
+    let mut opening = core.start_open(3);
+    ack_writes(&mut core, &mut opening);
+    let busy = core.retry_open_session(4);
+    assert_eq!(
+        settlements(&busy, 4),
+        vec![Err((
+            CODE_OPEN_FAILED.to_owned(),
+            "ACP session open already in progress".to_owned()
+        ))]
+    );
+}

@@ -19,8 +19,8 @@ pub(crate) struct Job {
     pub origin: Option<InputSource>,
     /// The send's fence: asked again when the queue reaches this job (`session.ts:718`).
     pub fence: Option<super::input::Fence>,
-    /// The prompt this steer was admitted under. Once it settles, the turn it joined has
-    /// ended and the job is stale, whatever the fence last said (`session.ts:718`).
+    /// The turn's prompt this fenced steer was admitted for (`input.rs::aimed_at`). Set only
+    /// for a fence that names a turn; see `drain` for why a set `aim` is stale there.
     pub aim: Option<ace_supervisor::jsonrpc::RpcId>,
     pub batch: u64,
     pub bytes: usize,
@@ -32,11 +32,13 @@ pub(crate) struct BatchState {
     pub operation: u64,
     /// Prompts of this send that have not settled yet.
     pub open: usize,
-    /// A line of it went out (a prompt, or a steer's request): its failures are uncertain.
-    pub written: bool,
+    /// A line of it went out (a prompt, or a steer's request): its failures are uncertain
+    /// (`unread_or_uncertain`, behaviour.md section 20 "ACP steer fate").
+    pub wrote_any: bool,
     /// A *prompt* of it went out (`session.ts:609`), which is what lets a later job of the
-    /// batch skip the fence: a steer that wrote and then fell back did not.
-    pub sent_prompt: bool,
+    /// batch skip the fence: a steer that wrote and then fell back did not. `drain` decides
+    /// staleness on this one, never on `wrote_any`.
+    pub wrote_prompt: bool,
     /// The send's promise is settled; a later prompt of it changes nothing.
     pub settled: bool,
 }
@@ -78,20 +80,25 @@ impl AcpCore {
             let Some(job) = self.queue.pop_front() else {
                 return;
             };
-            let written = self
+            let wrote_any = self
                 .batches
                 .get(&job.batch)
-                .is_some_and(|batch| batch.written);
-            let prompt_written = self
+                .is_some_and(|batch| batch.wrote_any);
+            let wrote_prompt = self
                 .batches
                 .get(&job.batch)
-                .is_some_and(|batch| batch.sent_prompt);
+                .is_some_and(|batch| batch.wrote_prompt);
             // `next.fence && !next.fence.current() && !next.batch.written`
-            // (`session.ts:718`): the fence answers for the turn it named, and that turn's
-            // prompt has settled by the time the queue reaches a job it held.
+            // (`session.ts:718`), plus one rule this port adds on purpose: an aimed job is
+            // stale here even when the fence still reads current. `drain` runs only while
+            // nothing is active, so the prompt an aimed steer named has already settled; the
+            // engine may not have applied that turn's end frames yet, which is why its fence
+            // can still answer "current". TS would send the steer as the next prompt; Rust
+            // refuses it so a steer never joins another run, and the engine requeues it
+            // (`intent-delivery.ts:147`). Recorded in `docs/engine/behaviour.md` section 20.
             let stale =
                 job.fence.as_ref().is_some_and(|fence| !fence.current()) || job.aim.is_some();
-            if stale && !prompt_written {
+            if stale && !wrote_prompt {
                 // Its turn ended before ACP was idle to take it: refused unread, never
                 // written into another (`session.ts:718`).
                 self.queued_bytes = self.queued_bytes.saturating_sub(job.bytes);
@@ -152,7 +159,7 @@ impl AcpCore {
                 // (`session.ts:629`-`:636`).
                 let error = self.unread_or_uncertain(job.batch, &message);
                 self.settle_job(job.batch, Err(error), effects);
-                if !written {
+                if !wrote_any {
                     self.drop_batch(job.batch, effects);
                 }
                 self.queue_changed(effects);
@@ -176,9 +183,12 @@ impl AcpCore {
                     self.active = false;
                     let error = self.unread_or_uncertain(job.batch, err.message());
                     self.settle_job(job.batch, Err(error), effects);
-                    if !written {
+                    if !wrote_any {
                         self.drop_batch(job.batch, effects);
                     }
+                    // The job left the queue; the recorder's count must say so (`send`'s
+                    // `finally` reports in TS, `session.ts:671`-`:675`).
+                    self.queue_changed(effects);
                     continue;
                 }
             };
@@ -192,8 +202,8 @@ impl AcpCore {
             if self.prompt_frames != prompt_frames
                 && let Some(batch) = self.batches.get_mut(&job.batch)
             {
-                batch.written = true;
-                batch.sent_prompt = true;
+                batch.wrote_any = true;
+                batch.wrote_prompt = true;
             }
             self.queue_changed(effects);
             return;
@@ -257,7 +267,11 @@ impl AcpCore {
     /// out it may have reached the agent, so the failure stays uncertain
     /// (`session.ts:630`, `intent-delivery.ts:140`-`:147`).
     pub(crate) fn unread_or_uncertain(&self, batch: u64, message: &str) -> AcpErrorWire {
-        if self.batches.get(&batch).is_some_and(|state| state.written) {
+        if self
+            .batches
+            .get(&batch)
+            .is_some_and(|state| state.wrote_any)
+        {
             AcpErrorWire::rpc_error(self.redact_message(message))
         } else {
             AcpErrorWire::input_rejected(message.to_owned())

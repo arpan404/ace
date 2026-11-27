@@ -178,8 +178,9 @@ impl AcpCore {
         Value::Object(params)
     }
 
-    /// `openWithSignIn`'s second attempt (`acp-sign-in.ts:30`): `session/new|load|resume`
-    /// again, never `initialize`, which this session already ran.
+    /// `openWithSignIn`'s second attempt (`packages/provider-kit/src/acp-sign-in.ts:30`): the
+    /// session request again, never `initialize`, which this session already ran. The facade's
+    /// second call settles on the retry's own reply, under the same stall deadline.
     pub fn retry_open_session(&mut self, facade_id: u64) -> Vec<AcpEffect> {
         let mut effects = Vec::new();
         if self.closed {
@@ -383,7 +384,8 @@ impl AcpCore {
             has_system_prompt,
         };
         // The sign-in retry re-sends only this request: `initialize` ran once
-        // (`acp-sign-in.ts:30`).
+        // (`acp-sign-in.ts:30`). The facade's second attempt reads it back by
+        // `retry_open_session`; nothing else keeps it.
         self.session_spec = Some(spec.clone());
         self.open_stalled = true;
         self.arm_deadline("open", OPEN_STALL_MS, effects);

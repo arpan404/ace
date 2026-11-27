@@ -102,7 +102,7 @@ impl super::AcpCore {
             .collect();
         for batch in batches {
             if let Some(state) = self.batches.get_mut(&batch) {
-                state.written = true;
+                state.wrote_any = true;
             }
         }
     }
