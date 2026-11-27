@@ -46,13 +46,6 @@ fn object(value: &Value) -> Option<&Map> {
     }
 }
 
-fn object_mut(value: &mut Value) -> Option<&mut Map> {
-    match value {
-        Value::Object(map) => Some(map),
-        _ => None,
-    }
-}
-
 fn field_text<'a>(value: &'a Value, key: &str) -> Option<&'a JsString> {
     match field(value, key) {
         Some(Value::String(text)) => Some(text),
