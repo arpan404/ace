@@ -1778,6 +1778,58 @@ fn a_live_accounts_connection_probe_settles_the_catalog() {
 }
 
 #[test]
+fn a_dropped_connection_poll_never_strands_close() {
+    struct Probe {
+        calls: Arc<AtomicUsize>,
+    }
+    impl super::ConnectionProbe for Probe {
+        fn probe(
+            &self,
+            _request: super::DiscoveryRequest,
+            signal: crate::signals::Signal,
+        ) -> futures::future::LocalBoxFuture<
+            'static,
+            Result<String, crate::failures::DiscoveryFailure>,
+        > {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                signal.wait().await;
+                Err(crate::failures::DiscoveryFailure::with_code(
+                    crate::failures::FailureCode::Timeout,
+                ))
+            })
+        }
+    }
+    let first = instance(ProviderKind::Opencode, "one");
+    let second = instance(ProviderKind::Opencode, "two");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let spawn = TestSpawn::new();
+    let mut options = CatalogOptions::new(
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+        TestClock::new(1_000.0),
+        TestDeadlines::new(),
+        spawn.clone(),
+    );
+    options.instances = vec![first, second];
+    options.revision_probe = Some(Arc::new(Probe {
+        calls: calls.clone(),
+    }));
+    let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+    let mut polling = Box::pin(catalog.reconcile_connections());
+    assert!(poll_once(polling.as_mut()).is_pending(), "the probe waits");
+    drop(polling);
+    // Shutdown must settle the probe the dropped caller left behind.
+    let closed = settle(catalog.close(), &spawn, "close after a dropped probe");
+    closed.unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "no probe starts once shutdown began"
+    );
+}
+
+#[test]
 fn close_aborts_a_waiting_probe_instead_of_waiting_on_it() {
     struct Probe;
     impl super::ConnectionProbe for Probe {

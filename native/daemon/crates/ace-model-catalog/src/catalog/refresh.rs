@@ -1048,6 +1048,31 @@ fn connection_revision(
     ))
 }
 
+/// One registered connection probe. Dropping it cancels its deadline, settles its gate
+/// and removes its registry entries, whichever way its caller leaves.
+struct ProbeGuard {
+    catalog: Catalog,
+    signal: Signal,
+    gate: crate::signals::Gate,
+    cancel: Option<crate::catalog::Cancel>,
+}
+
+impl Drop for ProbeGuard {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            cancel();
+        }
+        self.signal.abort();
+        self.catalog.with_inner(|inner| {
+            inner.owned.retain(|known| !known.same(&self.gate));
+            inner
+                .probe_signals
+                .retain(|known| !known.same(&self.signal));
+        });
+        self.gate.open();
+    }
+}
+
 /// Re-checks CLI-owned connections at most every `connectionCheckMs`.
 impl Catalog {
     pub(crate) fn check_connections(&self) {
@@ -1104,29 +1129,40 @@ impl Catalog {
             let generation =
                 self.with_inner(|inner| inner.states.get(&id).map(|state| state.generation));
             let revision = self.revision(&config);
-            let Some(signal) = self.with_inner(|inner| {
+            // Registering the probe and checking that shutdown has not begun are one
+            // critical section: no probe starts after close aborted the registry.
+            let registered = self.with_inner(|inner| {
+                if inner.closed {
+                    return None;
+                }
                 let state = inner.states.get(&id)?;
                 if state.flight.is_some() || self.now() < state.probe_retry_at.max(state.retry_at) {
                     return None;
                 }
-                Some(Signal::new())
-            }) else {
-                continue;
-            };
-            // The probe owns a deadline, a shutdown abort and a registry entry: a probe
-            // outliving its row or the daemon acts on nothing.
-            let gate = crate::signals::Gate::new();
-            self.with_inner(|inner| {
+                let signal = Signal::new();
+                let gate = crate::signals::Gate::new();
                 inner.probe_signals.push(signal.clone());
                 inner.owned.push(gate.clone());
+                Some((signal, gate))
             });
-            let cancel = self.options.deadline.arm(
+            let Some((signal, gate)) = registered else {
+                continue;
+            };
+            // The probe owns a deadline, a shutdown abort and a registry entry: whatever
+            // ends its caller, its gate settles and its entry leaves the registry.
+            let mut guard = ProbeGuard {
+                catalog: self.clone(),
+                signal: signal.clone(),
+                gate,
+                cancel: None,
+            };
+            guard.cancel = Some(self.options.deadline.arm(
                 self.options.timeout_ms,
                 Box::new({
                     let signal = signal.clone();
                     move || signal.abort()
                 }),
-            );
+            ));
             let request = DiscoveryRequest {
                 instance: with_binary_path(
                     &config,
@@ -1138,13 +1174,12 @@ impl Catalog {
                 Box::pin(signal.wait()),
             )
             .await;
-            cancel();
-            self.with_inner(|inner| {
-                inner.owned.retain(|known| !known.same(&gate));
-                inner.probe_signals.retain(|known| !known.same(&signal));
-            });
-            gate.open();
-            if signal.is_aborted() {
+            if let Some(cancel) = guard.cancel.take() {
+                cancel();
+            }
+            let aborted = signal.is_aborted();
+            drop(guard);
+            if aborted {
                 continue;
             }
             let futures::future::Either::Left((result, _)) = outcome else {
