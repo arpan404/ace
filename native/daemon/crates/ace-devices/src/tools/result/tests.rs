@@ -335,6 +335,42 @@ fn a_failure_body_takes_the_catalog_words_and_ace_s_detail() {
 }
 
 #[test]
+fn a_detail_keeps_utf16_units_and_is_left_out_when_empty() {
+    let body = |message: JsString| {
+        failure_body(
+            &DeviceFailure {
+                code: DeviceErrorCode::StaleRef,
+                message,
+                hint: JsString::from("hint"),
+                permission: None,
+                platform: None,
+            },
+            true,
+        )
+    };
+
+    // A lone surrogate is not a control character: `PublicToolError` keeps it, and the
+    // wire carries it back as `\ud800`, never as U+FFFD.
+    let detail = body(JsString::from_units(&[0xd800]));
+    assert_eq!(
+        ace_json::to_string(detail.get("detail").expect("a detail")),
+        "\"\\ud800\""
+    );
+
+    // A pair cut at the 256-unit cap keeps its high half, as `slice(0, 256)` does.
+    let mut units = vec![0x78; 255];
+    units.extend("😀".encode_utf16());
+    let detail = body(JsString::from_units(&units));
+    assert_eq!(
+        ace_json::to_string(detail.get("detail").expect("a detail")),
+        format!("\"{}\\ud83d\"", "x".repeat(255))
+    );
+
+    // An empty message leaves no detail key at all.
+    assert!(body(JsString::empty().clone()).get("detail").is_none());
+}
+
+#[test]
 fn an_ios_id_of_non_ascii_digits_is_not_a_device() {
     // JavaScript's `\d` is ASCII: 36 Arabic-Indic digits are not a UDID, even
     // though Unicode calls them digits.

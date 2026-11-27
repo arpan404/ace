@@ -239,10 +239,34 @@ fn permission_hint(permission: DevicePermission) -> &'static str {
     }
 }
 
+/// `/[a-f0-9]{64}/gi`, over UTF-16 units: a lone surrogate in the text is neither
+/// matched nor rewritten, as `String.prototype.replace` leaves it. A run longer than
+/// 64 keeps its tail, because JavaScript resumes after the match it replaced.
+fn redact_hex(units: &[u16]) -> Vec<u16> {
+    const RUN: usize = 64;
+    /// `[a-f0-9]`, as a code unit: a surrogate or any other character never matches.
+    fn is_hex(unit: u16) -> bool {
+        matches!(unit, 0x30..=0x39 | 0x41..=0x46 | 0x61..=0x66)
+    }
+    let mut out = Vec::with_capacity(units.len());
+    let mut at = 0;
+    while at < units.len() {
+        let run = units[at..].iter().take_while(|unit| is_hex(**unit)).count();
+        if run >= RUN {
+            out.extend("[redacted]".encode_utf16());
+            at += RUN;
+        } else {
+            out.push(units[at]);
+            at += 1;
+        }
+    }
+    out
+}
+
 /// `PublicToolError`'s cleanup of ace's own detail: control characters become spaces,
-/// a 64-character hex run is redacted, and the text is cut at 256 UTF-16 units.
+/// a 64-character hex run is redacted, and the text is cut at 256 UTF-16 units — all
+/// over code units, so a lone surrogate survives as the agent sent it.
 fn detail_text(message: &JsString) -> JsString {
-    static HEX: OnceLock<Option<Regex>> = OnceLock::new();
     let sanitized: Vec<u16> = message
         .units()
         .map(|unit| {
@@ -253,19 +277,8 @@ fn detail_text(message: &JsString) -> JsString {
             }
         })
         .collect();
-    let text = JsString::from_units(&sanitized);
-    let redacted = HEX
-        .get_or_init(|| Regex::new(r"(?i)[a-f0-9]{64}").ok())
-        .as_ref()
-        .map_or_else(
-            || text.as_str().to_owned(),
-            |pattern| {
-                pattern
-                    .replace_all(text.as_str(), "[redacted]")
-                    .into_owned()
-            },
-        );
-    JsString::from_units(&redacted.encode_utf16().take(256).collect::<Vec<_>>())
+    let redacted = redact_hex(&sanitized);
+    JsString::from_units(&redacted[..redacted.len().min(256)])
 }
 
 /// `simFailure`: the JSON body an agent's tool call reports, exactly as
@@ -287,7 +300,7 @@ pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
     out.insert("code", Value::String(JsString::from(public.code)));
     out.insert("message", Value::String(message));
     out.insert("hint", Value::String(hint));
-    if let Some(detail) = public.message {
+    if let Some(detail) = public.message.filter(|detail| !detail.is_empty()) {
         out.insert("detail", Value::String(detail_text(&detail)));
     }
     if let Some(permission) = public.permission {
