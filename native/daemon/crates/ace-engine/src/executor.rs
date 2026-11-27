@@ -40,7 +40,7 @@ pub fn is_barrier(id: TaskId) -> bool {
 }
 
 /// Which ready queue a runnable waits in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Lane {
     /// A Stop's interrupt, an interaction's resolution, a task stop: polled first.
     Control,

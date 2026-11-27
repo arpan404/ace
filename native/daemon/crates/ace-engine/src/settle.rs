@@ -236,7 +236,7 @@ async fn stop_one(core: &Rc<Core>, fence: &Fence<'_>, thread: &String) -> Result
             &state.workers.steering,
         ]
         .into_iter()
-        .filter_map(|worker| worker.drain(thread))
+        .filter_map(|worker| worker.drain_excluding(thread, core.executor.current()))
         .collect::<Vec<_>>()
     })?;
     for waiter in waiters {

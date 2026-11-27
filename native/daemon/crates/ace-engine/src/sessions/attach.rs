@@ -319,6 +319,18 @@ pub(crate) async fn close_for_settle(
     core: &Rc<Core>,
     thread: &ThreadId,
 ) -> Result<(), EngineError> {
+    close_session(core, thread, ace_adapter_api::CloseReason::User).await
+}
+
+pub(crate) async fn close_idle(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
+    close_session(core, thread, ace_adapter_api::CloseReason::Idle).await
+}
+
+async fn close_session(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+    reason: ace_adapter_api::CloseReason,
+) -> Result<(), EngineError> {
     let selected = core.with_state(|state| {
         let attached = state.sessions.attached.get(thread)?;
         state
@@ -330,7 +342,7 @@ pub(crate) async fn close_for_settle(
     let Some((session, inbox)) = selected else {
         return Ok(());
     };
-    let outcome = session.close(ace_adapter_api::CloseReason::User).await;
+    let outcome = session.close(reason).await;
     // Give the session's drain a turn to hand off its last frames before detaching.
     crate::actor::yield_once().await;
     if outcome.is_ok() && current_session(core, thread, &inbox) {

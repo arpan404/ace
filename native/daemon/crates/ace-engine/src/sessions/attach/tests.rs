@@ -138,6 +138,7 @@ mod engine {
     struct SilentSession {
         observer: Arc<dyn SessionObserver>,
         on_close: RefCell<Option<ClosingAction>>,
+        stopped: Rc<RefCell<Vec<String>>>,
     }
 
     impl Session for SilentSession {
@@ -178,8 +179,11 @@ mod engine {
         ) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
             Box::pin(async { Ok(()) })
         }
-        fn stop_task(&self, _task: Key) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
-            Box::pin(async { Ok(()) })
+        fn stop_task(&self, task: Key) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
+            Box::pin(async move {
+                self.stopped.borrow_mut().push(task);
+                Ok(())
+            })
         }
         fn close(&self, _reason: CloseReason) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
             Box::pin(async move {
@@ -222,6 +226,7 @@ mod engine {
         failure: Option<String>,
         observer: RefCell<Option<Arc<dyn SessionObserver>>>,
         on_close: RefCell<Option<ClosingAction>>,
+        stopped: Rc<RefCell<Vec<String>>>,
     }
 
     impl FakeOpener {
@@ -231,6 +236,7 @@ mod engine {
                 failure: None,
                 observer: RefCell::new(None),
                 on_close: RefCell::new(None),
+                stopped: Rc::default(),
             }
         }
     }
@@ -256,9 +262,14 @@ mod engine {
             });
             *self.observer.borrow_mut() = Some(Arc::clone(&observer));
             let on_close = RefCell::new(self.on_close.take());
+            let stopped = Rc::clone(&self.stopped);
             Box::pin(async move {
                 Ok(Opened {
-                    session: Box::new(SilentSession { observer, on_close }),
+                    session: Box::new(SilentSession {
+                        observer,
+                        on_close,
+                        stopped,
+                    }),
                     translator: Box::new(TurnTranslator),
                     native_session_id: "native-1".to_owned(),
                 })
@@ -543,6 +554,57 @@ mod engine {
     }
 
     #[test]
+    fn a_committed_background_stop_reaches_its_owning_provider_session() {
+        let conn = home("t", &header("t"));
+        let (engine, _shell) = engine_on(&conn);
+        pump(&engine);
+        assert!(engine.is_ready());
+        let core = engine.core();
+        install_actor(core);
+        let opener = FakeOpener::ok();
+        let view = ready_view();
+        let steps = OpenSteps {
+            view: &view,
+            prepare_workspace: None,
+            writable: None,
+            recheck: None,
+        };
+        crate::futures::executor::block_on(super::super::open(core, &opener, request(), &steps))
+            .expect("open");
+        pump(&engine);
+        conn.exec(
+            r#"INSERT INTO engine_state_records VALUES ('t','tasks','provider-task',
+                 '{"id":"task-id","agentId":"agent","kind":"shell","title":"A shell","status":"running","ambient":false,"stoppable":true,"startedAt":1}');
+               INSERT INTO view_entities VALUES ('t','backgroundTasks','task-id','{}');
+               UPDATE thread_state SET seq=seq+1 WHERE thread_id='t';"#,
+        ).unwrap();
+        let command = ace_json::parse(
+            r#"{"id":"stop-task","deviceId":"device","payload":{"type":"background_task.stop","taskId":"task-id"}}"#,
+        ).unwrap();
+        let accepted = core
+            .store
+            .atomic(|_| {
+                core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            accepted.get("ok").and_then(ace_json::Value::as_bool),
+            Some(true),
+            "{accepted}"
+        );
+        core.release_after_commit();
+        pump(&engine);
+        assert_eq!(opener.stopped.borrow().as_slice(), ["provider-task"]);
+        assert_eq!(
+            crate::intents::store::command_status(&conn, "stop-task")
+                .unwrap()
+                .as_deref(),
+            Some("done")
+        );
+    }
+
+    #[test]
     fn a_failed_provider_open_leaves_no_session_and_no_open_mark() {
         let conn = home("t", &header("t"));
         let (engine, _shell) = engine_on(&conn);
@@ -553,6 +615,7 @@ mod engine {
             failure: Some("spawn failed".to_owned()),
             observer: RefCell::new(None),
             on_close: RefCell::new(None),
+            stopped: Rc::default(),
         };
         let view = ready_view();
         let steps = OpenSteps {

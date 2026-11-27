@@ -51,6 +51,9 @@ impl Engine {
         // `maxActiveThreads` decides how many threads keep a resident slot (`index.ts:191`).
         state.repo = crate::repository::Repo::open(limits.max_active_threads as usize);
         state.registry.set_entries(registry_json)?;
+        let worker_ports = Rc::clone(&ports);
+        state.workers =
+            crate::workers::WorkerSet::new(Rc::new(move |error| worker_ports.report(error)));
         // The restart ledgers' DDL is open-time work and belongs to `ace-engine::open`, in the
         // TypeScript opener's order (E5.4 decision 8 as amended 2026-11-26): never here.
         // A taken slot asks whether a warm idle session can give its own up (E5.6).
@@ -75,6 +78,7 @@ impl Engine {
             closing: Cell::new(false),
             admission_closed: Cell::new(false),
             wakes: RefCell::new(Wakes::default()),
+            pending_dispatches: RefCell::new(Default::default()),
             probe_close_stall: RefCell::new(None),
             tasks: RefCell::new(Vec::new()),
             actor_deps: RefCell::new(actor_deps),

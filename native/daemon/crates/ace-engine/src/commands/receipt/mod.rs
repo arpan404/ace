@@ -450,7 +450,14 @@ fn tail(
     for released_thread in released {
         crate::queue::holds::wake(core, &released_thread);
     }
-    crate::queue::holds::wake(core, thread);
+    if kind == "background_task.stop" {
+        core.defer(crate::executor::Deferred::Wake(
+            thread.to_owned(),
+            crate::executor::Lane::Control,
+        ));
+    } else {
+        crate::queue::holds::wake(core, thread);
+    }
     // The reclaim's in-memory marks are applied last, once nothing below can throw: a refusal or
     // a failed write rolls the SQL back and must leave no `idleDue` actor or `retiring` entry.
     if let Some(freed) = reclaimed {

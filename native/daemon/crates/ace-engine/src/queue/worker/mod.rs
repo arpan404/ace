@@ -17,6 +17,8 @@ use crate::queue::ready::ready_for_input;
 use crate::steering::route::SessionSteer;
 use crate::{Core, EngineError};
 
+mod control;
+
 /// The ownership states that take no new work here (ADR 0191, `ownership-rules.ts:117`).
 const FENCED: &str = "SELECT 1 FROM thread_ownership WHERE thread_id=? AND state IN ('stopping','handing','moved') LIMIT 1";
 /// `workspaceReservations.reserved(root)`: a Git change holds the workspace.
@@ -88,6 +90,10 @@ fn schedule_actor(core: &Core, thread: &str) {
 /// `wake(id)`: the thread's lanes run, unless it is closing, cleaning or moving. A wake while
 /// the store publishes history waits for writability, once per thread.
 pub fn wake(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
+    wake_lane(core, thread, Lane::Work)
+}
+
+pub(crate) fn wake_lane(core: &Rc<Core>, thread: &str, lane: Lane) -> Result<(), EngineError> {
     if core.with_state(|state| crate::cursor_reconcile::holds(state, thread))? {
         return Ok(());
     }
@@ -105,7 +111,8 @@ pub fn wake(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
     let live = core.actor_deps.borrow().live.clone();
     if live.history_writing() {
         // The publication ends soon; the wake runs once it does, and only one per thread.
-        let deferred = core.with_state(|state| state.deferred_wakes.insert(thread.to_owned()))?;
+        let deferred =
+            core.with_state(|state| state.deferred_wakes.insert((thread.to_owned(), lane)))?;
         if !deferred {
             return Ok(());
         }
@@ -115,8 +122,8 @@ pub fn wake(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
         let live = core.actor_deps.borrow().live.clone();
         let future = Box::pin(async move {
             live.writable().await;
-            let _ = ask.with_state(|state| state.deferred_wakes.remove(&thread));
-            let _ = wake(&ask, &thread);
+            let _ = ask.with_state(|state| state.deferred_wakes.remove(&(thread.clone(), lane)));
+            let _ = wake_lane(&ask, &thread, lane);
         });
         core.defer(Deferred::Spawn(Lane::Work, future));
         return Ok(());
@@ -126,10 +133,12 @@ pub fn wake(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
     if !reserved {
         return Ok(());
     }
-    let run = runner(Rc::clone(core));
-    core.with_state(|state| {
-        state.workers.sends.wake(thread, &core.executor, run);
-    })?;
+    actor::get_or_create(core, &thread.to_owned())?;
+    control::wake(core, thread)?;
+    if lane == Lane::Work {
+        let run = runner(Rc::clone(core));
+        core.with_state(|state| state.workers.sends.wake(thread, &core.executor, run))?;
+    }
     Ok(())
 }
 

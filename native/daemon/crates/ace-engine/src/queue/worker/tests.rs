@@ -227,3 +227,61 @@ fn a_transition_intent_runs_before_a_waiting_message() {
     // The message was never marked for delivery.
     assert_eq!(pass.status("after").as_deref(), Some("pending"));
 }
+
+#[test]
+fn a_committed_send_runs_a_worker_for_a_reserved_thread_without_an_actor() {
+    let conn = home("t", &header("t"));
+    let (_, shell) = Shell::store_with_controls(&conn);
+    let engine = crate::Engine::new(
+        shell.clone(), shell.clone(), crate::Inputs::default(),
+        r#"[{"provider":"claude","adapter":1,"capabilities":{"steer":false,"childControls":"full"},"discovery":{},"current":true}]"#,
+        Box::new(ManualPump), &conn, Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+    ).unwrap();
+    struct Turn;
+    impl crate::executor::Budget for Turn {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
+    for _ in 0..8 {
+        engine.pump(&mut Turn);
+    }
+    assert!(engine.is_ready(), "{:?}", shell.reports());
+    let core = engine.core();
+    core.with_state(|state| state.repo.probe_passthrough = true)
+        .unwrap();
+    let command = ace_json::parse(
+        r#"{"id":"wake-worker","deviceId":"device","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hello"}]}}"#,
+    ).unwrap();
+    let accepted = core
+        .store
+        .atomic(|_| {
+            core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        accepted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{accepted}"
+    );
+    assert_eq!(
+        crate::intents::store::command_status(&conn, "wake-worker")
+            .unwrap()
+            .as_deref(),
+        Some("pending")
+    );
+    core.release_after_commit();
+    for _ in 0..8 {
+        engine.pump(&mut Turn);
+    }
+    assert_eq!(
+        crate::intents::store::command_status(&conn, "wake-worker")
+            .unwrap()
+            .as_deref(),
+        Some("queued"),
+        "{:?}",
+        shell.reports()
+    );
+}

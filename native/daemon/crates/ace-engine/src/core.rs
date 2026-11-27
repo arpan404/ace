@@ -14,7 +14,7 @@ use crate::store::EngineStore;
 use crate::{commands, liveness, recovery, repository, sessions, transitions};
 use ace_json::Value;
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::{Rc, Weak};
 use std::task::Waker;
 
@@ -77,6 +77,7 @@ pub struct Core {
     pub(crate) admission_closed: Cell<bool>,
     /// Wakes released from the after-commit queue and the wakers parked actors registered.
     pub(crate) wakes: RefCell<Wakes>,
+    pub(crate) pending_dispatches: RefCell<HashSet<(ThreadId, Lane)>>,
     /// The probe's close step: awaits a port that may never settle.
     pub(crate) probe_close_stall: RefCell<Option<LocalBoxFuture<'static, ()>>>,
     /// The engine's own long-lived tasks, so `shut` cancels them.
@@ -437,11 +438,25 @@ impl Core {
 }
 
 impl DeferredHost for Core {
-    fn wake(&self, thread: &str, _lane: Lane) {
-        // A released wake belongs to work admitted before admission closed, so the shutdown
-        // join runs it; only `shut` stops new runnables, in the schedule function.
-        // E5.4f's sends worker starts from here; this branch has no worker yet.
+    fn wake(&self, thread: &str, lane: Lane) {
         self.record_wake(thread);
+        let Some(core) = self.self_rc() else { return };
+        let wake = (thread.to_owned(), lane);
+        if !self.pending_dispatches.borrow_mut().insert(wake.clone()) {
+            return;
+        }
+        self.executor
+            .spawn(lane, async move {
+                let ready = match core.ready_future() {
+                    Some(ready) => matches!(ready.await, Ok(Ok(()))),
+                    None => core.lifecycle() == Lifecycle::Ready,
+                };
+                core.pending_dispatches.borrow_mut().remove(&wake);
+                if ready && let Err(error) = crate::queue::worker::wake_lane(&core, &wake.0, lane) {
+                    core.ports.report(format!("{}: {error}", wake.0));
+                }
+            })
+            .detach();
     }
 
     fn spawn(&self, lane: Lane, future: LocalBoxFuture<'static, ()>) {

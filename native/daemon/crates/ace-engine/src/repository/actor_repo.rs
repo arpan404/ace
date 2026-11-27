@@ -200,11 +200,11 @@ impl ActorRepo for EngineRepo {
     }
 
     fn reserved_slot(&self, core: &Core, thread: &ThreadId) -> Result<bool, EngineError> {
-        Unported.reserved_slot(core, thread)
+        core.with_state(|state| state.repo.reserved_slot(&core.store, thread))?
     }
 
     fn retiring_count(&self, core: &Core) -> Result<usize, EngineError> {
-        Unported.retiring_count(core)
+        core.with_state(|state| state.repo.retiring_count())
     }
 
     fn cursor_record(

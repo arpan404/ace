@@ -50,7 +50,7 @@ pub struct State {
     /// to be released (E5.4a round 2).
     pub(crate) deferred_queue: Vec<crate::queue::write::StagedEvent>,
     /// Threads whose wake waits for the store to stop publishing history (E5.4f's `wake`).
-    pub(crate) deferred_wakes: std::collections::HashSet<ThreadId>,
+    pub(crate) deferred_wakes: std::collections::HashSet<(ThreadId, crate::executor::Lane)>,
 }
 
 impl Default for State {

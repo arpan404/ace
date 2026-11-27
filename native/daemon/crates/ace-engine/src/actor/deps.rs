@@ -312,9 +312,8 @@ impl ActorRepo for Unported {
 }
 
 impl ActorLinks for Unported {
-    fn wake(&self, core: &Core, _thread: &ThreadId) {
-        core.ports
-            .report(EngineError::not_ported("the actor wake", "E5.4").to_string());
+    fn wake(&self, core: &Core, thread: &ThreadId) {
+        crate::queue::holds::wake(core, thread);
     }
     fn abort_session(&self, core: &Core, _actor: &super::state::ActorRef, drop_session: bool) {
         let what = if drop_session {

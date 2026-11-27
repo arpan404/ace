@@ -137,6 +137,27 @@ impl Workers {
 
     /// One receiver per active thread, for `flush`; the caller's own pass (`exclude`) is
     /// skipped, so a task that flushes never waits on itself.
+    /// A drain whose caller knows its executor task, including while another pass is suspended.
+    pub(crate) fn drain_excluding(
+        &self,
+        id: &str,
+        caller: Option<TaskId>,
+    ) -> Option<oneshot::Receiver<()>> {
+        let mut shared = self.shared.borrow_mut();
+        if !shared.running.contains(id)
+            || caller.is_some_and(|caller| shared.task_of.get(id) == Some(&caller))
+        {
+            return None;
+        }
+        let (sender, receiver) = oneshot::channel();
+        shared
+            .waiters
+            .entry(id.to_owned())
+            .or_default()
+            .push(sender);
+        Some(receiver)
+    }
+
     pub fn waiters(&self, exclude: Option<TaskId>) -> Vec<oneshot::Receiver<()>> {
         let mut shared = self.shared.borrow_mut();
         let ids: Vec<String> = shared
