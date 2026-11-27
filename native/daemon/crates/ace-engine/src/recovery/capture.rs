@@ -194,14 +194,6 @@ pub(super) fn release_completed_restart_in(
     crate::queue::holds::sync(core, state, thread, at)
 }
 
-/// `recovery.resumeAfterRestart()` (`recovery.ts:366`): startup found the turn safe to continue,
-/// so its restart continuation goes now, counting toward the loop guard.
-pub fn resume_after_restart(core: &Core, thread: &str) -> Result<(), EngineError> {
-    crate::restart::increment_streak(core.store.conn(), thread)?;
-    super::deadline::automatic(core, thread, None)?;
-    Ok(())
-}
-
 /// `recovery.holdInterrupted()` (`recovery.ts:375`): a provider died with work in flight, so the
 /// turn is held for the person; ace never continues it by itself.
 pub fn hold_interrupted(core: &Core, thread: &str) -> Result<(), EngineError> {

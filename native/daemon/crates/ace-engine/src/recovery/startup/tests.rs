@@ -369,3 +369,32 @@ fn reopening_a_settled_tree_cancels_a_childs_request_and_holds_its_queued_send()
         Some("pending")
     );
 }
+
+#[test]
+fn a_restart_retries_a_resume_whose_intent_did_not_commit() {
+    let conn = home("t", &crate::repository::testsupport::header("t"));
+    setup(&conn, false);
+    conn.exec(
+        "CREATE TRIGGER fail_resume BEFORE INSERT ON intents WHEN NEW.kind='thread.resume'
+         BEGIN SELECT RAISE(ABORT, 'restart resume write failed'); END",
+    )
+    .unwrap();
+    pump_ready(&conn);
+    assert_eq!(resume_intents(&conn), 0);
+    assert_eq!(crate::restart::streak(&conn, "t").unwrap(), 0);
+    assert!(crate::restart::has_capture(&conn, "t").unwrap());
+    assert_ne!(
+        notice(&conn)
+            .as_ref()
+            .and_then(|item| item.get("text"))
+            .and_then(Value::as_str),
+        Some("Interrupted by a restart. Continuing.")
+    );
+
+    let conn = reopen(conn);
+    conn.exec("DROP TRIGGER fail_resume").unwrap();
+    pump_ready(&conn);
+    assert_eq!(resume_intents(&conn), 1);
+    assert_eq!(crate::restart::streak(&conn, "t").unwrap(), 1);
+    assert!(!crate::restart::has_capture(&conn, "t").unwrap());
+}

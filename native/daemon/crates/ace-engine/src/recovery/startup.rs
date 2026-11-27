@@ -539,13 +539,8 @@ fn second_pass(
     thread: &str,
     interrupted: &mut Interrupted,
 ) -> Result<(), EngineError> {
-    let resume = core
-        .store
-        .atomic(|_| core.with_state(|state| second_pass_in(core, state, thread, interrupted))?)?;
-    if resume {
-        capture::resume_after_restart(core, thread)?;
-    }
-    Ok(())
+    core.store
+        .atomic(|_| core.with_state(|state| second_pass_in(core, state, thread, interrupted))?)
 }
 
 fn second_pass_in(
@@ -553,9 +548,9 @@ fn second_pass_in(
     state: &mut State,
     thread: &str,
     interrupted: &mut Interrupted,
-) -> Result<bool, EngineError> {
+) -> Result<(), EngineError> {
     if state.repo.cleaning(thread) {
-        return Ok(false);
+        return Ok(());
     }
     let now = core.ports.now();
     if threads::get(&core.store, thread)?
@@ -565,7 +560,7 @@ fn second_pass_in(
     {
         crate::restart::take_capture(core.store.conn(), thread)?;
         capture::discard_holding_in(core, state, thread, capture::RELEASED)?;
-        return Ok(false);
+        return Ok(());
     }
     let capture_taken = crate::restart::take_capture(core.store.conn(), thread)?;
     let queue = queue_store::get(&core.store, thread)?;
@@ -576,7 +571,7 @@ fn second_pass_in(
         && queue.continuation.is_none()
         && queue_store::count(core.store.conn(), thread)? == 0
     {
-        return Ok(false);
+        return Ok(());
     }
     let uncertain = queue_store::has_uncertain(core.store.conn(), thread)?;
     let reason = if matches!(
@@ -630,7 +625,18 @@ fn second_pass_in(
             now,
         )?;
         if decision == RestartDecision::Resume {
-            return Ok(true);
+            let receipt = super::deadline::automatic_in(core, state, thread, None)?;
+            if let Some(receipt) = receipt
+                && receipt.get("ok").and_then(Value::as_bool) != Some(true)
+                && receipt.get("error").and_then(Value::as_str) != Some("engine_capacity_exceeded")
+            {
+                return Err(EngineError::Records(format!(
+                    "Restart resume refused: {}",
+                    ace_json::to_string(&receipt)
+                )));
+            }
+            crate::restart::increment_streak(core.store.conn(), thread)?;
+            return Ok(());
         }
     }
     // Recovery controls already accepted before a crash are safe only when unclaimed.
@@ -640,7 +646,7 @@ fn second_pass_in(
     {
         holds::wake(core, thread);
     }
-    Ok(false)
+    Ok(())
 }
 
 /// The next page of outstanding intents, 64 at a time (`intents.ts:135`).
