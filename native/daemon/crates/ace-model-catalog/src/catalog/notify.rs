@@ -1,61 +1,49 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Listener callbacks, run off the actor thread.
-//!
-//! A listener is user code: it may block, panic, or call back into the catalog. Running
-//! it on the actor would let any of those stall or deadlock catalog state. One worker
-//! thread drains the queue, so a listener that reads `list()` waits on the actor while
-//! the actor stays free. Notifications are hints to re-read, so the queue is bounded and
-//! overflow drops the hint rather than growing without limit.
+//! Bounded delivery of callbacks that may reenter the catalog.
 
-use std::sync::Arc;
-use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 
-use crate::catalog::ModelFilter;
-
-type Listener = Arc<dyn Fn(ModelFilter) + Send + Sync>;
-
-/// The most listener notifications waiting to run.
+type Callback = Box<dyn FnOnce() + Send>;
 const NOTIFY_CAPACITY: usize = 1024;
 
 pub(crate) struct NotifyLane {
-    sender: Option<SyncSender<(Listener, ModelFilter)>>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    sender: mpsc::SyncSender<Callback>,
+    stopped: Arc<AtomicBool>,
 }
 
 impl NotifyLane {
-    pub(crate) fn new() -> Self {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(NOTIFY_CAPACITY);
-        let worker = std::thread::Builder::new()
-            .name("ace-model-catalog-listeners".to_owned())
-            .spawn(move || run(receiver))
-            .ok();
-        Self {
-            sender: Some(sender),
-            worker,
-        }
+    pub(crate) fn new(name: &str, capacity: usize) -> std::io::Result<Self> {
+        let (sender, receiver) = mpsc::sync_channel::<Callback>(capacity);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_stopped = stopped.clone();
+        std::thread::Builder::new()
+            .name(name.to_owned())
+            .spawn(move || {
+                for callback in receiver {
+                    if worker_stopped.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let _ = catch_unwind(AssertUnwindSafe(callback));
+                }
+            })?;
+        Ok(Self { sender, stopped })
     }
 
-    /// Queues one notification; a full queue drops it, never blocks the actor.
-    pub(crate) fn notify(&self, listener: Listener, filter: ModelFilter) {
-        let Some(sender) = &self.sender else {
-            return;
-        };
-        match sender.try_send((listener, filter)) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
-        }
+    pub(crate) fn notifications() -> std::io::Result<Self> {
+        Self::new("ace-model-catalog-listeners", NOTIFY_CAPACITY)
     }
 
-    /// Lets the worker finish what it accepted and joins it.
-    pub(crate) fn shutdown(&mut self) {
-        drop(self.sender.take());
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+    /// Notifications are hints to read the current state. Overflow drops the hint.
+    pub(crate) fn submit(&self, callback: impl FnOnce() + Send + 'static) {
+        let _ = self.sender.try_send(Box::new(callback));
     }
 }
 
-fn run(receiver: Receiver<(Listener, ModelFilter)>) {
-    for (listener, filter) in receiver {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(filter)));
+impl Drop for NotifyLane {
+    fn drop(&mut self) {
+        // A running callback may itself be waiting for close.
+        self.stopped.store(true, Ordering::Release);
     }
 }

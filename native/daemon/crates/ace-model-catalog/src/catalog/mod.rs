@@ -382,7 +382,7 @@ pub(crate) enum PendingOp {
 /// The catalog a daemon serves: a handle that only sends commands to the actor.
 #[derive(Clone)]
 pub struct Catalog {
-    pub(crate) sender: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    pub(crate) sender: Arc<std::sync::mpsc::SyncSender<Envelope>>,
     pub(crate) options: Arc<CatalogOptions>,
     /// A successful close is final: every later call answers with this result.
     closed: Arc<Mutex<Option<Result<(), CatalogError>>>>,
@@ -450,13 +450,13 @@ impl Catalog {
             removals: BTreeMap::new(),
         };
         let (sender, receiver) = std::sync::mpsc::sync_channel(COMMAND_CAPACITY);
-        let sender = Arc::new(Mutex::new(sender));
+        let sender = Arc::new(sender);
         let options = Arc::new(options);
         // Work the actor owns reports on its own unbounded queue; the actor keeps only a
         // weak name of the callers' mailbox, so dropping every handle ends it.
         let (completions, completions_receiver) = std::sync::mpsc::channel();
         let reporter = commands::Reporter {
-            completions: Arc::new(Mutex::new(completions)),
+            completions,
             commands: Arc::downgrade(&sender),
         };
         let closed = Arc::new(Mutex::new(None));
@@ -473,7 +473,7 @@ impl Catalog {
                 close_result: closed.clone(),
                 instance_ids: instance_ids.clone(),
             },
-        );
+        )?;
         let join = Arc::new(Mutex::new(Some(
             std::thread::Builder::new()
                 .name("ace-model-catalog".to_owned())
@@ -515,11 +515,7 @@ impl Catalog {
         let (reply, receiver) = futures::channel::oneshot::channel();
         let (ack, ack_receiver) = futures::channel::oneshot::channel();
         {
-            let sender = self
-                .sender
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            sender
+            self.sender
                 .send(commands::Envelope {
                     command: make(reply),
                     ack: Some(ack),
@@ -558,11 +554,7 @@ impl Catalog {
         let (reply, receiver) = futures::channel::oneshot::channel();
         let (ack, ack_receiver) = futures::channel::oneshot::channel();
         {
-            let sender = self
-                .sender
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            sender
+            self.sender
                 .send(commands::Envelope {
                     command: make(reply),
                     ack: Some(ack),
@@ -582,11 +574,7 @@ impl Catalog {
         let (reply, _) = futures::channel::oneshot::channel();
         let (ack, ack_receiver) = futures::channel::oneshot::channel();
         let sent = {
-            let sender = self
-                .sender
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            sender.send(commands::Envelope {
+            self.sender.send(commands::Envelope {
                 command: make(reply),
                 ack: Some(ack),
             })
@@ -697,9 +685,6 @@ impl Catalog {
             .unwrap_or(Err(CatalogError::Closed))?;
         let sender = self.sender.clone();
         Ok(Box::new(move || {
-            let sender = sender
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let _ = sender.send(Envelope {
                 command: Command::Unlisten { token },
                 ack: None,
@@ -943,15 +928,16 @@ impl Catalog {
         ) {
             return Ok(());
         }
-        let result = self
-            .request(|reply| Command::Close { reply })
-            .await
-            .unwrap_or(Err(CatalogError::Closed));
-        if result.is_ok() {
-            *self
+        let result = match self.request(|reply| Command::Close { reply }).await {
+            Some(result) => result,
+            None => self
                 .closed
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Ok(()));
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+                .unwrap_or(Err(CatalogError::Closed)),
+        };
+        if result.is_ok() {
             // The actor left its loop after recording the result; joining it proves every
             // row, timer and storage handle it owned is gone before close returns.
             if let Some(handle) = self

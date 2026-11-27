@@ -338,6 +338,7 @@ impl Actor {
                 )
             });
             report_line(
+                &self.notify,
                 &self.options,
                 &config,
                 &detail,
@@ -354,6 +355,7 @@ impl Actor {
                     && crate::sources::source_failed(source)
                 {
                     report_line(
+                        &self.notify,
                         &self.options,
                         &config,
                         error,

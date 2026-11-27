@@ -86,9 +86,9 @@ pub(crate) struct Actor {
     pub(crate) lane: StorageLane,
     pub(crate) limiter: Limiter,
     /// A weak name of the callers' mailbox: the actor never keeps itself alive for it.
-    pub(crate) commands: Weak<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    pub(crate) commands: Weak<std::sync::mpsc::SyncSender<Envelope>>,
     pub(crate) reporter: Reporter,
-    notify: NotifyLane,
+    pub(crate) notify: NotifyLane,
     terminate: bool,
     close_result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
     pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
@@ -135,7 +135,8 @@ impl Actor {
         reporter: Reporter,
         lane: StorageLane,
         shared: Shared,
-    ) -> Self {
+    ) -> Result<Self, CatalogError> {
+        let notify = NotifyLane::notifications().map_err(|_| CatalogError::Closed)?;
         for entry in stored {
             if entry.provider == ProviderKind::Acp {
                 inner.acp_loaded.insert(entry.instance.clone());
@@ -155,14 +156,14 @@ impl Actor {
             inner.persisted_order.push(entry.instance.clone());
             inner.persisted.insert(entry.instance.clone(), entry);
         }
-        Self {
+        Ok(Self {
             inner,
             options,
             lane,
             limiter,
             commands: reporter.commands.clone(),
             reporter,
-            notify: NotifyLane::new(),
+            notify,
             terminate: false,
             close_result: shared.close_result,
             instance_ids: shared.instance_ids,
@@ -197,7 +198,7 @@ impl Actor {
             quiesce_waiters: Vec::new(),
             pending_commits: 0,
             commit_tokens: BTreeSet::new(),
-        }
+        })
     }
 
     /// Runs until the callers' mailbox closes or a successful close asks the thread to
@@ -213,6 +214,7 @@ impl Actor {
                 self.handle_envelope(envelope);
             }
             if self.terminate {
+                drop(receiver);
                 self.finish_run();
                 return;
             }
@@ -224,11 +226,13 @@ impl Actor {
                     while let Ok(envelope) = completions.try_recv() {
                         self.handle_envelope(envelope);
                     }
+                    drop(receiver);
                     self.finish_run();
                     return;
                 }
             }
             if self.terminate {
+                drop(receiver);
                 self.finish_run();
                 return;
             }
@@ -243,7 +247,6 @@ impl Actor {
     }
 
     fn finish_run(&mut self) {
-        self.notify.shutdown();
         self.lane.shutdown();
     }
 
@@ -530,7 +533,9 @@ impl Actor {
             ..ModelFilter::default()
         };
         for listener in self.inner.listeners.values() {
-            self.notify.notify(listener.clone(), filter.clone());
+            let listener = listener.clone();
+            let filter = filter.clone();
+            self.notify.submit(move || listener(filter));
         }
     }
 
@@ -877,6 +882,7 @@ impl Actor {
         }
         for (source, label, schedule) in logs {
             report_line(
+                &self.notify,
                 &self.options,
                 &config,
                 &detail,
@@ -1312,6 +1318,7 @@ pub(crate) struct FailureReport<'a> {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn report_line(
+    notify: &NotifyLane,
     options: &CatalogOptions,
     config: &ModelInstance,
     detail: &crate::failures::DiscoveryError,
@@ -1338,5 +1345,6 @@ pub(crate) fn report_line(
         reason: None,
         model_index: None,
     };
-    let _ = catch_unwind(AssertUnwindSafe(|| on_error(report)));
+    let on_error = on_error.clone();
+    notify.submit(move || on_error(report));
 }

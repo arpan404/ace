@@ -895,3 +895,54 @@ fn dropped_refresh_callers_are_not_retained() {
         let _ = settle(catalog.close(), &fixture.spawn, "the close");
     })
 }
+
+#[test]
+fn a_listener_can_close_its_catalog() {
+    within(3, "listener close", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let fixture = fixture(
+            vec![],
+            SharedStorage::new(MemoryStorage::new()),
+            always(vec![]),
+        );
+        let catalog = fixture.catalog;
+        let (done, result) = std::sync::mpsc::channel();
+        let callback_catalog = catalog.clone();
+        let _unsubscribe = catalog
+            .listen(Arc::new(move |_| {
+                let _ = done.send(futures::executor::block_on(callback_catalog.close()));
+            }))
+            .unwrap();
+        catalog.register_instance(account, None).unwrap();
+        assert_eq!(result.recv().unwrap(), Ok(()));
+    });
+}
+
+#[test]
+fn an_error_handler_can_list_its_catalog() {
+    within(3, "error callback listing", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let spawn = TestSpawn::new();
+        let mut options = CatalogOptions::new(
+            SharedStorage::new(MemoryStorage::new()),
+            always(vec![]),
+            TestClock::new(0.0),
+            TestDeadlines::new(),
+            spawn.clone(),
+        );
+        options.instances = vec![account];
+        let target = Arc::new(Mutex::new(None::<Catalog>));
+        let callback_target = target.clone();
+        let (done, result) = std::sync::mpsc::channel();
+        options.on_error = Some(Arc::new(move |_| {
+            let catalog = callback_target.lock().unwrap().as_ref().unwrap().clone();
+            let _ = done.send(listed(&catalog).instances.len());
+        }));
+        let catalog = Catalog::new(options).unwrap();
+        *target.lock().unwrap() = Some(catalog.clone());
+        settle(catalog.load("account"), &spawn, "empty discovery").unwrap();
+        assert_eq!(result.recv().unwrap(), 1);
+        target.lock().unwrap().take();
+        settle(catalog.close(), &spawn, "close").unwrap();
+    });
+}
