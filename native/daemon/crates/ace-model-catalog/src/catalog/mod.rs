@@ -443,6 +443,60 @@ impl Drop for OwnedWork {
     }
 }
 
+/// A counted bound: the places the catalog admits for one kind of work, held for as long
+/// as that work exists and released whichever way its caller leaves.
+pub(crate) struct CapacitySlot {
+    catalog: Catalog,
+    kind: Capacity,
+    count: usize,
+}
+
+/// The counted bounds admission tracks.
+#[derive(Clone, Copy)]
+pub(crate) enum Capacity {
+    SessionWrites,
+    Invalidations,
+}
+
+impl CapacitySlot {
+    /// Takes one place, which the work itself has not counted yet.
+    pub(crate) fn take(catalog: &Catalog, kind: Capacity) -> Self {
+        catalog.with_inner(|inner| match kind {
+            Capacity::SessionWrites => inner.session_writes += 1,
+            Capacity::Invalidations => inner.invalidations += 1,
+        });
+        Self::claim(catalog, kind, 1)
+    }
+
+    /// Gives back places admission already counted, once the work holding them settles.
+    pub(crate) fn claim(catalog: &Catalog, kind: Capacity, count: usize) -> Self {
+        Self {
+            catalog: catalog.clone(),
+            kind,
+            count,
+        }
+    }
+
+    /// Moves some of this guard's places to a guard that settles with its own work.
+    pub(crate) fn share(&mut self, count: usize) -> Self {
+        self.count = self.count.saturating_sub(count);
+        Self::claim(&self.catalog, self.kind, count)
+    }
+}
+
+impl Drop for CapacitySlot {
+    fn drop(&mut self) {
+        self.catalog.with_inner(|inner| match self.kind {
+            Capacity::SessionWrites => {
+                inner.session_writes = inner.session_writes.saturating_sub(self.count);
+            }
+            Capacity::Invalidations => {
+                inner.invalidations = inner.invalidations.saturating_sub(self.count);
+            }
+        });
+    }
+}
+
 /// The connection metadata probe running for one row (`state.probe`).
 #[derive(Clone, Debug)]
 pub(crate) struct ProbeFlight {
@@ -1080,6 +1134,20 @@ impl Catalog {
         });
     }
 
+    /// The last steps of a removal: its row's deletion, then every other pending one, and
+    /// the id is free to register again once that finished.
+    pub(crate) fn finish_removal(&self, id: &str) -> Result<(), CatalogError> {
+        let _ = self.with_inner(|inner| inner.deletions.remove(id));
+        let retried = self.with_inner(|inner| inner.deletions.retry());
+        self.with_inner(|inner| {
+            inner.removals.remove(id);
+        });
+        match retried.into_iter().find(|result| result.is_err()) {
+            Some(Err(error)) => Err(CatalogError::Cache(error)),
+            _ => Ok(()),
+        }
+    }
+
     /// Completes a deletion this write would otherwise recreate.
     pub(crate) fn finish_deletion(&self, id: &str) -> Result<(), CatalogError> {
         if self.with_inner(|inner| inner.deletions.has(id)) {
@@ -1094,10 +1162,7 @@ impl Catalog {
         enum Plan {
             Done(Result<(), CatalogError>),
             Wait(crate::signals::Gate),
-            Drain {
-                work: Vec<crate::signals::Gate>,
-                observed: Option<Cancel>,
-            },
+            Drain(CloseDrain),
         }
         let plan = self.with_inner(|inner| {
             if let Some(result) = &inner.close_result {
@@ -1129,7 +1194,13 @@ impl Catalog {
             work.extend(inner.turns.values().filter_map(turns::Turns::tail));
             work.append(&mut inner.accepted_writes);
             inner.close_gate = Some(crate::signals::Gate::new());
-            Plan::Drain { work, observed }
+            Plan::Drain(CloseDrain {
+                catalog: self.clone(),
+                work,
+                observed,
+                done: false,
+                handed: false,
+            })
         });
         match plan {
             Plan::Done(result) => result,
@@ -1137,33 +1208,29 @@ impl Catalog {
                 gate.wait().await;
                 self.with_inner(|inner| inner.close_result.clone().unwrap_or(Ok(())))
             }
-            Plan::Drain { work, observed, .. } => {
-                if let Some(cancel) = observed {
-                    cancel();
-                }
-                for unit in work {
-                    unit.wait().await;
-                }
-                // Accepted session writes are drained before storage closes.
-                for tail in self.with_inner(|inner| {
-                    inner
-                        .turns
-                        .values()
-                        .filter_map(turns::Turns::tail)
-                        .collect::<Vec<_>>()
-                }) {
-                    tail.wait().await;
-                }
-                let result = self.finish_close();
-                self.with_inner(|inner| {
-                    inner.close_result = Some(result.clone());
-                    if let Some(gate) = inner.close_gate.take() {
-                        gate.open();
-                    }
-                });
-                result
-            }
+            Plan::Drain(drain) => drain.run().await,
         }
+    }
+
+    /// The gates of the places every instance's queue still holds, which close drains.
+    fn turn_tails(&self) -> Vec<crate::signals::Gate> {
+        self.with_inner(|inner| {
+            inner
+                .turns
+                .values()
+                .filter_map(turns::Turns::tail)
+                .collect()
+        })
+    }
+
+    /// Publishes a close's result and settles every later close with it.
+    fn conclude_close(&self, result: &Result<(), CatalogError>) {
+        self.with_inner(|inner| {
+            inner.close_result = Some(result.clone());
+            if let Some(gate) = inner.close_gate.take() {
+                gate.open();
+            }
+        });
     }
 
     /// The last steps of a close, once every unit of work settled.
@@ -1173,6 +1240,62 @@ impl Catalog {
         let mut storage = self.storage.clone();
         storage.close().map_err(CatalogError::Cache)?;
         Ok(())
+    }
+}
+
+/// One close attempt's drain. The work was collected when the close began; a caller that
+/// goes away hands the rest to the spawner, so storage still closes only after that work
+/// settled.
+struct CloseDrain {
+    catalog: Catalog,
+    work: Vec<crate::signals::Gate>,
+    observed: Option<Cancel>,
+    done: bool,
+    handed: bool,
+}
+
+impl CloseDrain {
+    async fn run(mut self) -> Result<(), CatalogError> {
+        self.drain().await;
+        self.done = true;
+        let result = self.catalog.finish_close();
+        self.catalog.conclude_close(&result);
+        result
+    }
+
+    async fn drain(&mut self) {
+        if let Some(cancel) = self.observed.take() {
+            cancel();
+        }
+        for unit in std::mem::take(&mut self.work) {
+            unit.wait().await;
+        }
+        // Accepted session writes are drained before storage closes.
+        for tail in self.catalog.turn_tails() {
+            tail.wait().await;
+        }
+    }
+}
+
+impl Drop for CloseDrain {
+    fn drop(&mut self) {
+        if self.done || self.handed {
+            return;
+        }
+        let catalog = self.catalog.clone();
+        let spawn = self.catalog.options.spawn.clone();
+        let work = std::mem::take(&mut self.work);
+        let observed = self.observed.take();
+        spawn.spawn(Box::pin(async move {
+            let drain = CloseDrain {
+                catalog,
+                work,
+                observed,
+                done: false,
+                handed: true,
+            };
+            let _ = drain.run().await;
+        }));
     }
 }
 

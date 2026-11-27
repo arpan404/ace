@@ -14,28 +14,26 @@ use serde_json::Value;
 
 use crate::cache::CacheEntry;
 use crate::catalog::turns::Turn;
-use crate::catalog::{Catalog, CatalogError, identity_revision, owns, validate_instance};
+use crate::catalog::{
+    Capacity, CapacitySlot, Catalog, CatalogError, identity_revision, owns, validate_instance,
+};
+use crate::signals::Gate;
 
-/// One of the 64 session-metadata slots, held for as long as the write exists even when
-/// its caller goes away, so a dropped write never keeps the catalog at its bound.
-pub(crate) struct SessionSlot {
+/// An accepted write close waits for: it leaves the registry and settles close's gate
+/// when the write finishes, or when the task carrying it never ran.
+struct AcceptedWrite {
     catalog: Catalog,
+    gate: Gate,
 }
 
-impl SessionSlot {
-    pub(crate) fn take(catalog: &Catalog) -> Self {
-        catalog.with_inner(|inner| inner.session_writes += 1);
-        Self {
-            catalog: catalog.clone(),
-        }
-    }
-}
-
-impl Drop for SessionSlot {
+impl Drop for AcceptedWrite {
     fn drop(&mut self) {
         self.catalog.with_inner(|inner| {
-            inner.session_writes = inner.session_writes.saturating_sub(1);
+            inner
+                .accepted_writes
+                .retain(|known| !known.same(&self.gate));
         });
+        self.gate.open();
     }
 }
 
@@ -96,7 +94,7 @@ impl Catalog {
         let revision = self.revision(&input);
         let identity = identity_revision(&input);
         let refreshed_at = self.now();
-        let slot = SessionSlot::take(self);
+        let slot = CapacitySlot::take(self, Capacity::SessionWrites);
         let mut hold = self.reserve_turn(&input.id);
         hold.wait().await;
         let result = self
@@ -217,28 +215,36 @@ impl Catalog {
         if let Some(config) = self.registered(instance) {
             self.notify_config(&config);
         }
-        if !needs_write || self.with_inner(|inner| inner.session_writes) >= 64 {
+        if !needs_write {
             return;
         }
+        // The slot, the place and close's gate are all taken before the task exists, so a
+        // task dropped before it ever ran leaves nothing held.
+        let admitted = self.with_inner(|inner| {
+            if inner.session_writes >= 64 {
+                return false;
+            }
+            inner.session_writes += 1;
+            true
+        });
+        if !admitted {
+            return;
+        }
+        let slot = CapacitySlot::claim(self, Capacity::SessionWrites, 1);
         // The write takes its place now, so a session write accepted later builds on it.
         let hold = self.reserve_turn(instance);
         let catalog = self.clone();
         let instance = instance.to_owned();
-        // An accepted write is visible to close before its task first runs.
-        let gate = crate::signals::Gate::new();
+        let gate = Gate::new();
         self.with_inner(|inner| inner.accepted_writes.push(gate.clone()));
+        let accepted = AcceptedWrite {
+            catalog: self.clone(),
+            gate,
+        };
         let token = generation;
         self.options.spawn.spawn(Box::pin(async move {
-            struct Accepted(crate::signals::Gate, Catalog, crate::signals::Gate);
-            impl Drop for Accepted {
-                fn drop(&mut self) {
-                    self.1.with_inner(|inner| {
-                        inner.accepted_writes.retain(|gate| !gate.same(&self.0));
-                    });
-                    self.2.open();
-                }
-            }
-            let _accepted = Accepted(gate.clone(), catalog.clone(), gate.clone());
+            let _accepted = accepted;
+            let _slot = slot;
             catalog
                 .persist_permission_modes(&instance, modes, token, hold)
                 .await;
@@ -252,7 +258,6 @@ impl Catalog {
         token: Option<u64>,
         mut hold: Turn,
     ) {
-        let _slot = SessionSlot::take(self);
         hold.wait().await;
         // The row may have been replaced while this write waited behind another.
         let current = match token {

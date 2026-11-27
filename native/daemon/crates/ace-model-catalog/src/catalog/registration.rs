@@ -229,7 +229,7 @@ impl Catalog {
     pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
         // The removal is catalog work on its own: close waits for it even after the row
         // is gone, so storage never closes before its deletion.
-        let _work = crate::catalog::OwnedWork::register(self);
+        let work = crate::catalog::OwnedWork::register(self);
         let (flights, invalidations, tail) = self.with_inner(|inner| {
             let removal = inner.removals.contains(instance);
             if removal {
@@ -287,26 +287,20 @@ impl Catalog {
             inner.acp_spacing.forget(instance);
             (flights, invalidations, tail)
         });
-        for flight in flights {
-            flight.done.wait().await;
-        }
-        for pending in invalidations {
-            pending.done.wait().await;
-        }
-        if let Some(tail) = tail {
-            tail.wait().await;
-        }
-        let _ = self.with_inner(|inner| inner.deletions.remove(instance));
-        let retried = self.with_inner(|inner| inner.deletions.retry());
-        let removed = self.with_inner(|inner| {
-            inner.removals.remove(instance);
-            true
-        });
-        let _ = removed;
-        match retried.into_iter().find(|result| result.is_err()) {
-            Some(Err(error)) => Err(CatalogError::Cache(error)),
-            _ => Ok(()),
-        }
+        let removal = Removal {
+            catalog: self.clone(),
+            id: instance.to_owned(),
+            flights: flights.into_iter().map(|flight| flight.done).collect(),
+            invalidating: invalidations
+                .into_iter()
+                .map(|pending| pending.done)
+                .collect(),
+            tail,
+            work: Some(work),
+            finished: false,
+            handed: false,
+        };
+        removal.run().await
     }
 
     /// Account-change boundary: revoke choices immediately, then delete them.
@@ -323,7 +317,16 @@ impl Catalog {
             inner.invalidations += selected.len();
             selected
         };
-        let mut pending = Vec::new();
+        // Admission counted every selected row; each deletion takes one of those places
+        // for as long as it exists, and the rest are free again when this pass ends.
+        let mut admission = crate::catalog::CapacitySlot::claim(
+            self,
+            crate::catalog::Capacity::Invalidations,
+            selected.len(),
+        );
+        let mut pending: Vec<
+            futures::future::LocalBoxFuture<'static, Result<(), crate::cache::CacheError>>,
+        > = Vec::new();
         for id in &selected {
             let captured = self.with_inner(|inner| {
                 let state = inner.states.get_mut(id)?;
@@ -354,15 +357,13 @@ impl Catalog {
                 continue;
             };
             self.register_instance(config, admit)?;
-            let catalog = self.clone();
-            let id = id.clone();
             let done = crate::signals::Gate::new();
             // The deletion takes the row's next place in the queue, so a write accepted
             // after it waits for the delete rather than racing it.
-            let mut turn = self.reserve_turn(&id);
+            let turn = self.reserve_turn(id);
             let work = crate::catalog::OwnedWork::register(self);
             self.with_inner(|inner| {
-                if let Some(state) = inner.states.get_mut(&id) {
+                if let Some(state) = inner.states.get_mut(id) {
                     state.invalidating = Some(crate::catalog::Flight {
                         done: done.clone(),
                         token: 0,
@@ -370,34 +371,21 @@ impl Catalog {
                     });
                 }
             });
-            pending.push(Box::pin(async move {
-                let _work = work;
-                if let Some(flight) = flights {
-                    flight.done.wait().await;
-                }
-                if let Some(pending) = invalidations {
-                    pending.done.wait().await;
-                }
-                turn.wait().await;
-                let removed = catalog.with_inner(|inner| inner.deletions.remove(&id));
-                catalog.with_inner(|inner| {
-                    if let Some(state) = inner.states.get_mut(&id)
-                        && state
-                            .invalidating
-                            .as_ref()
-                            .is_some_and(|current| current.done.same(&done))
-                    {
-                        state.invalidating = None;
-                    }
-                });
-                done.open();
-                removed
-            }));
+            let deletion = Invalidation {
+                catalog: self.clone(),
+                id: id.clone(),
+                done,
+                work: Some(work),
+                slot: Some(admission.share(1)),
+                flight: flights.map(|flight| flight.done),
+                previous: invalidations.map(|pending| pending.done),
+                turn: Some(turn),
+                finished: false,
+                handed: false,
+            };
+            pending.push(Box::pin(deletion.run()));
         }
         let results = futures::future::join_all(pending).await;
-        self.with_inner(|inner| {
-            inner.invalidations = inner.invalidations.saturating_sub(selected.len());
-        });
         // A revocation that could not delete its row says so; the deletion stays pending.
         match results.into_iter().find(|result| result.is_err()) {
             Some(Err(error)) => Err(CatalogError::Cache(error)),
@@ -589,6 +577,141 @@ impl Catalog {
         }))
         .await;
         Ok(statuses)
+    }
+}
+
+/// One removal's catalog-owned work. The row is already gone; its flights, its pending
+/// revocation and the writes queued behind it still hold the deletion. A caller that goes
+/// away hands what is left to the spawner, so the deletion runs and its id is free again.
+struct Removal {
+    catalog: Catalog,
+    id: String,
+    flights: Vec<crate::signals::Gate>,
+    invalidating: Vec<crate::signals::Gate>,
+    tail: Option<crate::signals::Gate>,
+    work: Option<crate::catalog::OwnedWork>,
+    finished: bool,
+    handed: bool,
+}
+
+impl Removal {
+    async fn run(mut self) -> Result<(), CatalogError> {
+        let result = self.complete().await;
+        self.finished = true;
+        result
+    }
+
+    async fn complete(&mut self) -> Result<(), CatalogError> {
+        for flight in std::mem::take(&mut self.flights) {
+            flight.wait().await;
+        }
+        for pending in std::mem::take(&mut self.invalidating) {
+            pending.wait().await;
+        }
+        if let Some(tail) = self.tail.take() {
+            tail.wait().await;
+        }
+        self.catalog.finish_removal(&self.id)
+    }
+}
+
+impl Drop for Removal {
+    fn drop(&mut self) {
+        if self.finished || self.handed {
+            return;
+        }
+        let spawn = self.catalog.options.spawn.clone();
+        let removal = Removal {
+            catalog: self.catalog.clone(),
+            id: self.id.clone(),
+            flights: std::mem::take(&mut self.flights),
+            invalidating: std::mem::take(&mut self.invalidating),
+            tail: self.tail.take(),
+            work: self.work.take(),
+            finished: false,
+            handed: true,
+        };
+        spawn.spawn(Box::pin(async move {
+            let _ = removal.run().await;
+        }));
+    }
+}
+
+/// One revocation's catalog-owned deletion. It waits out the flight, the invalidation and
+/// the writes it drains, then deletes the row, settles its gates and its place in the row's
+/// queue. A caller that goes away hands what is left to the spawner, so the deletion still
+/// runs and nothing behind it waits forever.
+struct Invalidation {
+    catalog: Catalog,
+    id: String,
+    done: crate::signals::Gate,
+    work: Option<crate::catalog::OwnedWork>,
+    slot: Option<crate::catalog::CapacitySlot>,
+    flight: Option<crate::signals::Gate>,
+    previous: Option<crate::signals::Gate>,
+    turn: Option<crate::catalog::turns::Turn>,
+    finished: bool,
+    handed: bool,
+}
+
+impl Invalidation {
+    async fn run(mut self) -> Result<(), crate::cache::CacheError> {
+        let result = self.complete().await;
+        self.finished = true;
+        result
+    }
+
+    async fn complete(&mut self) -> Result<(), crate::cache::CacheError> {
+        if let Some(flight) = self.flight.take() {
+            flight.wait().await;
+        }
+        if let Some(previous) = self.previous.take() {
+            previous.wait().await;
+        }
+        if let Some(mut turn) = self.turn.take() {
+            turn.wait().await;
+        }
+        let removed = self
+            .catalog
+            .with_inner(|inner| inner.deletions.remove(&self.id));
+        self.catalog.with_inner(|inner| {
+            if let Some(state) = inner.states.get_mut(&self.id)
+                && state
+                    .invalidating
+                    .as_ref()
+                    .is_some_and(|current| current.done.same(&self.done))
+            {
+                state.invalidating = None;
+            }
+        });
+        self.done.open();
+        self.work.take();
+        self.slot.take();
+        removed
+    }
+}
+
+impl Drop for Invalidation {
+    fn drop(&mut self) {
+        if self.finished || self.handed {
+            return;
+        }
+        let spawn = self.catalog.options.spawn.clone();
+        let deletion = Invalidation {
+            catalog: self.catalog.clone(),
+            id: self.id.clone(),
+            done: self.done.clone(),
+            work: self.work.take(),
+            slot: self.slot.take(),
+            flight: self.flight.take(),
+            previous: self.previous.take(),
+            turn: self.turn.take(),
+            finished: false,
+            handed: true,
+        };
+        spawn.spawn(Box::pin(async move {
+            let _ = deletion.run().await;
+        }));
     }
 }
 

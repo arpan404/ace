@@ -116,6 +116,14 @@ impl TestSpawn {
         Arc::new(Self::default())
     }
 
+    /// Drops every queued task before it first runs; returns how many were dropped.
+    fn discard(&self) -> usize {
+        let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
+        let dropped = tasks.len();
+        tasks.clear();
+        dropped
+    }
+
     /// Polls every queued task until all settle; returns how many tasks ran.
     fn drain(&self) -> usize {
         let mut ran = 0;

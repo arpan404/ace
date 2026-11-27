@@ -276,6 +276,40 @@ fn a_session_reports_levels_for_the_model_it_runs_without_erasing_others() {
 }
 
 #[test]
+fn a_permission_write_dropped_before_it_runs_does_not_hold_close() {
+    within(15, "a dropped permission write and close", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let discover = always(vec![row(&codex, "gpt-6-sol")]);
+        let fixture = fixture(vec![codex], storage, discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the login's refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // Accepted, then its task is dropped before it first runs.
+        catalog.update_permission_modes(
+            "account",
+            vec![serde_json::json!({
+                "id": "plan",
+                "label": "Plan",
+                "description": "",
+                "risk": "low"
+            })],
+        );
+        assert_eq!(fixture.spawn.discard(), 1, "the write had not started");
+        let closed = settle(
+            catalog.close(),
+            &fixture.spawn,
+            "close after a dropped write",
+        );
+        closed.unwrap_or_else(|error| panic!("{error}"));
+    })
+}
+
+#[test]
 fn close_drains_a_write_accepted_before_it_started() {
     let codex = instance(ProviderKind::Codex, "account");
     let storage = SharedStorage::new(MemoryStorage::new());

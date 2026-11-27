@@ -251,3 +251,147 @@ fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
         "the old login's deletion never removes the row that replaced it"
     );
 }
+
+/// A discovery that answers the first call and waits on `gate` for every later one.
+fn gated_after_the_first(gate: crate::signals::Gate) -> (Arc<FakeDiscover>, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let gate = gate.clone();
+        let call = seen.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            if call > 0 {
+                gate.wait().await;
+            }
+            Ok(models(&request.instance, &["gpt-6-sol"]))
+        })
+    });
+    (discover, calls)
+}
+
+#[test]
+fn a_dropped_close_still_settles_a_later_one() {
+    within(15, "a dropped close and a later one", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let gate = crate::signals::Gate::new();
+        let held = gate.clone();
+        let discover = FakeDiscover::new(move |request, _signal| {
+            let held = held.clone();
+            Box::pin(async move {
+                held.wait().await;
+                Ok(models(&request.instance, &["gpt-6-sol"]))
+            })
+        });
+        let (storage, late) = closing_storage();
+        let fixture = fixture(vec![codex], storage, discover);
+        let catalog = fixture.catalog.clone();
+        fixture.spawn.spawn(Box::pin({
+            let catalog = catalog.clone();
+            async move {
+                let _ = catalog
+                    .refresh_state("account", RefreshCause::Background)
+                    .await;
+            }
+        }));
+        assert_eq!(fixture.spawn.drain(), 1, "the flight started");
+        let mut first = Box::pin(catalog.close());
+        assert!(
+            poll_once(first.as_mut()).is_pending(),
+            "close drains the flight"
+        );
+        drop(first);
+        let mut second = Box::pin(catalog.close());
+        assert!(
+            poll_once(second.as_mut()).is_pending(),
+            "a later close waits for the drain the dropped one started"
+        );
+        gate.open();
+        let closed = settle(second, &fixture.spawn, "a close after a dropped one");
+        closed.unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            late.load(Ordering::SeqCst),
+            0,
+            "storage closed once, after the drain"
+        );
+    })
+}
+
+#[test]
+fn a_dropped_invalidation_still_deletes_the_revoked_row() {
+    within(15, "a dropped invalidation", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let gate = crate::signals::Gate::new();
+        let (discover, _) = gated_after_the_first(gate.clone());
+        let fixture = fixture(vec![codex], storage.clone(), discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the login's refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // A flight is running when the revocation is accepted; its caller then goes away.
+        let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(poll_once(flight.as_mut()).is_pending(), "the flight runs");
+        let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
+        assert!(
+            poll_once(invalidating.as_mut()).is_pending(),
+            "the revocation waits for the flight"
+        );
+        drop(invalidating);
+        gate.open();
+        let _ = settle(flight, &fixture.spawn, "the flight the revocation drained");
+        fixture.spawn.drain();
+        let mut storage = storage.clone();
+        assert!(
+            storage.load().unwrap_or_default().is_empty(),
+            "the revoked row's choices are deleted"
+        );
+        // Nothing the dropped revocation held is still closed to the row's work.
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "a refresh after the revocation",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(listed(&catalog).models.len(), 1, "the row discovers again");
+    })
+}
+
+#[test]
+fn a_dropped_removal_leaves_no_reservation() {
+    within(15, "a dropped removal", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let gate = crate::signals::Gate::new();
+        let (discover, _) = gated_after_the_first(gate.clone());
+        let fixture = fixture(vec![codex], storage.clone(), discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the login's refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(poll_once(flight.as_mut()).is_pending(), "the flight runs");
+        let mut removing = Box::pin(catalog.remove_instance("account"));
+        assert!(
+            poll_once(removing.as_mut()).is_pending(),
+            "the removal waits for the flight"
+        );
+        drop(removing);
+        gate.open();
+        let _ = settle(flight, &fixture.spawn, "the flight the removal waited for");
+        fixture.spawn.drain();
+        let mut storage = storage.clone();
+        assert!(
+            storage.load().unwrap_or_default().is_empty(),
+            "the removed row's choices are deleted"
+        );
+        catalog
+            .register_instance(instance(ProviderKind::Codex, "account"), None)
+            .unwrap_or_else(|error| panic!("the id is free again: {error}"));
+    })
+}
