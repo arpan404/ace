@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/PhoneLiveActivity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "activityToken": {
+      "pattern": "^[a-fA-F0-9]{16,400}$",
+      "type": "string"
+    },
+    "environment": {
+      "enum": [
+        "sandbox",
+        "production"
+      ],
+      "type": "string"
+    },
+    "frequentUpdates": {
+      "type": "boolean"
+    },
+    "slot": {
+      "maximum": 15,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startToken": {
+      "pattern": "^[a-fA-F0-9]{16,400}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "environment",
+    "frequentUpdates",
+    "slot"
+  ],
+  "type": "object"
+}

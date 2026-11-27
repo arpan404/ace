@@ -30547,6 +30547,7 @@ Example:
 | type | yes | `"notification.register"` |  |
 | requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
+| liveActivity | no | [PhoneLiveActivity.json](schema/PhoneLiveActivity.json) |  |
 
 Example:
 
@@ -32396,6 +32397,28 @@ Example:
   "effective": null,
   "override": "read-only",
   "pending": false
+}
+```
+
+## PhoneLiveActivity
+
+[JSON Schema](schema/PhoneLiveActivity.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| startToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
+| activityToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
+| environment | yes | ["sandbox","production"] |  |
+| frequentUpdates | yes | boolean |  |
+| slot | yes | integer | {"minimum":0,"maximum":15} |
+
+Example:
+
+```json
+{
+  "environment": "sandbox",
+  "frequentUpdates": false,
+  "slot": 7
 }
 ```
 
