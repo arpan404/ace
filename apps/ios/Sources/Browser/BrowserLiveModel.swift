@@ -49,6 +49,8 @@ import UIKit
     private(set) var latency: Int?
     /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
     private(set) var stills: [String: UIImage] = [:]
+    /// The person turned the page's sound on for this view (ADR 0088 › Audio); every view starts muted.
+    private(set) var soundHere = false
     /// The picture on screen now and the tab it came from.
     @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
     @ObservationIgnored private var stillOrder: [String] = []
@@ -59,6 +61,7 @@ import UIKit
     @ObservationIgnored private var acks: BrowserAcks?
     @ObservationIgnored private var generation: Int?
     @ObservationIgnored private var visible = true
+    @ObservationIgnored private let sound = BrowserSoundPlayer()
 
     func hasBrowser(_ threadId: String, epoch: Int) -> Bool {
         guard let live else { return false }
@@ -79,15 +82,17 @@ import UIKit
                                        waiting: { [weak self] text in
                                            Task { @MainActor in if self?.threadId == threadId { self?.waiting = text } }
                                        },
-                                       present: { latest.put($0) }, ack: { acks.acknowledge($0) })
+                                       sound: sound, present: { latest.put($0) }, ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
         self.renderer = renderer
         streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
+        streams?.attachAudio { chunk, path in renderer.receive(chunk, path: path) }
         renderer.follow(streams)
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
+        streams?.attachAudio(nil)
         streams?.attachDelivery("browser", nil)
         poster = nil
         renderer?.close()
@@ -99,6 +104,18 @@ import UIKit
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
         done = nil; source = nil; sizes = nil; extensions = nil; latency = nil
         stills = [:]; stillOrder = []
+        soundHere = false
+        updateSound()
+    }
+    /// The person's speaker: this phone plays the page's sound, or stops. The bridge is told separately.
+    func setSoundHere(_ on: Bool) {
+        guard threadId != nil || !on else { return }
+        if soundHere != on { soundHere = on }
+        updateSound()
+    }
+    /// The audio output is open only while the shown tab plays to this phone (`BrowserSound.plays`).
+    private func updateSound() {
+        sound.set(BrowserSound.plays(here: soundHere, open: threadId != nil, shown: view?.state?.shown))
     }
     func clearSource() { source = nil }
     /// The picture on screen now, kept as the still of the tab it came from (never assumed to be
@@ -147,6 +164,7 @@ import UIKit
     func nextPicture() -> BrowserPicture? {
         guard let picture = latest?.take() else { return nil }
         if pageSize != picture.page { pageSize = picture.page }
+        sound.shown(timestamp: picture.timestamp)
         return picture
     }
 
@@ -163,6 +181,7 @@ import UIKit
             generation = info.generation
             if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
             if view != info { view = info }
+            updateSound()
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
             if page != info { page = info }

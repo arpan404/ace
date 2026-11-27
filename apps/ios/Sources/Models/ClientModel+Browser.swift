@@ -86,6 +86,25 @@ extension ClientModel {
         browserAction(["kind": "deviceToolbar", "show": show])
     }
 
+    /// The address's speaker (`BrowserSound`): sound turns on here first, inside the tap, then the
+    /// tab's mute changes for everyone.
+    func browserSoundTap(_ step: BrowserSound.Step, tabId: String) {
+        switch step {
+        case .playHere: browserSound(true)
+        case .unmuteTab(let hereToo):
+            if hereToo { browserSound(true) }
+            browserMute(tabId, false)
+        case .muteTab: browserMute(tabId, true)
+        }
+    }
+    /// This phone plays the page's sound or stops: its pane report says so (`audio`), so the daemon
+    /// sends the sound only while it does.
+    func browserSound(_ on: Bool) {
+        guard browser.threadId != nil else { return }
+        browser.setSoundHere(on)
+        browserAction(["kind": "audio", "on": on])
+    }
+
     private func browserAction(_ value: [String: Any]) { action(["type": "browser", "action": value]) }
     private static func viewport(_ size: CGSize, _ scale: CGFloat) -> [String: Any] {
         ["width": Double(size.width), "height": Double(size.height), "devicePixelRatio": Double(scale)]
