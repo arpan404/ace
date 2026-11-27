@@ -136,7 +136,9 @@ pub(crate) struct Actor {
     pub(crate) invalidation_batches: BTreeMap<u64, InvalidationBatch>,
     pub(crate) next_invalidation_batch: u64,
     pub(crate) invalidation_batch_of: BTreeMap<u64, u64>,
-    pub(crate) probe_waiters: BTreeMap<String, Vec<Reply<Result<(), CatalogError>>>>,
+    pub(crate) probe_waiters: BTreeMap<u64, Vec<Reply<Result<(), CatalogError>>>>,
+    /// Which row a counted probe belongs to, so its token can free it after the row moved.
+    pub(crate) probe_rows: BTreeMap<u64, String>,
     pub(crate) probe_signals: BTreeMap<u64, Signal>,
     storage_waits: BTreeMap<u64, StorageWait>,
     next_storage: u64,
@@ -209,6 +211,7 @@ impl Actor {
             next_invalidation_batch: 0,
             invalidation_batch_of: BTreeMap::new(),
             probe_waiters: BTreeMap::new(),
+            probe_rows: BTreeMap::new(),
             probe_signals: BTreeMap::new(),
             storage_waits: BTreeMap::new(),
             next_storage: 0,
@@ -1644,9 +1647,13 @@ impl Actor {
         }
         self.inner.closed = true;
         self.inner.listeners.clear();
-        let signals: Vec<Signal> = self.probe_signals.values().cloned().collect();
-        for signal in signals {
-            signal.abort();
+        let probes: Vec<(String, u64)> = self
+            .probe_rows
+            .iter()
+            .map(|(token, id)| (id.clone(), *token))
+            .collect();
+        for (id, token) in probes {
+            self.abort_probe(&id, token);
         }
         let aborts: Vec<Signal> = self
             .inner

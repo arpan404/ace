@@ -452,3 +452,114 @@ fn a_reconciliation_loop_that_outlives_close_never_starts_another_account() {
         );
     })
 }
+
+/// A probe that hangs until its own token aborts it.
+struct HungProbe {
+    calls: Arc<AtomicUsize>,
+}
+
+impl crate::catalog::ConnectionProbe for HungProbe {
+    fn probe(
+        &self,
+        _request: crate::catalog::DiscoveryRequest,
+        signal: crate::signals::Signal,
+    ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+    {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            signal.wait().await;
+            Ok("fingerprint".to_owned())
+        })
+    }
+}
+
+#[test]
+fn a_hung_probe_is_aborted_by_each_replacement_so_polling_never_stops() {
+    within(20, "sixty-five hung probes", || {
+        let account = instance(ProviderKind::Opencode, "row");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let spawn = TestSpawn::new();
+        let deadlines = TestDeadlines::new();
+        let mut options = CatalogOptions::new(
+            SharedStorage::new(MemoryStorage::new()),
+            always(Vec::new()),
+            TestClock::new(1_000.0),
+            deadlines.clone(),
+            spawn.clone(),
+        );
+        options.instances = vec![account.clone()];
+        options.revision_probe = Some(Arc::new(HungProbe {
+            calls: calls.clone(),
+        }));
+        let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+        let mut started = 0;
+        for generation in 0..65 {
+            catalog
+                .register_instance(
+                    ModelInstance {
+                        login_revision: format!("{generation}"),
+                        ..account.clone()
+                    },
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
+            let mut polling = Box::pin(catalog.reconcile_connections());
+            assert!(
+                poll_once(polling.as_mut()).is_pending(),
+                "probe {generation} hangs"
+            );
+            spawn.drain();
+            started += 1;
+            drop(polling);
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            started,
+            "every registration's probe started"
+        );
+        // The last replacement aborts the live probe; capacity was not exhausted by the
+        // sixty-five it replaced, so a later poll still starts one.
+        catalog
+            .register_instance(
+                ModelInstance {
+                    login_revision: "65".to_owned(),
+                    ..account.clone()
+                },
+                None,
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        spawn.drain();
+        let mut polling = Box::pin(catalog.reconcile_connections());
+        assert!(
+            poll_once(polling.as_mut()).is_pending(),
+            "the last probe hangs"
+        );
+        spawn.drain();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            66,
+            "a later poll still starts a probe after 65 replacements"
+        );
+        // Only the live probe keeps its timer; every replaced probe freed its own.
+        assert_eq!(
+            deadlines
+                .timers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            1,
+            "aborted probes released their deadlines"
+        );
+        drop(polling);
+        settle(catalog.close(), &spawn, "the close").unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            deadlines
+                .timers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .len(),
+            0,
+            "close released the live probe's deadline"
+        );
+    })
+}

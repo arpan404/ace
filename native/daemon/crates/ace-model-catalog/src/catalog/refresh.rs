@@ -429,17 +429,16 @@ impl Actor {
             let _ = reply.send(Ok(()));
             return;
         }
-        if self.probe_waiters.contains_key(id)
-            || self
-                .inner
-                .states
-                .get(id)
-                .is_some_and(|state| state.probe.is_some())
+        if let Some(token) = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.probe.as_ref().map(|probe| probe.token))
         {
-            self.probe_waiters
-                .entry(id.to_owned())
-                .or_default()
-                .push(reply);
+            // A poll joins the probe this registration started, even while it hangs.
+            if !reply.is_canceled() {
+                self.probe_waiters.entry(token).or_default().push(reply);
+            }
             return;
         }
         if self.inner.probes >= 64 {
@@ -477,10 +476,8 @@ impl Actor {
         }
         self.inner.probes += 1;
         self.probe_signals.insert(token, signal.clone());
-        self.probe_waiters
-            .entry(id.to_owned())
-            .or_default()
-            .push(reply);
+        self.probe_rows.insert(token, id.to_owned());
+        self.probe_waiters.entry(token).or_default().push(reply);
         let reporter = self.reporter.clone();
         let cancel = self.options.deadline.arm(
             self.options.timeout_ms,
@@ -531,7 +528,8 @@ impl Actor {
             .states
             .get(id)
             .and_then(|state| state.probe.as_ref())
-            .is_some_and(|probe| probe.token == token);
+            .is_some_and(|probe| probe.token == token)
+            || self.probe_rows.contains_key(&token);
         if !matches {
             return;
         }
@@ -550,19 +548,22 @@ impl Actor {
         started_at: f64,
         result: Option<Result<String, DiscoveryFailure>>,
     ) {
-        let matches = self
+        let owns_row = self
             .inner
             .states
             .get(id)
             .and_then(|state| state.probe.as_ref())
             .is_some_and(|probe| probe.token == token);
-        if !matches {
+        let counted = self.probe_rows.remove(&token).is_some();
+        if !owns_row && !counted {
             return;
         }
-        if let Some(state) = self.inner.states.get_mut(id) {
+        if owns_row && let Some(state) = self.inner.states.get_mut(id) {
             state.probe = None;
         }
-        self.inner.probes = self.inner.probes.saturating_sub(1);
+        if counted {
+            self.inner.probes = self.inner.probes.saturating_sub(1);
+        }
         if let Some(cancel) = self.probe_cancels.remove(&token) {
             cancel();
         }
@@ -574,7 +575,7 @@ impl Actor {
             .get(id)
             .and_then(|state| state.abort.as_ref())
             .is_some_and(Signal::is_aborted);
-        let waiters = self.probe_waiters.remove(id).unwrap_or_default();
+        let waiters = self.probe_waiters.remove(&token).unwrap_or_default();
         if fired {
             self.fail(
                 id,
@@ -684,26 +685,41 @@ impl Actor {
         }
     }
 
+    /// Aborts one probe by token, freeing its signal, timer, waiters and capacity once.
     pub(crate) fn abort_probe(&mut self, id: &str, token: u64) {
-        let matches = self
+        let owns_row = self
             .inner
             .states
             .get(id)
             .and_then(|state| state.probe.as_ref())
             .is_some_and(|probe| probe.token == token);
-        if matches {
-            if let Some(state) = self.inner.states.get_mut(id) {
-                state.probe = None;
-            }
+        if owns_row && let Some(state) = self.inner.states.get_mut(id) {
+            state.probe = None;
+        }
+        if self.probe_rows.remove(&token).is_some() {
             self.inner.probes = self.inner.probes.saturating_sub(1);
         }
         if let Some(cancel) = self.probe_cancels.remove(&token) {
             cancel();
         }
-        self.probe_signals.remove(&token);
+        if let Some(signal) = self.probe_signals.remove(&token) {
+            signal.abort();
+        }
         self.timed_out_probes.remove(&token);
-        for waiter in self.probe_waiters.remove(id).unwrap_or_default() {
+        for waiter in self.probe_waiters.remove(&token).unwrap_or_default() {
             let _ = waiter.send(Ok(()));
+        }
+    }
+
+    /// Aborts whatever probe a row currently owns, before the row is replaced or removed.
+    pub(crate) fn abort_rows_probe(&mut self, id: &str) {
+        if let Some(token) = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.probe.as_ref().map(|probe| probe.token))
+        {
+            self.abort_probe(id, token);
         }
     }
 }

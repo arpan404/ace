@@ -107,6 +107,9 @@ impl Actor {
             .states
             .get(&config.id)
             .is_some_and(|old| old.entry.is_some() && old.config.provider == ProviderKind::Acp);
+        // A replacement, a login change or a revocation owns the old row's probe: its
+        // signal, timer, waiters and capacity are freed before it can hang on.
+        self.abort_rows_probe(&config.id);
         if let Some(abort) = self
             .inner
             .states
@@ -417,6 +420,7 @@ impl Actor {
             .turns
             .get(&instance)
             .and_then(crate::catalog::Turns::tail);
+        self.abort_rows_probe(&instance);
         if let Some(state) = self.inner.states.get_mut(&instance) {
             if let Some(abort) = &state.abort {
                 abort.abort();
