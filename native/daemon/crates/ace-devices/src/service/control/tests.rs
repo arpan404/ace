@@ -719,6 +719,40 @@ fn a_takeover_that_replaced_its_own_bind_leaves_the_newer_bind_alone() {
 }
 
 #[test]
+fn an_owner_drop_leaves_a_bind_that_owner_started_later_alone() {
+    let mut session = Session::new("ios:AAAA");
+    let _takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the person's threaded takeover");
+    // The same owner starts the bind again while their assignment is still pending,
+    // so the live reservation is not the one that assignment began.
+    let _newer_bind =
+        begin_bind_for_person(&mut session, "t-person", "person").expect("the person's newer bind");
+    session.completed = Some(String::from("newer-recording"));
+    session.recording_artifact = Some(String::from("newer-artifact"));
+
+    invalidate_pending_owner(&mut session, "person");
+
+    assert!(
+        session.changing_binding,
+        "the newer bind keeps its guard and epoch"
+    );
+    assert_eq!(
+        session.binding_owner.as_deref(),
+        Some("person"),
+        "the newer bind keeps its owner"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("newer-recording"),
+        "the newer bind keeps its recording"
+    );
+    assert_eq!(
+        session.recording_artifact.as_deref(),
+        Some("newer-artifact")
+    );
+}
+
+#[test]
 fn an_agents_cleanup_failure_outranks_a_disable_and_a_fresh_takeover() {
     let mut session = Session::new("ios:AAAA");
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");

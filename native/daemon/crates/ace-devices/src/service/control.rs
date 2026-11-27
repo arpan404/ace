@@ -189,10 +189,11 @@ pub fn start_human_controller_with_thread(
     }
     let assignment = begin_assign(session, person, now)?;
     let bind = begin_bind_for_person(session, thread_id, &person.owner)?;
-    // Remember the epoch this assignment's own bind began under: the owner may start
-    // another bind before it is invalidated, and retiring by the live epoch would
-    // clear that newer bind's guard, owner and recording.
-    session.pending_bind_epoch = Some(bind.epoch());
+    // Remember the epoch of the cleanup this assignment reserved, and only that: an
+    // unchanged bind reserves nothing for a retire to clear, and the owner may start
+    // another bind before this assignment is invalidated, whose live epoch a retire
+    // must never take.
+    session.pending_bind_epoch = bind.cleanup_epoch();
     Ok(ThreadedTakeover { assignment, bind })
 }
 
