@@ -68,6 +68,11 @@ pub fn merge(
         })
         .unwrap_or_default();
     history::validate_citations(store, fork, &ids)?;
+    // The patch is a Git write on the source's checkout; it needs E5.5's worktree port, and a
+    // merge that claimed it applied without doing so would be worse than one that says so.
+    if patch_applied {
+        return Err(EngineError::not_ported("a merge patch", "E5.5"));
+    }
     // The protocol's citation is the two ids; a client's extra fields are stripped, as the
     // command's own schema parse strips them, before the context and the item are built.
     let cited: Vec<Value> = citations

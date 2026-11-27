@@ -421,7 +421,7 @@ mod tests {
         fork_of_t(&conn);
         let (engine, shell) = engine_on(&conn);
         let core = engine.core();
-        core.with_state(|state| handle(core, state, &merge_command(true)))
+        core.with_state(|state| handle(core, state, &merge_command(false)))
             .expect("the state is free")
             .expect("receipt")
             .expect("a receipt");
@@ -491,6 +491,51 @@ mod tests {
             result.get("error").and_then(Value::as_str),
             Some("thread_transition_in_progress")
         );
+    }
+
+    // A patch merge needs E5.5's worktree port: it fails its intent and releases both guards
+    // instead of leaving them held for a Git write nothing can run.
+    #[test]
+    fn a_patch_merge_that_cannot_run_releases_both_guards() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        let (engine, _shell) = engine_on(&conn);
+        let core = engine.core();
+        let result = core
+            .with_state(|state| handle(core, state, &merge_command(true)))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(result.get("ok"), Some(&Value::Bool(true)));
+        settle(&engine);
+        assert_eq!(intent_status(&conn).as_deref(), Some("failed"));
+        let failure = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT error FROM intents WHERE thread_id='t'",
+            Vec::new(),
+        )
+        .expect("intent")
+        .and_then(|row| {
+            row.get("error")
+                .and_then(crate::repository::residency::cell_text)
+                .map(str::to_owned)
+        });
+        assert!(
+            failure
+                .as_deref()
+                .is_some_and(|error| error.contains("lands in E5.5")),
+            "{failure:?}"
+        );
+        let core = engine.core();
+        for thread in ["t", "t2"] {
+            assert!(
+                !core
+                    .with_state(|state| state.transition_guarded(&core.store, thread))
+                    .expect("the state is free")
+                    .expect("guarded"),
+                "{thread} is free"
+            );
+        }
     }
 
     // A restart finds every queued merge, not only the first: each settles its own intent.
