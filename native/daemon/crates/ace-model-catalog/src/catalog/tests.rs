@@ -1456,7 +1456,10 @@ fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
         },
         &metadata,
     ));
-    assert!(poll_once(queued.as_mut()).is_pending(), "the write is queued");
+    assert!(
+        poll_once(queued.as_mut()).is_pending(),
+        "the write is queued"
+    );
     // The person signs in to another login while the write waits.
     catalog
         .register_instance(
@@ -1516,6 +1519,73 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
             .as_ref()
             .is_none_or(|modes| modes.is_empty())),
         "the later session write leaves its own modes, not the queued ones"
+    );
+}
+
+/// Storage whose next `remove` calls fail, as a locked cache file would.
+struct FailingRemove {
+    inner: MemoryStorage,
+    failures: AtomicUsize,
+}
+
+impl crate::cache::CatalogStorage for FailingRemove {
+    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+        self.inner.load()
+    }
+
+    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+        self.inner.replace(entry)
+    }
+
+    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+        if self.failures.load(Ordering::SeqCst) > 0 {
+            self.failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(crate::cache::CacheError::Malformed);
+        }
+        self.inner.remove(instance)
+    }
+}
+
+#[test]
+fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let storage = SharedStorage::new(FailingRemove {
+        inner: MemoryStorage::new(),
+        failures: AtomicUsize::new(1),
+    });
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+    let catalog = fixture.catalog.clone();
+    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    // The first deletion fails, so the revocation cannot claim success.
+    let revoked = futures::executor::block_on(catalog.invalidate(ModelFilter::default()));
+    assert!(
+        revoked.is_err(),
+        "a failed deletion is reported, never claimed as revoked"
+    );
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the replacement login's refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    futures::executor::block_on(catalog.close()).unwrap_or_else(|error| panic!("{error}"));
+    let mut storage = storage.clone();
+    let stored = storage.load().unwrap_or_default();
+    assert!(
+        stored.iter().any(
+            |entry| entry.instance == "account" && entry.login_revision.as_deref() == Some("2")
+        ),
+        "the old login's deletion never removes the row that replaced it"
     );
 }
 

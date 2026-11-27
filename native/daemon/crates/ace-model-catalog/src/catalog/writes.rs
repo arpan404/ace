@@ -16,6 +16,16 @@ use crate::cache::CacheEntry;
 use crate::catalog::{Catalog, CatalogError, identity_revision, owns, validate_instance};
 use crate::signals::Gate;
 
+/// What one session write learned before it took its place in the queue.
+struct SessionWrite {
+    generation: u64,
+    rows: Vec<ace_protocol::generated::CatalogModel>,
+    permission_modes: Vec<Value>,
+    revision: String,
+    identity: String,
+    refreshed_at: f64,
+}
+
 /// A place in one instance's write queue, reserved before the write waits.
 pub(crate) struct WriteHold {
     catalog: Catalog,
@@ -130,12 +140,14 @@ impl Catalog {
         let result = self
             .commit_session_write(
                 &input,
-                generation,
-                rows,
-                permission_modes,
-                revision,
-                identity,
-                refreshed_at,
+                SessionWrite {
+                    generation,
+                    rows,
+                    permission_modes,
+                    revision,
+                    identity,
+                    refreshed_at,
+                },
             )
             .await;
         drop(hold);
@@ -146,13 +158,16 @@ impl Catalog {
     async fn commit_session_write(
         &self,
         input: &ModelInstance,
-        generation: u64,
-        rows: Vec<ace_protocol::generated::CatalogModel>,
-        permission_modes: Vec<Value>,
-        revision: String,
-        identity: String,
-        refreshed_at: f64,
+        write: SessionWrite,
     ) -> Result<(), CatalogError> {
+        let SessionWrite {
+            generation,
+            rows,
+            permission_modes,
+            revision,
+            identity,
+            refreshed_at,
+        } = write;
         if !self.still_current(input, generation) {
             return Err(CatalogError::SessionGenerationChanged);
         }
@@ -163,6 +178,11 @@ impl Catalog {
         if !self.still_current(input, generation) {
             return Err(CatalogError::SessionGenerationChanged);
         }
+        self.await_deletion(&input.id).await;
+        if !self.still_current(input, generation) {
+            return Err(CatalogError::SessionGenerationChanged);
+        }
+        self.finish_deletion(&input.id)?;
         let (models, previous) = self.with_inner(|inner| {
             let state = inner.states.get(&input.id);
             (
@@ -276,6 +296,7 @@ impl Catalog {
     ) {
         self.with_inner(|inner| inner.session_writes += 1);
         hold.wait().await;
+        self.await_deletion(instance).await;
         // The row may have been replaced while this write waited behind another.
         let current = match token {
             Some(token) => self.with_inner(|inner| {
@@ -283,7 +304,10 @@ impl Catalog {
                     return None;
                 }
                 let state = inner.states.get_mut(instance)?;
-                state.entry.clone().map(|entry| (entry, state.permission_modes.clone()))
+                state
+                    .entry
+                    .clone()
+                    .map(|entry| (entry, state.permission_modes.clone()))
             }),
             None => None,
         };

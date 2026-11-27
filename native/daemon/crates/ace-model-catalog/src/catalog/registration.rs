@@ -327,6 +327,7 @@ impl Catalog {
             let catalog = self.clone();
             let id = id.clone();
             let done = crate::signals::Gate::new();
+            let barrier = crate::signals::Gate::new();
             self.with_inner(|inner| {
                 if let Some(state) = inner.states.get_mut(&id) {
                     state.invalidating = Some(crate::catalog::Flight {
@@ -335,6 +336,8 @@ impl Catalog {
                         generation: state.generation,
                     });
                 }
+                // The deletion outlives this row: a replacement's write waits for it.
+                inner.deletion_gates.insert(id.clone(), barrier.clone());
             });
             pending.push(Box::pin(async move {
                 if let Some(flight) = flights {
@@ -346,17 +349,30 @@ impl Catalog {
                 if let Some(tail) = tail {
                     tail.wait().await;
                 }
-                let _ = catalog.with_inner(|inner| inner.deletions.remove(&id));
+                let removed = catalog.with_inner(|inner| inner.deletions.remove(&id));
+                catalog.with_inner(|inner| {
+                    if inner
+                        .deletion_gates
+                        .get(&id)
+                        .is_some_and(|current| current.same(&barrier))
+                    {
+                        inner.deletion_gates.remove(&id);
+                    }
+                });
+                barrier.open();
                 done.open();
+                removed
             }));
         }
-        for task in pending {
-            task.await;
-        }
+        let results = futures::future::join_all(pending).await;
         self.with_inner(|inner| {
             inner.invalidations = inner.invalidations.saturating_sub(selected.len());
         });
-        Ok(())
+        // A revocation that could not delete its row says so; the deletion stays pending.
+        match results.into_iter().find(|result| result.is_err()) {
+            Some(Err(error)) => Err(CatalogError::Cache(error)),
+            _ => Ok(()),
+        }
     }
 
     /// Settings changed: rows whose effective configuration changed are fenced and refreshed.

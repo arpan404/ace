@@ -362,10 +362,40 @@ impl Catalog {
                 self.fail(id, Some(failure), code, started_at, &diagnostics, &revision);
             }
             Some(Ok(outcome)) => {
-                self.commit(id, outcome, started_at, &diagnostics, &revision)
-                    .await;
+                self.commit(
+                    id,
+                    outcome,
+                    started_at,
+                    &diagnostics,
+                    &revision,
+                    &flight,
+                    &signal,
+                )
+                .await;
             }
         }
+    }
+
+    /// Whether a flight may still write: it owns its row and token, was not aborted, and
+    /// the row's effective revision is still the one it started under.
+    fn flight_current(&self, id: &str, flight: &Flight, signal: &Signal, revision: &str) -> bool {
+        if signal.is_aborted() {
+            return false;
+        }
+        let config = self.with_inner(|inner| {
+            if inner.closed {
+                return None;
+            }
+            let state = inner.states.get(id)?;
+            if state.generation != flight.generation || state.flight_token != Some(flight.token) {
+                return None;
+            }
+            Some(state.config.clone())
+        });
+        let Some(config) = config else {
+            return false;
+        };
+        self.revision(&config) == revision
     }
 
     /// A failed flight: the error the client sees, the pause, and the local log lines.
@@ -553,6 +583,8 @@ impl Catalog {
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
         revision: &str,
+        flight: &Flight,
+        signal: &Signal,
     ) {
         let Some(config) = self.registered(id) else {
             return;
@@ -568,16 +600,29 @@ impl Catalog {
             );
             return;
         }
+        if !self.flight_current(id, flight, signal, revision) {
+            return;
+        }
         let release = self.hold_writes(id).await;
-        let current = self.with_inner(|inner| {
-            inner.states.get(id).and_then(|state| {
-                (state.probe_revision.as_deref() == Some(revision)).then(|| state.entry.clone())
-            })
-        });
-        let Some(previous) = current else {
+        // A login change's deletion for this row finishes before the row is written again,
+        // and the row must still be this flight's after the wait.
+        self.await_deletion(id).await;
+        if !self.flight_current(id, flight, signal, revision) {
             drop(release);
             return;
-        };
+        }
+        let previous = self.with_inner(|inner| {
+            inner
+                .states
+                .get(id)
+                .and_then(|state| state.entry.as_ref())
+                .map(|entry| Arc::new((**entry).clone()))
+        });
+        if self.finish_deletion(id).is_err() {
+            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
+            drop(release);
+            return;
+        }
         let now = self.now();
         let combined = crate::sources::refreshed_sources(
             crate::cleanup::clean_catalog(&outcome.models)
@@ -624,14 +669,14 @@ impl Catalog {
             .any(|row| ace_models::row::validate_row(row).is_err())
             || crate::cache::validate_entry(&entry).is_err();
         if row_error {
-            self.commit_failed(id, started_at, diagnostics, revision);
+            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
             drop(release);
             return;
         }
         let mut storage = self.storage.clone();
         let stored = storage.replace(&entry);
         if stored.is_err() {
-            self.commit_failed(id, started_at, diagnostics, revision);
+            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
             drop(release);
             return;
         }
@@ -672,7 +717,7 @@ impl Catalog {
             let Some(state) = inner.states.get_mut(id) else {
                 return false;
             };
-            if state.probe_revision.as_deref() != Some(revision) {
+            if state.generation != flight.generation || state.flight_token != Some(flight.token) {
                 return false;
             }
             state.entry = Some(entry.clone());
@@ -746,6 +791,8 @@ impl Catalog {
     fn commit_failed(
         &self,
         id: &str,
+        flight: &Flight,
+        signal: &Signal,
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
         revision: &str,
@@ -753,11 +800,14 @@ impl Catalog {
         let Some(config) = self.registered(id) else {
             return;
         };
+        if !self.flight_current(id, flight, signal, revision) {
+            return;
+        }
         let mutated = self.with_inner(|inner| {
             let Some(state) = inner.states.get_mut(id) else {
                 return false;
             };
-            if state.probe_revision.as_deref() != Some(revision) {
+            if state.generation != flight.generation || state.flight_token != Some(flight.token) {
                 return false;
             }
             state.dirty = true;

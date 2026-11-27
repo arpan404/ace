@@ -456,6 +456,9 @@ pub(crate) struct Inner {
     pub(crate) persisted: BTreeMap<String, CacheEntry>,
     pub(crate) persisted_order: Vec<String>,
     pub(crate) deletions: crate::deletions::PendingDeletions,
+    /// Deletions a registration does not carry: a write for the same id waits for them,
+    /// so a replacement row is never deleted by the login it replaced.
+    pub(crate) deletion_gates: BTreeMap<String, crate::signals::Gate>,
     pub(crate) acp_loaded: BTreeSet<String>,
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
@@ -527,6 +530,7 @@ impl Catalog {
             persisted: BTreeMap::new(),
             persisted_order: Vec::new(),
             deletions: crate::deletions::PendingDeletions::new(storage.clone()),
+            deletion_gates: BTreeMap::new(),
             acp_loaded: BTreeSet::new(),
             acp_spacing: spacing,
             closed: false,
@@ -1002,6 +1006,23 @@ impl Catalog {
         for listener in listeners {
             listener(filter.clone());
         }
+    }
+
+    /// Waits for a deletion another account change scheduled for this row, so a write
+    /// never recreates a row that deletion is about to remove.
+    pub(crate) async fn await_deletion(&self, id: &str) {
+        let barrier = self.with_inner(|inner| inner.deletion_gates.get(id).cloned());
+        if let Some(barrier) = barrier {
+            barrier.wait().await;
+        }
+    }
+
+    /// Completes a deletion this write would otherwise recreate.
+    pub(crate) fn finish_deletion(&self, id: &str) -> Result<(), CatalogError> {
+        if self.with_inner(|inner| inner.deletions.has(id)) {
+            self.with_inner(|inner| inner.deletions.remove(id))?;
+        }
+        Ok(())
     }
 
     /// Shuts the catalog down: abort flights, drain writes, flush deletions, close storage.
