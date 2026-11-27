@@ -82,10 +82,9 @@ impl Repo {
         &mut self,
         store: &EngineStore,
         id: &str,
-        freed: &str,
+        pending: usize,
     ) -> Result<bool, EngineError> {
-        let _ = freed;
-        self.reserve_counting(store, id, 1)
+        self.reserve_counting(store, id, pending + 1)
     }
 
     /// `reserve`, counting `pending_retire` additional threads as already retired.

@@ -253,17 +253,17 @@ pub fn create(
             .repo
             .reserve_without_reclaim(&core.store, &thread_id)?
     {
-        let freed =
-            crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
+        let freed = crate::release::reclaim::reclaim_idle_slot(core, state)?;
         let Some(freed) = freed else {
             return Ok(Outcome::Refused(error(&id, "engine_capacity_exceeded")));
         };
         // The marks wait for the commit (`release::reclaim::mark`): a refused create must not
         // retire a session or subtract a slot no retirement will free.
-        if !state
-            .repo
-            .reserve_after_reclaim(&core.store, &thread_id, &freed)?
-        {
+        if !state.repo.reserve_after_reclaim(
+            &core.store,
+            &thread_id,
+            core.after.pending_retirements().len(),
+        )? {
             return Ok(Outcome::Refused(error(&id, "engine_capacity_exceeded")));
         }
         reclaimed = Some(freed);

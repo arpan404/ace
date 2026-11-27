@@ -232,7 +232,9 @@ fn a_thrown_receipt_leaves_no_reclaim_marks_behind() {
     })
     .unwrap();
     // The next admission reclaims the same session, and this time the mark commits with it.
+    receipt.shell.defer_commits();
     let accepted = receipt.handle(&send("next"));
+    core.after.release(&receipt.shell.take_released());
     assert_eq!(
         accepted.get("ok").and_then(Value::as_bool),
         Some(true),
@@ -412,4 +414,65 @@ fn without_a_catalog_a_default_sentinel_is_dropped_and_an_explicit_model_kept() 
         Some(true)
     );
     assert_eq!(stored_model(&receipt).as_deref(), Some("gpt-5"));
+}
+
+#[test]
+fn a_reclaim_is_visible_only_after_the_outer_receipt_commits() {
+    let receipt = Receipt::new(LimitOverrides {
+        max_active_threads: Some(1.0),
+        ..LimitOverrides::default()
+    });
+    receipt.exec("INSERT INTO engine_slots VALUES ('warm')");
+    let core = receipt.core();
+    core.with_state(|state| {
+        let mut actor = crate::actor::ActorInstance::new("warm".to_owned(), 0);
+        actor.session_attached = true;
+        actor.idle_since = Some(1.0);
+        state.actors.by_thread.insert(
+            "warm".to_owned(),
+            std::rc::Rc::new(std::cell::RefCell::new(actor)),
+        );
+    })
+    .unwrap();
+    let process = || {
+        core.with_state(|state| {
+            crate::release::list_provider_processes(
+                state,
+                100.0,
+                |_| false,
+                |_| Some("codex".to_owned()),
+            )
+            .into_iter()
+            .next()
+            .map(|process| process.state)
+        })
+        .unwrap()
+    };
+
+    receipt.shell.defer_commits();
+    let outcome: Result<(), EngineError> = core.store.atomic(|_| {
+        let accepted = receipt.handle(&send("rolled-back"));
+        assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+        Err(EngineError::Records("failure after admitting send".into()))
+    });
+    assert!(outcome.is_err());
+    core.discard_after_commit(&receipt.shell.take_dropped());
+    assert_eq!(
+        process(),
+        Some(crate::release::ProviderProcessState::IdleWarm)
+    );
+    assert!(!core.wakes().iter().any(|wake| wake == "warm"));
+    assert_eq!(
+        receipt.cell("SELECT COUNT(*) AS value FROM engine_slots"),
+        Some(1)
+    );
+
+    let accepted = receipt.handle(&send("committed"));
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+    core.after.release(&receipt.shell.take_released());
+    assert_eq!(
+        process(),
+        Some(crate::release::ProviderProcessState::Releasing)
+    );
+    assert!(core.wakes().iter().any(|wake| wake == "warm"));
 }

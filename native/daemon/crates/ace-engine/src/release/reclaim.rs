@@ -92,12 +92,7 @@ fn pending(core: &Core, id: &str) -> Result<bool, EngineError> {
 
 /// The reclaim as the receipt reaches it: the choice, the `idleDue` mark and the after-commit
 /// retire wake. The caller adds the returned thread to `retiring`, as `reserve` does.
-pub fn reclaim_idle_slot(
-    core: &Core,
-    state: &mut State,
-    closing: &dyn Fn(&str) -> bool,
-    held: &dyn Fn(&str) -> bool,
-) -> Result<Option<String>, EngineError> {
+pub fn reclaim_idle_slot(core: &Core, state: &State) -> Result<Option<String>, EngineError> {
     let facts = {
         let repo = &state.repo;
         let mut facts = Vec::with_capacity(state.actors.by_thread.len());
@@ -113,13 +108,15 @@ pub fn reclaim_idle_slot(
                 slot: repo.reserved_slot(&core.store, id)?,
                 opening: repo.opening.contains(id),
                 pending: pending(core, id)?,
-                closing: closing(id),
-                held: held(id),
+                closing: state.sessions.is_closing(id),
+                held: crate::queue::worker::fenced(core, id)?,
             });
         }
         facts
     };
-    let Some(chosen) = choose(facts, &state.repo.retiring) else {
+    let mut retiring = core.after.pending_retirements();
+    retiring.extend(state.repo.retiring.iter().cloned());
+    let Some(chosen) = choose(facts, &retiring) else {
         return Ok(None);
     };
     // The marks are the caller's, applied once the whole receipt commits
@@ -128,13 +125,40 @@ pub fn reclaim_idle_slot(
     Ok(Some(chosen))
 }
 
-/// Applies a reclaim the receipt committed: the actor is `idleDue` and the retire wake runs the
-/// control worker, which closes a session whose idle release is due (closing is E5.6's).
-pub fn mark(core: &Core, state: &mut State, thread: &str) {
-    if let Some(actor) = state.actors.by_thread.get(thread) {
-        actor.borrow_mut().idle_due = true;
-    }
-    state.repo.retiring.insert(thread.to_owned());
+/// A failed outer receipt drops both the retirement and its control wake.
+pub fn mark(core: &Core, state: &State, thread: &str) {
+    let Some(actor) = state
+        .actors
+        .by_thread
+        .get(thread)
+        .map(std::rc::Rc::downgrade)
+    else {
+        return;
+    };
+    let owner = core.self_weak.borrow().clone();
+    let id = thread.to_owned();
+    core.defer(Deferred::Retire(
+        id.clone(),
+        Box::new(move || {
+            let (Some(core), Some(actor)) = (owner.upgrade(), actor.upgrade()) else {
+                return;
+            };
+            let result = core.with_state(|state| {
+                if state
+                    .actors
+                    .by_thread
+                    .get(&id)
+                    .is_some_and(|current| std::rc::Rc::ptr_eq(current, &actor))
+                {
+                    actor.borrow_mut().idle_due = true;
+                    state.repo.retiring.insert(id.clone());
+                }
+            });
+            if let Err(error) = result {
+                core.ports.report(format!("{id}: {error}"));
+            }
+        }),
+    ));
     core.defer(Deferred::Wake(thread.to_owned(), Lane::Control));
 }
 

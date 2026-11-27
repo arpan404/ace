@@ -17,6 +17,8 @@ pub enum Deferred {
     /// Run at the commit itself, in place: a promoted actor must be visible to the very next
     /// synchronous lookup, as the TypeScript's eviction at the call was.
     Run(Box<dyn FnOnce()>),
+    /// A receipt displaced this warm session. Later receipts in the same transaction see it.
+    Retire(String, Box<dyn FnOnce()>),
     /// Run after the transaction's events published, as the TypeScript's `afterCommit` does: a
     /// naming prompt waits for the thread the receipt created to be readable.
     AfterPublish(Box<dyn FnOnce()>),
@@ -94,7 +96,10 @@ impl AfterCommit {
             match (host.as_deref(), item) {
                 (Some(host), Deferred::Wake(thread, lane)) => host.wake(&thread, lane),
                 (Some(host), Deferred::Spawn(lane, future)) => host.spawn(lane, future),
-                (Some(host), Deferred::Run(run) | Deferred::AfterPublish(run)) => host.run(run),
+                (
+                    Some(host),
+                    Deferred::Run(run) | Deferred::Retire(_, run) | Deferred::AfterPublish(run),
+                ) => host.run(run),
                 // Detached: the engine is closing, and the work is dropped.
                 (None, _) => {}
             }
@@ -116,7 +121,7 @@ impl AfterCommit {
             let mut runs = Vec::new();
             for item in deferred {
                 match item {
-                    Deferred::Run(run) => runs.push(run),
+                    Deferred::Run(run) | Deferred::Retire(_, run) => runs.push(run),
                     other => keep.push(other),
                 }
             }
@@ -143,6 +148,18 @@ impl AfterCommit {
             }
         }
         taken
+    }
+
+    pub(crate) fn pending_retirements(&self) -> std::collections::HashSet<String> {
+        self.entries
+            .borrow()
+            .values()
+            .flatten()
+            .filter_map(|item| match item {
+                Deferred::Retire(thread, _) => Some(thread.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Discards what the tokens stood for: a rolled-back receipt starts nothing.

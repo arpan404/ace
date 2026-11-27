@@ -400,15 +400,15 @@ fn tail(
     let held_send = kind == "thread.send" && crate::queue::store::get(&core.store, thread)?.paused;
     let mut reclaimed = reclaimed;
     if !held_send && !state.repo.reserve_without_reclaim(&core.store, thread)? {
-        let freed =
-            crate::release::reclaim::reclaim_idle_slot(core, state, &|_| false, &|_| false)?;
+        let freed = crate::release::reclaim::reclaim_idle_slot(core, state)?;
         let Some(freed) = freed else {
             return Ok(fail("engine_capacity_exceeded"));
         };
-        if !state
-            .repo
-            .reserve_after_reclaim(&core.store, thread, &freed)?
-        {
+        if !state.repo.reserve_after_reclaim(
+            &core.store,
+            thread,
+            core.after.pending_retirements().len(),
+        )? {
             return Ok(fail("engine_capacity_exceeded"));
         }
         reclaimed = Some(freed);
