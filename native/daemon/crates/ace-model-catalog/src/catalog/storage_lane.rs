@@ -7,9 +7,9 @@
 //! worker checks the job's ownership flag immediately before writing, which is what makes
 //! a deadline win at the durable boundary rather than only in memory.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
 
 use crate::cache::{CacheEntry, CacheError, SharedStorage};
 use crate::catalog::commands::Reporter;
@@ -146,7 +146,7 @@ fn execute(storage: &SharedStorage, job: Job) -> Outcome {
 }
 
 fn remove(storage: &mut SharedStorage, instance: &str) -> Outcome {
-    match crate::catalog::storage::remove(storage, instance) {
+    match crate::catalog::storage::guarded(storage, |storage| storage.remove(instance)) {
         Ok(()) => Outcome::Done,
         Err(error) => Outcome::Failed(error),
     }

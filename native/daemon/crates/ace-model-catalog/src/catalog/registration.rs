@@ -10,8 +10,9 @@ use ace_protocol::generated::ProviderKind;
 use futures::future::BoxFuture;
 
 use crate::backoff::DiscoveryBackoff;
-use crate::catalog::actor::{Actor, TaskKind};
+use crate::catalog::actor::{Actor, StorageWait, TaskKind};
 use crate::catalog::commands::{Command, Reply};
+use crate::catalog::storage_lane::{Job, Outcome};
 use crate::catalog::{
     CatalogError, Invalidation, ModelFilter, PendingOp, Removal, State, identity_revision,
     selection, validate_instance,
@@ -99,7 +100,7 @@ impl Actor {
                 }
         });
         if entry.is_some() && !compatible {
-            let _ = self.deletions_remove(&config.id);
+            self.begin_delete(&config.id);
         }
         let old_entry_acp = self
             .inner
@@ -137,7 +138,7 @@ impl Actor {
             if of_kind + cached.len() >= kind_limit(config.provider)
                 && let Some(evicted) = cached.drain(..1).next()
             {
-                let _ = self.deletions_remove(&evicted);
+                self.begin_delete(&evicted);
                 self.inner.persisted.remove(&evicted);
                 self.inner.persisted_order.retain(|id| id != &evicted);
             }
@@ -395,6 +396,12 @@ impl Actor {
             let _ = reply.send(Err(CatalogError::InstanceRemovalCapacity));
             return;
         }
+        // A removal that fails keeps its durable marker, so the set must have room for
+        // this row before the row is withdrawn from memory.
+        if !self.inner.deletions.reserve(&instance) {
+            let _ = reply.send(Err(CatalogError::InstanceRemovalCapacity));
+            return;
+        }
         self.next_removal += 1;
         let token = self.next_removal;
         // Every flight this instance ever started, not only its current row's.
@@ -451,7 +458,6 @@ impl Actor {
                 waiters: vec![reply],
             },
         );
-        let storage = self.storage.clone();
         let reporter = self.reporter.clone();
         let id = instance.clone();
         let task: BoxFuture<'static, ()> = Box::pin(async move {
@@ -464,12 +470,9 @@ impl Actor {
             if let Some(tail) = tail {
                 tail.wait().await;
             }
-            let mut storage = storage;
-            let result = storage.remove(&id);
-            reporter.report(Command::RemovalDone {
+            reporter.report(Command::RemovalReady {
                 id: id.clone(),
                 token,
-                result,
             });
         });
         self.spawn(
@@ -481,26 +484,45 @@ impl Actor {
         );
     }
 
-    pub(crate) fn removal_done(
-        &mut self,
-        id: &str,
-        token: u64,
-        result: Result<(), crate::cache::CacheError>,
-    ) {
+    /// A removal's flights are drained: its durable delete goes to the lane.
+    pub(crate) fn removal_ready(&mut self, id: &str, token: u64) {
+        if self
+            .inner
+            .removals
+            .get(id)
+            .is_none_or(|removal| removal.token != token)
+        {
+            return;
+        }
+        self.dispatch_storage(
+            StorageWait::Removal {
+                id: id.to_owned(),
+                token,
+            },
+            Job::Remove {
+                instance: id.to_owned(),
+            },
+        );
+    }
+
+    pub(crate) fn removal_done(&mut self, id: &str, token: u64, outcome: Outcome) {
         let Some(removal) = self.inner.removals.get(id) else {
             return;
         };
         if removal.token != token {
             return;
         }
-        let mut failure = result.err();
-        match failure {
-            Some(_) => self.inner.deletions.mark(id),
+        let failure = match outcome {
+            Outcome::Done => None,
+            Outcome::Failed(error) | Outcome::CloseFailed { error, .. } => Some(error),
+            Outcome::Cancelled => Some(crate::cache::CacheError::Malformed),
+        };
+        match &failure {
+            // The marker was reserved at admission, so a failed delete retries later.
+            Some(_) => {}
             None => {
                 self.inner.deletions.forget(id);
-                if let Some(error) = self.deletions_retry() {
-                    failure = Some(error);
-                }
+                self.retry_pending_deletions();
             }
         }
         let settled = match failure {
@@ -512,6 +534,13 @@ impl Actor {
         };
         for waiter in removal.waiters {
             let _ = waiter.send(settled.clone());
+        }
+    }
+
+    /// Retries every pending deletion on the lane after one removal freed its id.
+    fn retry_pending_deletions(&mut self) {
+        for id in self.inner.deletions.pending_ids() {
+            self.begin_delete(&id);
         }
     }
 
@@ -642,7 +671,49 @@ impl Actor {
         self.pump(id);
     }
 
-    pub(crate) fn execute_invalidation(&mut self, id: &str, token: u64) {
+    /// The deletion a revocation runs, dispatched from its queue place.
+    pub(crate) fn begin_invalidation(&mut self, id: &str, token: u64, place: u64) -> bool {
+        if self
+            .inner
+            .invalidating
+            .get(id)
+            .and_then(|pending| pending.iter().find(|pending| pending.token == token))
+            .is_none()
+        {
+            return true;
+        }
+        if !self.inner.deletions.reserve(id) {
+            self.invalidation_removed(id, token, place, Outcome::Cancelled);
+            return true;
+        }
+        self.dispatch_storage(
+            StorageWait::Invalidation {
+                id: id.to_owned(),
+                token,
+                place,
+            },
+            Job::Remove {
+                instance: id.to_owned(),
+            },
+        );
+        false
+    }
+
+    pub(crate) fn invalidation_removed(
+        &mut self,
+        id: &str,
+        token: u64,
+        place: u64,
+        outcome: Outcome,
+    ) {
+        let result = match outcome {
+            Outcome::Done => {
+                self.inner.deletions.forget(id);
+                Ok(())
+            }
+            Outcome::Failed(error) | Outcome::CloseFailed { error, .. } => Err(error),
+            Outcome::Cancelled => Err(crate::cache::CacheError::Malformed),
+        };
         let Some(done) = self
             .inner
             .invalidating
@@ -650,9 +721,9 @@ impl Actor {
             .and_then(|pending| pending.iter().find(|pending| pending.token == token))
             .map(|pending| pending.done.clone())
         else {
+            self.settle_place(id, place);
             return;
         };
-        let result = self.deletions_remove(id);
         if let Some(pending) = self.inner.invalidating.get_mut(id) {
             pending.retain(|pending| pending.token != token);
             if pending.is_empty() {
@@ -679,6 +750,7 @@ impl Actor {
                 let _ = entry.reply.send(reply);
             }
         }
+        self.settle_place(id, place);
     }
 }
 

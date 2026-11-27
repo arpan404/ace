@@ -233,10 +233,15 @@ pub(crate) enum Command {
         started_at: f64,
         result: Option<Result<String, DiscoveryFailure>>,
     },
-    RemovalDone {
+    /// A removal has drained its flights and waits for its durable delete.
+    RemovalReady {
         id: String,
         token: u64,
-        result: Result<(), crate::cache::CacheError>,
+    },
+    /// The storage lane finished one job.
+    StorageDone {
+        key: u64,
+        outcome: crate::catalog::storage_lane::Outcome,
     },
     InvalidationDone {
         id: String,

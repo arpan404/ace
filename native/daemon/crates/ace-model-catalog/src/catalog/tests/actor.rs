@@ -562,3 +562,112 @@ fn a_spawner_that_panics_still_settles_its_task() {
             .unwrap_or_else(|error| panic!("{error}"));
     })
 }
+
+/// Storage whose first write blocks the lane until the test releases it.
+struct BlockingFirstReplace {
+    inner: MemoryStorage,
+    release: std::sync::mpsc::Receiver<()>,
+    blocked: Arc<AtomicBool>,
+    writes: Arc<Mutex<Vec<String>>>,
+    first: bool,
+}
+
+impl CatalogStorage for BlockingFirstReplace {
+    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+        self.inner.load()
+    }
+
+    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+        if self.first {
+            self.first = false;
+            self.blocked.store(true, Ordering::SeqCst);
+            let _ = self.release.recv();
+        }
+        self.writes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(entry.instance.clone());
+        self.inner.replace(entry)
+    }
+
+    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+        self.inner.remove(instance)
+    }
+}
+
+#[test]
+fn a_stalled_storage_lane_never_stalls_the_catalog_and_a_deadline_wins_at_the_write() {
+    within(15, "a stalled storage lane", || {
+        let slow = instance(ProviderKind::Codex, "slow");
+        let fast = instance(ProviderKind::Codex, "fast");
+        let (release, blocked_on) = std::sync::mpsc::channel();
+        let blocked = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let storage = SharedStorage::new(BlockingFirstReplace {
+            inner: MemoryStorage::new(),
+            release: blocked_on,
+            blocked: blocked.clone(),
+            writes: writes.clone(),
+            first: true,
+        });
+        let discover = FakeDiscover::new(|request, _signal| {
+            Box::pin(async move { Ok(models(&request.instance, &["gpt-6-sol"])) })
+        });
+        let fixture = fixture(vec![slow, fast], storage, discover);
+        let catalog = fixture.catalog.clone();
+        // The first commit enters the lane and blocks there.
+        let mut slow_flight = Box::pin(catalog.refresh_state("slow", RefreshCause::Background));
+        assert!(poll_once(slow_flight.as_mut()).is_pending());
+        for _ in 0..100 {
+            if blocked.load(Ordering::SeqCst) {
+                break;
+            }
+            fixture.spawn.drain();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            blocked.load(Ordering::SeqCst),
+            "the slow commit reached storage (discover calls: {})",
+            fixture.discover.calls()
+        );
+        // The actor still answers every other row while the disk is stalled.
+        let listed = catalog
+            .list(ModelFilter::instance("fast"), 0, 100)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            listed.models.is_empty(),
+            "the fast row lists while slow writes"
+        );
+        // The fast commit queues behind the stalled write, then loses to its deadline.
+        let mut fast_flight = Box::pin(catalog.refresh_state("fast", RefreshCause::Background));
+        assert!(poll_once(fast_flight.as_mut()).is_pending());
+        for _ in 0..100 {
+            if fixture.discover.calls() >= 2 {
+                break;
+            }
+            fixture.spawn.drain();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        fixture.spawn.drain();
+        fixture.deadlines.fire(1_000.0 + 1_000.0);
+        release
+            .send(())
+            .unwrap_or_else(|error| panic!("release the lane: {error}"));
+        let (slow_status, fast_status) = settle(
+            async move { futures::join!(slow_flight, fast_flight) },
+            &fixture.spawn,
+            "the stalled writes",
+        );
+        assert_eq!(
+            slow_status.error,
+            Some(StatusError::Timeout),
+            "the deadline reached the actor behind the stall"
+        );
+        assert_eq!(fast_status.error, Some(StatusError::Timeout));
+        let written = writes.lock().unwrap_or_else(|error| error.into_inner());
+        assert!(
+            !written.iter().any(|id| id == "fast"),
+            "the queued write saw the deadline before it touched storage: {written:?}"
+        );
+    })
+}

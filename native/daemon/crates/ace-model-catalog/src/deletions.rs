@@ -2,167 +2,111 @@
 //! Deletions that outlive one attempt (`deletions.ts`).
 //!
 //! A failed deletion stays pending: nothing is ever resurrected into storage by a later
-//! write, and an explicit retry or shutdown completes it. The bound is twice what the
+//! write, and an explicit retry or shutdown completes it. The set is bookkeeping only;
+//! the storage lane performs every removal. A row is marked before its removal starts,
+//! so a panic or a dropped task leaves the marker behind. The bound is twice what the
 //! catalog can name (64 CLI accounts and 512 ACP agents' rows, registered or cached), so
 //! a restart that finds every cached row out of date deletes them all.
 
 use std::collections::BTreeSet;
 
-use crate::cache::{CacheError, SharedStorage};
-
 /// The most rows waiting to be deleted.
-const PENDING_LIMIT: usize = 2 * (64 + 512);
+pub const PENDING_LIMIT: usize = 2 * (64 + 512);
 
 /// The deletions that have not durably completed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PendingDeletions {
     pending: BTreeSet<String>,
-    storage: SharedStorage,
 }
 
 impl PendingDeletions {
-    pub fn new(storage: SharedStorage) -> Self {
-        Self {
-            pending: BTreeSet::new(),
-            storage,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn has(&self, instance: &str) -> bool {
         self.pending.contains(instance)
     }
 
-    /// Records a deletion a task reported as failed, for the next retry or shutdown.
-    pub fn mark(&mut self, instance: &str) {
-        self.pending.insert(instance.to_owned());
+    pub fn len(&self) -> usize {
+        self.pending.len()
     }
 
-    /// Records a deletion a task reported as done.
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    /// Reserves the marker before any removal runs. `false` means the set is full and
+    /// this id may not be deleted, so its row must not be withdrawn either.
+    pub fn reserve(&mut self, instance: &str) -> bool {
+        if self.pending.contains(instance) {
+            return true;
+        }
+        if self.pending.len() >= PENDING_LIMIT {
+            return false;
+        }
+        self.pending.insert(instance.to_owned());
+        true
+    }
+
+    /// Records a deletion that failed, if the set has room for it.
+    pub fn mark(&mut self, instance: &str) -> bool {
+        self.reserve(instance)
+    }
+
+    /// Records a deletion that durably completed.
     pub fn forget(&mut self, instance: &str) {
         self.pending.remove(instance);
     }
 
-    /// Deletes one row now; a failure stays pending for the next retry.
-    pub fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
-        if !self.pending.contains(instance) && self.pending.len() >= PENDING_LIMIT {
-            return Err(CacheError::Malformed);
-        }
-        match self.storage.remove(instance) {
-            Ok(()) => {
-                self.pending.remove(instance);
-                Ok(())
-            }
-            Err(error) => {
-                self.pending.insert(instance.to_owned());
-                Err(error)
-            }
-        }
+    /// The rows a shutdown must still remove, in a stable order.
+    pub fn pending_ids(&self) -> Vec<String> {
+        self.pending.iter().cloned().collect()
     }
 
-    /// Retries every pending deletion, keeping the ones that fail again.
-    pub fn retry(&mut self) -> Vec<Result<(), CacheError>> {
-        let pending: Vec<String> = self.pending.iter().cloned().collect();
-        pending
-            .into_iter()
-            .map(|instance| self.remove(&instance))
-            .collect()
+    /// Keeps only the rows whose removal is still outstanding.
+    pub fn retain(&mut self, kept: &[String]) {
+        self.pending.retain(|id| kept.contains(id));
     }
 
-    /// Shutdown: every pending deletion must have completed.
-    pub fn flush(&mut self) -> Result<(), CacheError> {
-        let results = self.retry();
-        if results.iter().any(Result::is_err) {
-            return Err(CacheError::Malformed);
-        }
-        Ok(())
+    pub fn clear(&mut self) {
+        self.pending.clear();
     }
 }
 
 #[cfg(test)]
 mod tests {
     //! Ports `packages/models/src/removal-drain.test.ts`'s "a failed removal stays
-    //! pending and retries with the next call" and `shutdown-deletion-retry.test.ts`'s
-    //! "shutdown retries every pending deletion before closing".
+    //! pending and retries with the next call" and the deletion set's bound.
 
     use super::*;
-    use crate::cache::{CacheEntry, CatalogStorage, MemoryStorage};
-    use ace_protocol::generated::ProviderKind;
-
-    /// Storage whose next `remove` calls fail, then succeeds.
-    struct Flaky {
-        inner: MemoryStorage,
-        failures: usize,
-    }
-
-    impl CatalogStorage for Flaky {
-        fn load(&mut self) -> Result<Vec<CacheEntry>, CacheError> {
-            self.inner.load()
-        }
-
-        fn replace(&mut self, entry: &CacheEntry) -> Result<(), CacheError> {
-            self.inner.replace(entry)
-        }
-
-        fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
-            if self.failures > 0 {
-                self.failures -= 1;
-                return Err(CacheError::Malformed);
-            }
-            self.inner.remove(instance)
-        }
-    }
-
-    fn entry(instance: &str) -> CacheEntry {
-        CacheEntry {
-            provider: ProviderKind::Codex,
-            instance: instance.to_owned(),
-            login_revision: None,
-            revision: "r".into(),
-            refreshed_at: 0.0,
-            models: Vec::new(),
-            sources: None,
-            permission_modes: None,
-            identity_revision: None,
-            connection_revision: None,
-        }
-    }
 
     #[test]
     fn a_failed_deletion_stays_pending_until_a_retry_completes_it() {
-        let storage = SharedStorage::new(Flaky {
-            inner: MemoryStorage::new(),
-            failures: 1,
-        });
-        let mut deletions = PendingDeletions::new(storage.clone());
-        assert!(deletions.remove("account").is_err());
+        let mut deletions = PendingDeletions::new();
+        assert!(deletions.reserve("account"), "the marker is taken first");
+        // A failed removal leaves the marker in place; a successful retry clears it.
         assert!(deletions.has("account"));
-        let mut storage = storage.clone();
-        storage
-            .replace(&entry("account"))
-            .unwrap_or_else(|_| panic!("stores"));
-        deletions
-            .remove("account")
-            .unwrap_or_else(|error| panic!("{error}"));
+        deletions.forget("account");
         assert!(!deletions.has("account"));
-        assert!(
-            storage
-                .load()
-                .unwrap_or_else(|_| panic!("loads"))
-                .is_empty()
-        );
+        assert!(deletions.is_empty());
     }
 
     #[test]
-    fn flush_fails_while_any_pending_deletion_still_fails() {
-        let storage = SharedStorage::new(Flaky {
-            inner: MemoryStorage::new(),
-            failures: 2,
-        });
-        let mut deletions = PendingDeletions::new(storage);
-        assert!(deletions.remove("one").is_err());
-        assert!(deletions.flush().is_err());
-        assert!(deletions.has("one"));
-        deletions.flush().unwrap_or_else(|error| panic!("{error}"));
-        assert!(!deletions.has("one"));
+    fn the_pending_set_never_grows_past_its_limit() {
+        let mut deletions = PendingDeletions::new();
+        for index in 0..PENDING_LIMIT {
+            assert!(deletions.reserve(&format!("id-{index}")));
+        }
+        assert_eq!(deletions.len(), PENDING_LIMIT);
+        assert!(
+            !deletions.reserve("over"),
+            "a new id is refused at the limit"
+        );
+        assert!(
+            deletions.reserve("id-0"),
+            "an id that is already pending is never refused"
+        );
+        assert_eq!(deletions.len(), PENDING_LIMIT);
     }
 }

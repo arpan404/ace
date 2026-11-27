@@ -17,6 +17,7 @@ use ace_protocol::generated::ProviderKind;
 use crate::catalog::commands::{Command, Envelope, FlightOutcome, Reply, Reporter};
 use crate::catalog::flights::Commit;
 use crate::catalog::notify::NotifyLane;
+use crate::catalog::storage_lane::{Cancel, Job, Outcome, StorageLane};
 use crate::catalog::turns;
 use crate::catalog::{
     CatalogError, CatalogOptions, DiscoveryDiagnostics, DiscoveryFailure, ErrorReport, Inner,
@@ -74,10 +75,50 @@ pub(crate) struct Shared {
     pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
 }
 
+/// What one admitted storage job will do when its reply arrives.
+pub(crate) enum StorageWait {
+    CommitDelete(Box<CommitPlan>),
+    CommitReplace(Box<CommitPlan>),
+    SessionDelete(Box<SessionWritePlan>),
+    SessionReplace(Box<SessionWritePlan>),
+    PermissionReplace(Box<crate::catalog::writes::PermissionWrite>),
+    Invalidation { id: String, token: u64, place: u64 },
+    Removal { id: String, token: u64 },
+    Deletion { id: String },
+    Close,
+}
+
+/// One discovery commit, computed before its durable write and resumed after it.
+pub(crate) struct CommitPlan {
+    pub(crate) place: u64,
+    pub(crate) id: String,
+    pub(crate) token: u64,
+    pub(crate) generation: u64,
+    pub(crate) revision: String,
+    pub(crate) started_at: f64,
+    pub(crate) diagnostics: DiscoveryDiagnostics,
+    pub(crate) entry: crate::cache::CacheEntry,
+    pub(crate) config: ModelInstance,
+    pub(crate) previous_no_models: Option<BTreeSet<String>>,
+}
+
+/// One session write, computed before its durable write and resumed after it.
+pub(crate) struct SessionWritePlan {
+    pub(crate) place: u64,
+    pub(crate) entry: crate::cache::CacheEntry,
+    pub(crate) write: crate::catalog::writes::SessionWrite,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CloseStage {
+    Idle,
+    Closing,
+}
+
 pub(crate) struct Actor {
     pub(crate) inner: Inner,
     pub(crate) options: Arc<CatalogOptions>,
-    pub(crate) storage: crate::cache::SharedStorage,
+    pub(crate) lane: StorageLane,
     pub(crate) limiter: Limiter,
     /// A weak name of the callers' mailbox: the actor never keeps itself alive for it.
     pub(crate) commands: Weak<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
@@ -97,6 +138,11 @@ pub(crate) struct Actor {
     pub(crate) invalidation_batch_of: BTreeMap<u64, u64>,
     pub(crate) probe_waiters: BTreeMap<String, Vec<Reply<Result<(), CatalogError>>>>,
     pub(crate) probe_signals: BTreeMap<u64, Signal>,
+    storage_waits: BTreeMap<u64, StorageWait>,
+    next_storage: u64,
+    pending_storage: usize,
+    commit_cancels: BTreeMap<u64, Cancel>,
+    close_stage: CloseStage,
     pub(crate) probe_cancels: BTreeMap<u64, crate::catalog::Cancel>,
     flight_cancels: BTreeMap<u64, crate::catalog::Cancel>,
     timed_out_flights: BTreeSet<u64>,
@@ -118,9 +164,9 @@ impl Actor {
         mut inner: Inner,
         stored: Vec<crate::cache::CacheEntry>,
         options: Arc<CatalogOptions>,
-        storage: crate::cache::SharedStorage,
         limiter: Limiter,
         reporter: Reporter,
+        lane: StorageLane,
         shared: Shared,
     ) -> Self {
         for entry in stored {
@@ -145,7 +191,7 @@ impl Actor {
         Self {
             inner,
             options,
-            storage,
+            lane,
             limiter,
             commands: reporter.commands.clone(),
             reporter,
@@ -164,6 +210,11 @@ impl Actor {
             invalidation_batch_of: BTreeMap::new(),
             probe_waiters: BTreeMap::new(),
             probe_signals: BTreeMap::new(),
+            storage_waits: BTreeMap::new(),
+            next_storage: 0,
+            pending_storage: 0,
+            commit_cancels: BTreeMap::new(),
+            close_stage: CloseStage::Idle,
             probe_cancels: BTreeMap::new(),
             flight_cancels: BTreeMap::new(),
             timed_out_flights: BTreeSet::new(),
@@ -225,6 +276,7 @@ impl Actor {
 
     fn finish_run(&mut self) {
         self.notify.shutdown();
+        self.lane.shutdown();
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -399,7 +451,7 @@ impl Actor {
                 let _ = reply.send(self.inner.session_writes);
             }
             Command::Quiesce { reply } => {
-                if self.in_flight.is_empty() {
+                if self.quiesce_ready() {
                     let _ = reply.send(());
                 } else {
                     self.quiesce_waiters.push(reply);
@@ -415,6 +467,8 @@ impl Actor {
                 let _ = reply.send(facts.unwrap_or((None, false)));
             }
             Command::TaskSettled { task } => self.task_settled(task),
+            Command::StorageDone { key, outcome } => self.storage_done(key, outcome),
+            Command::RemovalReady { id, token } => self.removal_ready(&id, token),
             Command::Deadline { id, token } => self.deadline(&id, token),
             Command::ProbeDeadline { id, token } => self.probe_deadline(&id, token),
             Command::FlightAdmit { id, token, reply } => {
@@ -438,7 +492,6 @@ impl Actor {
                 result,
                 ..
             } => self.probe_outcome(&id, token, generation, &revision, started_at, result),
-            Command::RemovalDone { id, token, result } => self.removal_done(&id, token, result),
             Command::InvalidationDone { id, token, .. } => self.mark_invalidation_ready(&id, token),
             Command::PermissionReady { id, place } => {
                 if let Some(turns) = self.inner.turns.get_mut(&id) {
@@ -543,7 +596,18 @@ impl Actor {
             }
             TaskKind::Probe { id, token } => self.abort_probe(&id, token),
             TaskKind::Removal { id, token } => {
-                self.removal_done(&id, token, Err(crate::cache::CacheError::Malformed));
+                // A removal that reached the storage lane settles from its reply; the
+                // task ending right after reporting that is not a failure.
+                let awaiting = self.storage_waits.values().any(|wait| {
+                    matches!(wait, StorageWait::Removal { token: known, .. } if *known == token)
+                });
+                if !awaiting {
+                    self.removal_done(
+                        &id,
+                        token,
+                        Outcome::Failed(crate::cache::CacheError::Malformed),
+                    );
+                }
             }
             TaskKind::Invalidation { id, token } => {
                 // A deletion's waiter left without reporting; its place still runs the
@@ -558,11 +622,21 @@ impl Actor {
             }
             TaskKind::Other => {}
         }
-        if self.in_flight.is_empty() {
-            let waiters = std::mem::take(&mut self.quiesce_waiters);
-            for waiter in waiters {
-                let _ = waiter.send(());
-            }
+        self.release_quiesce_waiters();
+    }
+
+    /// Whether no spawned task and no storage job is outstanding.
+    fn quiesce_ready(&self) -> bool {
+        self.in_flight.is_empty() && self.pending_storage == 0
+    }
+
+    fn release_quiesce_waiters(&mut self) {
+        if !self.quiesce_ready() {
+            return;
+        }
+        let waiters = std::mem::take(&mut self.quiesce_waiters);
+        for waiter in waiters {
+            let _ = waiter.send(());
         }
     }
 
@@ -581,10 +655,11 @@ impl Actor {
                 None => return,
             };
             match step {
-                turns::Step::Run(token, op) => {
-                    self.execute_op(id, token, op);
-                    if let Some(entry) = self.inner.turns.get_mut(id) {
-                        entry.settle(token);
+                turns::Step::Run(place, op) => {
+                    // A place whose work went to the storage lane settles from the lane's
+                    // reply, never here: the next place must not overtake the write.
+                    if self.execute_op(id, place, op) {
+                        self.settle_place(id, place);
                     }
                 }
                 turns::Step::Grant(grant) => {
@@ -601,14 +676,71 @@ impl Actor {
         self.finish_close_if_ready();
     }
 
-    fn execute_op(&mut self, id: &str, token: u64, op: PendingOp) {
+    /// Runs one place's work; `true` means it settled without storage.
+    fn execute_op(&mut self, id: &str, place: u64, op: PendingOp) -> bool {
         match op {
-            PendingOp::SessionWrite(write) => self.execute_session_write(*write),
-            PendingOp::PermissionWrite(write) => self.execute_permission_write(*write),
-            PendingOp::FlightCommit(commit) => self.execute_commit(commit),
-            PendingOp::Invalidation { token } => self.execute_invalidation(id, token),
+            PendingOp::SessionWrite(write) => self.begin_session_write(*write, place),
+            PendingOp::PermissionWrite(write) => self.begin_permission_write(*write, place),
+            PendingOp::FlightCommit(commit) => self.begin_commit(commit, place),
+            PendingOp::Invalidation { token } => self.begin_invalidation(id, token, place),
         }
-        let _ = token;
+    }
+
+    pub(crate) fn settle_place(&mut self, id: &str, place: u64) {
+        if let Some(entry) = self.inner.turns.get_mut(id) {
+            entry.settle(place);
+        }
+        self.pump(id);
+    }
+
+    pub(crate) fn dispatch_storage(&mut self, wait: StorageWait, job: Job) {
+        self.next_storage += 1;
+        let key = self.next_storage;
+        self.storage_waits.insert(key, wait);
+        self.pending_storage += 1;
+        self.lane.dispatch(key, job);
+    }
+
+    fn storage_done(&mut self, key: u64, outcome: Outcome) {
+        self.pending_storage = self.pending_storage.saturating_sub(1);
+        let Some(wait) = self.storage_waits.remove(&key) else {
+            self.after_event();
+            return;
+        };
+        match wait {
+            StorageWait::CommitDelete(plan) => self.commit_deleted(*plan, outcome),
+            StorageWait::CommitReplace(plan) => self.commit_replaced(*plan, outcome),
+            StorageWait::SessionDelete(plan) => self.session_deleted(*plan, outcome),
+            StorageWait::SessionReplace(plan) => self.session_replaced(*plan, outcome),
+            StorageWait::PermissionReplace(write) => self.permission_replaced(*write, outcome),
+            StorageWait::Invalidation { id, token, place } => {
+                self.invalidation_removed(&id, token, place, outcome)
+            }
+            StorageWait::Removal { id, token } => self.removal_done(&id, token, outcome),
+            StorageWait::Deletion { id } => self.deletion_done(&id, outcome),
+            StorageWait::Close => self.close_stored(outcome),
+        }
+        self.release_quiesce_waiters();
+        self.after_event();
+    }
+
+    /// Adds one row's marker before its removal is dispatched, and starts the removal.
+    pub(crate) fn begin_delete(&mut self, id: &str) {
+        if !self.inner.deletions.reserve(id) {
+            return;
+        }
+        self.dispatch_storage(
+            StorageWait::Deletion { id: id.to_owned() },
+            Job::Remove {
+                instance: id.to_owned(),
+            },
+        );
+    }
+
+    fn deletion_done(&mut self, id: &str, outcome: Outcome) {
+        if matches!(outcome, Outcome::Done) {
+            self.inner.deletions.forget(id);
+        }
     }
 
     fn deadline(&mut self, id: &str, token: u64) {
@@ -622,6 +754,9 @@ impl Actor {
             return;
         }
         self.timed_out_flights.insert(token);
+        if let Some(cancel) = self.commit_cancels.get(&token) {
+            cancel.cancel();
+        }
         if let Some(abort) = self
             .inner
             .states
@@ -812,6 +947,10 @@ impl Actor {
     }
 
     pub(crate) fn settle_flight(&mut self, id: &str, token: u64) {
+        // A write still queued on the lane must not land for a flight that is over.
+        if let Some(cancel) = self.commit_cancels.remove(&token) {
+            cancel.cancel();
+        }
         // The gate belongs to the flight, not to whichever row replaced it: an
         // invalidate or remove waiting on it must never hang.
         let gate = self.inner.row_flights.get(id).and_then(|flights| {
@@ -1026,7 +1165,7 @@ impl Actor {
                     state.dirty = true;
                 });
                 if current {
-                    let _ = self.deletions_remove(id);
+                    self.begin_delete(id);
                 }
                 self.fail(
                     id,
@@ -1115,7 +1254,7 @@ impl Actor {
         self.revision(&state.config) == revision
     }
 
-    fn execute_commit(&mut self, commit: Box<Commit>) {
+    fn begin_commit(&mut self, commit: Box<Commit>, place: u64) -> bool {
         let Commit {
             id,
             token,
@@ -1126,7 +1265,6 @@ impl Actor {
             outcome,
         } = *commit;
         self.pending_commits = self.pending_commits.saturating_sub(1);
-        self.commit_tokens.remove(&token);
         let report = FailureReport {
             started_at,
             diagnostics: &diagnostics,
@@ -1138,19 +1276,15 @@ impl Actor {
             if fired {
                 self.fail(&id, None, FailureCode::Timeout, &report);
             }
+            self.commit_tokens.remove(&token);
             self.settle_flight(&id, token);
-            return;
+            return true;
         }
         let Some(config) = self.inner.states.get(&id).map(|state| state.config.clone()) else {
+            self.commit_tokens.remove(&token);
             self.settle_flight(&id, token);
-            return;
+            return true;
         };
-        let pending_deletion = self.inner.deletions.has(&id);
-        if pending_deletion && self.deletions_remove(&id).is_err() {
-            self.commit_failed(&id, &report, generation);
-            self.settle_flight(&id, token);
-            return;
-        }
         let previous = self
             .inner
             .states
@@ -1199,16 +1333,91 @@ impl Actor {
             .any(|row| ace_models::row::validate_row(row).is_err())
             || crate::cache::validate_entry(&entry).is_err();
         if row_error {
+            self.commit_tokens.remove(&token);
             self.commit_failed(&id, &report, generation);
             self.settle_flight(&id, token);
+            return true;
+        }
+        let previous_no_models = self
+            .inner
+            .states
+            .get(&id)
+            .and_then(|state| state.no_model_sources.clone());
+        let plan = CommitPlan {
+            place,
+            id: id.clone(),
+            token,
+            generation,
+            revision,
+            started_at,
+            diagnostics,
+            entry,
+            config,
+            previous_no_models,
+        };
+        if self.inner.deletions.has(&id) {
+            self.dispatch_storage(
+                StorageWait::CommitDelete(Box::new(plan)),
+                Job::Remove { instance: id },
+            );
+        } else {
+            self.dispatch_commit_replace(plan);
+        }
+        false
+    }
+
+    /// Starts the durable write, with the token that may cancel it before it lands.
+    fn dispatch_commit_replace(&mut self, plan: CommitPlan) {
+        let cancel = Cancel::new();
+        self.commit_cancels.insert(plan.token, cancel.clone());
+        let entry = plan.entry.clone();
+        self.dispatch_storage(
+            StorageWait::CommitReplace(Box::new(plan)),
+            Job::Replace { entry, cancel },
+        );
+    }
+
+    fn commit_deleted(&mut self, plan: CommitPlan, outcome: Outcome) {
+        if !matches!(outcome, Outcome::Done) {
+            let report = Self::plan_report_owned(&plan);
+            self.commit_cancelled(&plan, &report);
             return;
         }
-        if let Err(error) = self.storage_replace(&entry) {
-            let _ = error;
-            self.commit_failed(&id, &report, generation);
-            self.settle_flight(&id, token);
+        self.inner.deletions.forget(&plan.id);
+        self.dispatch_commit_replace(plan);
+    }
+
+    fn commit_replaced(&mut self, plan: CommitPlan, outcome: Outcome) {
+        self.commit_cancels.remove(&plan.token);
+        let report = Self::plan_report_owned(&plan);
+        if !matches!(outcome, Outcome::Done) {
+            self.commit_cancelled(&plan, &report);
             return;
         }
+        // The write landed, but the row may have moved on while the lane ran. Its
+        // replacement or revocation deletes the row behind this place, so nothing is
+        // installed over state that no longer owns it.
+        if !self.flight_current(&plan.id, plan.token, plan.generation, &plan.revision) {
+            self.commit_tokens.remove(&plan.token);
+            if self.timed_out_flights.contains(&plan.token) {
+                self.fail(&plan.id, None, FailureCode::Timeout, &report);
+            }
+            self.settle_flight(&plan.id, plan.token);
+            self.settle_place(&plan.id, plan.place);
+            return;
+        }
+        let CommitPlan {
+            place,
+            id,
+            token,
+            generation: _,
+            revision: _,
+            started_at,
+            diagnostics,
+            entry,
+            config,
+            previous_no_models,
+        } = plan;
         let entry = Arc::new(entry);
         let failing: Vec<String> = entry
             .sources
@@ -1236,11 +1445,6 @@ impl Actor {
                 }
             }
         }
-        let previous_no_models = self
-            .inner
-            .states
-            .get(&id)
-            .and_then(|state| state.no_model_sources.clone());
         let changed = self.with_state(&id, |state| {
             state.entry = Some(entry.clone());
             state.dirty = false;
@@ -1254,7 +1458,9 @@ impl Actor {
             state.retry_at = state.backoff.retry_at();
         });
         if !changed {
+            self.commit_tokens.remove(&token);
             self.settle_flight(&id, token);
+            self.settle_place(&id, place);
             return;
         }
         for source in new_no_models {
@@ -1300,7 +1506,30 @@ impl Actor {
                 }
             }
         }
+        self.commit_tokens.remove(&token);
         self.settle_flight(&id, token);
+        self.settle_place(&id, place);
+    }
+
+    fn commit_cancelled(&mut self, plan: &CommitPlan, report: &FailureReport<'_>) {
+        self.commit_tokens.remove(&plan.token);
+        if self.timed_out_flights.contains(&plan.token) {
+            self.fail(&plan.id, None, FailureCode::Timeout, report);
+        } else {
+            self.commit_failed(&plan.id, report, plan.generation);
+        }
+        self.settle_flight(&plan.id, plan.token);
+        self.settle_place(&plan.id, plan.place);
+    }
+
+    /// The failure report one planned commit carries through storage.
+    fn plan_report_owned<'a>(plan: &'a CommitPlan) -> FailureReport<'a> {
+        FailureReport {
+            started_at: plan.started_at,
+            diagnostics: &plan.diagnostics,
+            revision: Some(&plan.revision),
+            token: Some(plan.token),
+        }
     }
 
     fn commit_failed(&mut self, id: &str, report: &FailureReport<'_>, generation: u64) {
@@ -1327,29 +1556,8 @@ impl Actor {
         }
     }
 
-    pub(crate) fn storage_replace(
-        &mut self,
-        entry: &crate::cache::CacheEntry,
-    ) -> Result<(), crate::cache::CacheError> {
-        crate::catalog::storage::replace(&mut self.storage, entry)
-    }
-
-    pub(crate) fn deletions_remove(&mut self, id: &str) -> Result<(), crate::cache::CacheError> {
-        match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.remove(id))) {
-            Ok(result) => result,
-            Err(_) => Err(crate::cache::CacheError::Malformed),
-        }
-    }
-
-    pub(crate) fn deletions_retry(&mut self) -> Option<crate::cache::CacheError> {
-        match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.retry())) {
-            Ok(results) => results.into_iter().find_map(Result::err),
-            Err(_) => Some(crate::cache::CacheError::Malformed),
-        }
-    }
-
     fn finish_close_if_ready(&mut self) {
-        if !self.closing {
+        if !self.closing || self.close_stage != CloseStage::Idle {
             return;
         }
         if !self.in_flight.is_empty()
@@ -1357,10 +1565,35 @@ impl Actor {
             || self.inner.invalidations > 0
             || !self.inner.removals.is_empty()
             || self.pending_commits > 0
+            || self.pending_storage > 0
         {
             return;
         }
-        let result = self.finish_close();
+        // Shutdown runs on the storage lane too: the actor never touches the disk.
+        self.close_stage = CloseStage::Closing;
+        let removals = self.inner.deletions.pending_ids();
+        self.dispatch_storage(StorageWait::Close, Job::Close { removals });
+    }
+
+    fn close_stored(&mut self, outcome: Outcome) {
+        let result = match outcome {
+            Outcome::Done => {
+                self.inner.deletions.clear();
+                Ok(())
+            }
+            // Every removal stuck but storage itself refused to close: the rows are gone.
+            Outcome::Failed(error) => {
+                self.inner.deletions.clear();
+                Err(CatalogError::Cache(error))
+            }
+            Outcome::CloseFailed { error, not_removed } => {
+                // Only the rows that are still there stay marked for the next close.
+                self.inner.deletions.retain(&not_removed);
+                Err(CatalogError::Cache(error))
+            }
+            Outcome::Cancelled => Err(CatalogError::Closed),
+        };
+        self.close_stage = CloseStage::Idle;
         self.closing = false;
         *self
             .close_result
@@ -1375,16 +1608,6 @@ impl Actor {
         for waiter in self.close_waiters.drain(..) {
             let _ = waiter.send(result.clone());
         }
-    }
-
-    fn finish_close(&mut self) -> Result<(), CatalogError> {
-        let flushed = match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.flush())) {
-            Ok(result) => result,
-            Err(_) => Err(crate::cache::CacheError::Malformed),
-        };
-        flushed?;
-        crate::catalog::storage::close(&mut self.storage)?;
-        Ok(())
     }
 
     fn close(&mut self, reply: Reply<Result<(), CatalogError>>) {

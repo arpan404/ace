@@ -17,6 +17,7 @@ mod notify;
 mod refresh;
 mod registration;
 mod storage;
+mod storage_lane;
 #[cfg(test)]
 mod tests;
 mod turns;
@@ -567,7 +568,7 @@ impl Catalog {
             providers: BTreeMap::new(),
             persisted: BTreeMap::new(),
             persisted_order: Vec::new(),
-            deletions: crate::deletions::PendingDeletions::new(storage.clone()),
+            deletions: crate::deletions::PendingDeletions::new(),
             turns: BTreeMap::new(),
             invalidating: BTreeMap::new(),
             acp_loaded: BTreeSet::new(),
@@ -598,13 +599,14 @@ impl Catalog {
         };
         let closed = Arc::new(Mutex::new(None));
         let instance_ids = Arc::new(Mutex::new(BTreeSet::new()));
+        let lane = storage_lane::StorageLane::new(storage.clone(), reporter.clone());
         let actor = actor::Actor::new(
             inner,
             stored,
             options.clone(),
-            storage,
             limiter,
             reporter,
+            lane,
             actor::Shared {
                 close_result: closed.clone(),
                 instance_ids: instance_ids.clone(),

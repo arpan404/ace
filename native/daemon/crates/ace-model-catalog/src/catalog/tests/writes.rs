@@ -200,7 +200,9 @@ fn a_dropped_session_write_releases_its_capacity_slot() {
         drop(queued);
     }
     drop(held);
-    // The slots are free again, so a later session write is accepted.
+    fixture.spawn.drain();
+    // The slots are free again once every queued write and its storage job settled.
+    settle(catalog.quiesce(), &fixture.spawn, "the queued writes");
     settle(
         catalog.update_from_session(agent.clone(), &metadata),
         &fixture.spawn,
