@@ -8,13 +8,15 @@ import UIKit
 /// the system can float it the moment the person leaves the app; while floating, this pulls the
 /// newest picture itself. When to float is `BrowserPipRule`; this only does it.
 @MainActor final class BrowserPictureInPicture: NSObject {
-    /// The float ended: `restore` when the person asked to go back to the page.
-    var onEnd: (_ restore: Bool) -> Void = { _ in }
-    /// The float started or ended, for the stream's acknowledgements to keep flowing.
-    var onActive: (Bool) -> Void = { _ in }
+    /// What AVKit reported, in its order; `PipLifecycle` decides what each means.
+    enum Event: Equatable {
+        case willStart, didStart, failed
+        /// `restore` when the person asked to go back to the page.
+        case ended(restore: Bool)
+    }
+    var onEvent: (Event) -> Void = { _ in }
     /// The newest decoded picture, once the Browser isn't showing.
     var nextPicture: () -> BrowserPicture? = { nil }
-    private(set) var active = false
 
     private let layer = AVSampleBufferDisplayLayer()
     /// The layer's place in the window, which the system needs to float it; too small to see.
@@ -50,6 +52,7 @@ import UIKit
         controller.startPictureInPicture()
         return true
     }
+    /// Ends the float, or one still starting: AVKit's late did-start is stopped by its owner.
     func stop() {
         stopPulling()
         guard let controller else { return }
@@ -99,17 +102,17 @@ import UIKit
 
 extension BrowserPictureInPicture: @preconcurrency AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        active = true
         restoring = false
         // The surface's display link doesn't run once the Browser or the app is left.
         startPulling()
-        onActive(true)
+        onEvent(.willStart)
+    }
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        onEvent(.didStart)
     }
     func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: any Error) {
         stopPulling()
-        active = false
-        onActive(false)
-        onEnd(false)
+        onEvent(.failed)
     }
     func pictureInPictureController(_ controller: AVPictureInPictureController,
                                     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
@@ -118,10 +121,9 @@ extension BrowserPictureInPicture: @preconcurrency AVPictureInPictureControllerD
     }
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         stopPulling()
-        active = false
-        onActive(false)
-        onEnd(restoring)
+        let restore = restoring
         restoring = false
+        onEvent(.ended(restore: restore))
     }
 }
 

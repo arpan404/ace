@@ -43,7 +43,7 @@ extension ClientModel {
             Self.action(["type": "browser", "action": value], to: session)
         }
         browserAction(["kind": "open", "threadId": threadId, "viewport": Self.viewport(size, scale)])
-        browser.pip.onEnd = { [weak self] restore in self?.browserPipEnded(restore: restore) }
+        browser.onPipCommand = { [weak self] command in self?.browserPipCommand(command) }
     }
     /// The Browser came on screen. A stream kept for another thread's picture-in-picture closes,
     /// so this one opens its own.
@@ -55,18 +55,18 @@ extension ClientModel {
     /// says so, its stream kept open for it; otherwise the stream closes.
     func leaveBrowser() {
         browser.setShowingBrowser(false)
-        if !browser.floatOnLeaving() { closeBrowser() }
+        browser.leaveBrowser()
     }
     /// The app went to the background from the Browser: its sound stops unless the page floats.
     func browserBackground() {
         guard browser.threadId != nil, !browser.pipActive, !browser.pipArmed else { return }
         browserSound(false)
     }
-    private func browserPipEnded(restore: Bool) {
-        switch browser.pipEnded(restore: restore) {
-        case .close: closeBrowser()
+    private func browserPipCommand(_ command: PipLifecycle.Command) {
+        switch command {
+        case .closeStream: closeBrowser()
         case .mute: browserSound(false)
-        case .none: break
+        case .start, .stop: break
         }
     }
     func closeBrowser() {

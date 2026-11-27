@@ -51,10 +51,8 @@ import UIKit
     private(set) var stills: [String: UIImage] = [:]
     /// The person turned the page's sound on for this view (ADR 0088 › Audio); every view starts muted.
     private(set) var soundHere = false
-    /// The page floats in picture-in-picture now (`BrowserPipRule`).
+    /// The page floats in picture-in-picture now (`BrowserPipRule`), past AVKit's start.
     private(set) var pipActive = false
-    /// The stream stays open for picture-in-picture after the person left the Browser.
-    private(set) var keptForPip = false
     /// Bumped when the person asks picture-in-picture to go back to the page: that thread's Browser opens.
     private(set) var pipRestore: (threadId: String, count: Int)?
     @ObservationIgnored let pip = BrowserPictureInPicture()
@@ -64,6 +62,14 @@ import UIKit
     @ObservationIgnored private var pipDismissed = false
     /// Leaving the app floats the page by itself.
     @ObservationIgnored private(set) var pipArmed = false
+    /// AVKit's float through its asynchronous start and stop, fenced to the subscription that began it.
+    @ObservationIgnored private var lifecycle = PipLifecycle()
+    /// What a float leaves to the client: close the stream kept for it, or mute the page.
+    @ObservationIgnored var onPipCommand: (PipLifecycle.Command) -> Void = { _ in }
+    /// The stream stays open for picture-in-picture after the person left the Browser.
+    var keptForPip: Bool { lifecycle.kept != nil }
+    /// Starting or floating.
+    var pipFloating: Bool { lifecycle.floating }
     /// The picture on screen now and the tab it came from.
     @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
     @ObservationIgnored private var stillOrder: [String] = []
@@ -103,7 +109,7 @@ import UIKit
         streams?.attachAudio { chunk, path in renderer.receive(chunk, path: path) }
         renderer.follow(streams)
         pip.nextPicture = { [weak self] in self?.nextPicture() }
-        pip.onActive = { [weak self] active in self?.pipChanged(active) }
+        pip.onEvent = { [weak self] event in self?.pipEvent(event) }
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
@@ -121,55 +127,72 @@ import UIKit
         stills = [:]; stillOrder = []
         soundHere = false
         updateSound()
-        keptForPip = false
-        pip.stop()
+        run(lifecycle.reset())
         updatePip()
     }
-    /// The Browser is on screen, or the person left it.
+    /// The Browser is on screen, or the person left it. Back on screen, nothing floats or is kept.
     func setShowingBrowser(_ value: Bool) {
         showingBrowser = value
-        if value { pipDismissed = false; keptForPip = false }
+        if value {
+            pipDismissed = false
+            run(lifecycle.reset())
+        }
         updatePip()
     }
-    /// The person left the Browser: true when the page floats, and its stream stays open for it.
-    func floatOnLeaving() -> Bool {
-        guard threadId != nil, BrowserPipRule.shows(state: view?.state, showingBrowser: false, dismissed: pipDismissed, enabled: pipEnabled()),
-              pip.start() else { return false }
-        keptForPip = true
-        return true
+    /// The person left the Browser: the page floats when the rule holds, its stream kept for it;
+    /// otherwise the stream closes (`onPipCommand`).
+    func leaveBrowser() {
+        guard let subscription else { return }
+        let commands = lifecycle.leave(subscription, eligible: threadId != nil && eligible(onScreen: false))
+        if commands.contains(.start), !pip.start() {
+            run(lifecycle.failed(subscription))
+        } else {
+            run(commands.filter { $0 != .start })
+        }
     }
-    /// What ending picture-in-picture leaves to do: close the stream kept for it, or mute the page
-    /// the person dismissed while away from it.
-    enum PipEnd: Equatable { case close, mute, none }
-    /// Picture-in-picture ended; `restore` when the person asked to go back to the page.
-    func pipEnded(restore: Bool) -> PipEnd {
+    /// Re-reads the rule: arms the float for leaving the app, and ends one the rule no longer allows.
+    func updatePip() {
+        pipArmed = showingBrowser && threadId != nil && eligible(onScreen: false)
+        pip.arm(pipArmed)
+        // Back on screen ends an active float; one still starting may begin before the scene goes inactive.
+        let onScreen = lifecycle.active && showingBrowser && visible
+        run(lifecycle.recheck(eligible: threadId != nil && eligible(onScreen: onScreen)))
+    }
+    private func eligible(onScreen: Bool) -> Bool {
+        BrowserPipRule.shows(state: view?.state, showingBrowser: onScreen, dismissed: pipDismissed, enabled: pipEnabled())
+    }
+    /// AVKit's report, for the subscription shown now: a late one for an earlier view is fenced off.
+    private func pipEvent(_ event: BrowserPictureInPicture.Event) {
         let onScreen = showingBrowser && visible
-        if !restore, !onScreen {
-            pipDismissed = true
+        switch event {
+        case .willStart:
+            // A float is away from the Browser by nature: AVKit may start it before the scene goes inactive.
+            run(lifecycle.willStart(subscription, eligible: threadId != nil && eligible(onScreen: false)))
+        case .didStart:
+            run(lifecycle.didStart(subscription, eligible: threadId != nil && eligible(onScreen: false)))
+        case .failed:
+            run(lifecycle.failed(subscription))
+        case .ended(let restore):
+            if lifecycle.floating, !restore, !onScreen { pipDismissed = true }
+            if restore, lifecycle.kept != nil, lifecycle.kept == subscription, let threadId {
+                pipRestore = (threadId, (pipRestore?.count ?? 0) + 1)
+            }
+            run(lifecycle.ended(subscription, restore: restore, onScreen: onScreen))
             updatePip()
         }
-        if keptForPip {
-            if restore, let threadId { pipRestore = (threadId, (pipRestore?.count ?? 0) + 1) }
-            return .close
-        }
-        return restore || onScreen ? .none : .mute
     }
-    /// Re-reads the rule: arms the float for leaving the app, and ends one the rule no longer holds.
-    func updatePip() {
-        let state = view?.state
-        let enabled = pipEnabled()
-        let away = threadId != nil && BrowserPipRule.shows(state: state, showingBrowser: false, dismissed: pipDismissed, enabled: enabled)
-        pipArmed = showingBrowser && away
-        pip.arm(pipArmed)
-        let onScreen = showingBrowser && visible
-        if pip.active, !(threadId != nil && BrowserPipRule.shows(state: state, showingBrowser: onScreen, dismissed: pipDismissed, enabled: enabled)) {
-            pip.stop()
+    /// Carries out the lifecycle's commands. While the page floats or starts to, its pictures are
+    /// acknowledged as if shown, so they keep coming.
+    private func run(_ commands: [PipLifecycle.Command]) {
+        for command in commands {
+            switch command {
+            case .start: break
+            case .stop: pip.stop()
+            case .closeStream, .mute: onPipCommand(command)
+            }
         }
-    }
-    /// While the page floats, its pictures are acknowledged as if shown, so they keep coming.
-    private func pipChanged(_ active: Bool) {
-        if pipActive != active { pipActive = active }
-        acks?.setVisible(visible || active)
+        if pipActive != lifecycle.active { pipActive = lifecycle.active }
+        acks?.setVisible(visible || lifecycle.floating)
     }
     /// The person's speaker: this phone plays the page's sound, or stops. The bridge is told separately.
     func setSoundHere(_ on: Bool) {
@@ -216,7 +239,7 @@ import UIKit
     /// The app came to the foreground or left it.
     func setVisible(_ value: Bool) {
         visible = value
-        acks?.setVisible(value || pipActive)
+        acks?.setVisible(value || lifecycle.floating)
         updatePip()
     }
     /// The poster a subscribe brought back since the last call, for the display link.
