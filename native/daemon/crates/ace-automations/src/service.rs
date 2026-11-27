@@ -1518,7 +1518,8 @@ fn variables(value: Option<&Value>) -> Result<BTreeMap<String, String>> {
 }
 
 fn validate_event(key: &str, variables: &BTreeMap<String, String>) -> Result<()> {
-    if key.is_empty() || key.encode_utf16().count() > 512 {
+    // The protocol's event key bound counts code points, so 300 emoji (600 UTF-16 units) pass.
+    if key.is_empty() || key.chars().count() > 512 {
         return Err(AutomationsError::message("Invalid trigger event key"));
     }
     if variables.len() > 64 {

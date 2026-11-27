@@ -181,13 +181,23 @@ impl Definition {
     /// The protocol's trigger and numeric bounds, so a row another build wrote cannot reach a
     /// decision with an event this build doesn't poll.
     fn validate(&self) -> Result<()> {
-        if !matches!(self.missed_run.as_str(), "skip" | "run_once")
+        // The protocol's `text` fields count code points and are 1..=256; file triggers list
+        // 1..=100 such paths.
+        let text = |value: &str| !value.is_empty() && value.chars().count() <= 256;
+        if !text(&self.id)
+            || !text(&self.title)
+            || !matches!(self.missed_run.as_str(), "skip" | "run_once")
             || !(1..=32).contains(&self.concurrency)
             || !(0..=3_600_000).contains(&self.jitter_ms)
             || self
                 .access
                 .as_deref()
                 .is_some_and(|access| !ACCESS_MODES.contains(&access))
+        {
+            return Err(AutomationsError::message("Invalid automation"));
+        }
+        if let Trigger::File { paths } = &self.trigger
+            && (paths.is_empty() || paths.len() > 100 || paths.iter().any(|path| !text(path)))
         {
             return Err(AutomationsError::message("Invalid automation"));
         }
@@ -430,6 +440,36 @@ mod tests {
         let definition =
             Definition::normalize(&ace_json::parse(&text).expect("json")).expect("normalizes");
         assert_eq!(definition.access.as_deref(), Some("ask"));
+    }
+
+    #[test]
+    fn title_and_file_path_bounds_match_the_protocol() {
+        let base = definition_json(None, "");
+        let title = base.replace(
+            "\"title\":\"A\"",
+            &format!("\"title\":\"{}\"", "x".repeat(257)),
+        );
+        assert!(Definition::normalize(&ace_json::parse(&title).expect("json")).is_err());
+        let title = base.replace(
+            "\"title\":\"A\"",
+            &format!("\"title\":\"{}\"", "x".repeat(256)),
+        );
+        assert!(Definition::normalize(&ace_json::parse(&title).expect("json")).is_ok());
+
+        let file = |paths: &str| {
+            let text = base.replace(
+                "\"trigger\":{\"kind\":\"manual\"}",
+                &format!("\"trigger\":{{\"kind\":\"file\",\"paths\":{paths}}}"),
+            );
+            Definition::normalize(&ace_json::parse(&text).expect("json"))
+        };
+        let one = "\"src/**\"";
+        let paths = std::iter::repeat_n(one, 100).collect::<Vec<_>>().join(",");
+        assert!(file(&format!("[{paths}]")).is_ok());
+        let paths = std::iter::repeat_n(one, 101).collect::<Vec<_>>().join(",");
+        assert!(file(&format!("[{paths}]")).is_err());
+        assert!(file("[]").is_err());
+        assert!(file(&format!("[\"{}\"]", "x".repeat(257))).is_err());
     }
 
     #[test]

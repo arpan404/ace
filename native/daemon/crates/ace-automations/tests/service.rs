@@ -358,6 +358,19 @@ fn rejects_invalid_trigger_keys_before_recording_or_executing_a_run() {
 }
 
 #[test]
+fn an_event_key_of_300_emoji_is_within_the_protocols_code_point_bound() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let key = "\u{1F600}".repeat(300);
+    assert_eq!(key.encode_utf16().count(), 600);
+    let run = service
+        .trigger("triage", &key, variables("issues"), "manual", None)
+        .expect("the key counts code points, not UTF-16 units");
+    assert_eq!(run_status(&run), "running");
+}
+
+#[test]
 fn a_waiting_run_held_by_the_running_limit_starts_once_room_frees_anywhere() {
     let h = Harness::new();
     let mut service = h.started();

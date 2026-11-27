@@ -447,3 +447,12 @@ fn a_body_cut_through_a_surrogate_pair_keeps_the_typescript_unit_count() {
         "the lone half reads as a replacement character"
     );
 }
+
+#[test]
+fn an_etag_bound_counts_utf16_units() {
+    let at_limit = "\u{1F600}".repeat(256);
+    assert_eq!(at_limit.encode_utf16().count(), 512);
+    assert!(validate_request(PULLS, Some(&at_limit)).is_ok());
+    let over = "\u{1F600}".repeat(257);
+    assert!(validate_request(PULLS, Some(&over)).is_err());
+}

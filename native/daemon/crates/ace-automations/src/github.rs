@@ -516,7 +516,7 @@ pub fn validate_request(endpoint: &str, etag: Option<&str>) -> Result<()> {
         return Err(AutomationsError::message("Invalid GitHub endpoint"));
     }
     if let Some(etag) = etag
-        && (etag.len() > 512 || etag.contains('\r') || etag.contains('\n'))
+        && (etag.encode_utf16().count() > 512 || etag.contains('\r') || etag.contains('\n'))
     {
         return Err(AutomationsError::message("Invalid ETag"));
     }
