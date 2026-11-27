@@ -66,7 +66,7 @@ import UIKit
         if host.window == nil, let window = Self.window() { window.insertSubview(host, at: 0) }
         if let controller { return controller }
         // Picture-in-picture needs the playback category; it doesn't make the session active.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        AppAudioSession.shared.setIdle(.pageSound)
         let made = AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer: layer, playbackDelegate: self))
         made.delegate = self
         made.requiresLinearPlayback = true

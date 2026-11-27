@@ -15,6 +15,8 @@ final class BrowserSoundPlayer: @unchecked Sendable {
     private var node: AVAudioPlayerNode?
     private var decoder: OpusPacketDecoder?
     private var playout = AudioPlayout()
+    /// Held while on: a recording that starts meanwhile keeps the session set up for it.
+    private var session: AppAudioSession.Claim?
 
     init(clock: @escaping @Sendable () -> TimeInterval = { AVAudioTime.seconds(forHostTime: mach_absolute_time()) }) {
         self.clock = clock
@@ -61,15 +63,15 @@ final class BrowserSoundPlayer: @unchecked Sendable {
     }
 
     private func activate() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .moviePlayback)
-        try? session.setActive(true)
+        session = try? AppAudioSession.shared.claim(.pageSound)
     }
     private func release() {
         node?.stop()
         engine?.stop()
         node = nil; engine = nil; decoder = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // The session goes inactive only if nothing else (dictation, a voice message) holds it.
+        AppAudioSession.shared.release(session)
+        session = nil
     }
     /// The engine running with its player in `format`, made or restarted as needed (an interruption
     /// or route change stops it).
