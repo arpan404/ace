@@ -100,7 +100,7 @@ pub struct LoginOutcome {
 }
 
 /// Continuation input; API keys use [`ProviderLoginDriver::api_key`] instead.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum LoginInput {
     /// A confirmation the CLI asks for (`{ confirm: true }`).
     Confirm,
@@ -112,6 +112,18 @@ pub enum LoginInput {
     Code(Vec<u8>),
     /// The whole address a browser was sent back to, handed only to the agent's own listener.
     ReturnUrl(Vec<u8>),
+}
+
+impl fmt::Debug for LoginInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LoginInput::Confirm => formatter.write_str("Confirm"),
+            LoginInput::Enter => formatter.write_str("Enter"),
+            LoginInput::Choice(choice) => formatter.debug_tuple("Choice").field(choice).finish(),
+            LoginInput::Code(_) => formatter.write_str("Code(<redacted>)"),
+            LoginInput::ReturnUrl(_) => formatter.write_str("ReturnUrl(<redacted>)"),
+        }
+    }
 }
 
 /// An ace-authored failure a client may read, as opposed to a CLI diagnostic that may carry

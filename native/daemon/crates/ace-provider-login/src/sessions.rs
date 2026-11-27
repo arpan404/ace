@@ -42,7 +42,7 @@ pub struct LoginTarget {
 }
 
 /// One client request. Batches and their ids are the socket layer's; this crate takes them typed.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum LoginRequest {
     Start {
         request_id: String,
@@ -72,6 +72,75 @@ pub enum LoginRequest {
     Cancel { request_id: String, session: String },
     /// Reads a job's progress (`provider.login.poll` and `provider.login.terminal` both do).
     Read { request_id: String, session: String },
+}
+
+impl std::fmt::Debug for LoginRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoginRequest::Start {
+                request_id,
+                provider,
+                instance,
+                method,
+                upstream,
+                sign_in,
+            } => formatter
+                .debug_struct("Start")
+                .field("request_id", request_id)
+                .field("provider", provider)
+                .field("instance", instance)
+                .field("method", method)
+                .field("upstream", upstream)
+                .field("sign_in", sign_in)
+                .finish(),
+            LoginRequest::Logout {
+                request_id,
+                provider,
+                instance,
+            } => formatter
+                .debug_struct("Logout")
+                .field("request_id", request_id)
+                .field("provider", provider)
+                .field("instance", instance)
+                .finish(),
+            LoginRequest::ApiKey {
+                request_id,
+                session,
+                api_key: _,
+            } => formatter
+                .debug_struct("ApiKey")
+                .field("request_id", request_id)
+                .field("session", session)
+                .field("api_key", &"<redacted>")
+                .finish(),
+            LoginRequest::Input {
+                request_id,
+                session,
+                input,
+            } => formatter
+                .debug_struct("Input")
+                .field("request_id", request_id)
+                .field("session", session)
+                .field("input", input)
+                .finish(),
+            LoginRequest::Cancel {
+                request_id,
+                session,
+            } => formatter
+                .debug_struct("Cancel")
+                .field("request_id", request_id)
+                .field("session", session)
+                .finish(),
+            LoginRequest::Read {
+                request_id,
+                session,
+            } => formatter
+                .debug_struct("Read")
+                .field("request_id", request_id)
+                .field("session", session)
+                .finish(),
+        }
+    }
 }
 
 impl LoginRequest {
@@ -394,7 +463,13 @@ impl LoginSessions {
             (job.done.clone(), job.finished.clone())
         };
         while !finished.load(Ordering::SeqCst) {
-            done.notified().await;
+            let notified = done.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if finished.load(Ordering::SeqCst) {
+                break;
+            }
+            notified.await;
         }
     }
 
@@ -588,11 +663,14 @@ impl LoginSessions {
         owner: &str,
         request_id: &str,
         session: &str,
-        input: LoginInput,
+        mut input: LoginInput,
     ) -> LoginResult {
         let job = match self.owned(owner, request_id, session) {
             Ok(job) => job,
-            Err(answer) => return answer,
+            Err(answer) => {
+                zero_input(&mut input);
+                return answer;
+            }
         };
         let (expected, driver) = {
             let job = job.borrow();
@@ -615,7 +693,10 @@ impl LoginSessions {
         };
         let taken = match (expected, driver) {
             (true, Some(driver)) => driver.input(input).await,
-            _ => false,
+            _ => {
+                zero_input(&mut input);
+                false
+            }
         };
         if !taken {
             return LoginResult::err(request_id, LoginError::InvalidInput);
@@ -640,49 +721,44 @@ impl LoginSessions {
         }
     }
 
+    fn is_active_job(&self, job: &Rc<RefCell<Job>>, session: &str) -> bool {
+        let key = job.borrow().key.clone();
+        self.shared.borrow().active.get(&key).map(String::as_str) == Some(session)
+    }
+
     async fn cancel(&self, owner: &str, request_id: &str, session: &str) -> LoginResult {
         let job = match self.owned(owner, request_id, session) {
             Ok(job) => job,
             Err(answer) => return answer,
         };
-        let active = {
-            let job = job.borrow();
-            self.shared
-                .borrow()
-                .active
-                .get(&job.key)
-                .map(String::as_str)
-                == Some(session)
-        };
-        if active {
+        if self.is_active_job(&job, session) {
             job.borrow().cancel.abort();
             self.await_done(&job).await;
-            let (driver, released) = {
-                let job = job.borrow();
-                (job.driver.clone(), job.released)
-            };
-            if let Some(driver) = driver {
-                if driver.drain().await.is_err() {
-                    return LoginResult::err(request_id, LoginError::Busy);
+            // `run()` normally drains, releases and emits the terminal state. Only retry cleanup
+            // when `run()` left the account reserved after a failed drain (`login-sessions.ts:265`).
+            if self.is_active_job(&job, session) {
+                let (driver, released) = {
+                    let job = job.borrow();
+                    (job.driver.clone(), job.released)
+                };
+                if let Some(driver) = driver {
+                    if driver.drain().await.is_err() {
+                        return LoginResult::err(request_id, LoginError::Busy);
+                    }
+                    if !released {
+                        driver.release();
+                        job.borrow_mut().released = true;
+                    }
                 }
-                if !released {
-                    driver.release();
-                    job.borrow_mut().released = true;
+                self.release_active(session);
+                self.emit(
+                    session,
+                    LoginUpdate::new(LoginState::Cancelled).message("Sign-in cancelled."),
+                );
+                if job.borrow().expired {
+                    self.schedule_deletion(session, 60_000);
                 }
             }
-            self.release_active(session);
-            self.emit(
-                session,
-                LoginUpdate::new(LoginState::Cancelled).message("Sign-in cancelled."),
-            );
-            if job.borrow().expired {
-                self.schedule_deletion(session, 60_000);
-            }
-        } else {
-            self.emit(
-                session,
-                LoginUpdate::new(LoginState::Cancelled).message("Sign-in cancelled."),
-            );
         }
         let progress = job.borrow().progress.clone();
         LoginResult::ok(request_id, progress)
@@ -766,6 +842,13 @@ impl LoginSessions {
         for listener in listeners {
             listener(&owner, &progress);
         }
+    }
+}
+
+fn zero_input(input: &mut LoginInput) {
+    match input {
+        LoginInput::Code(bytes) | LoginInput::ReturnUrl(bytes) => bytes.fill(0),
+        LoginInput::Confirm | LoginInput::Enter | LoginInput::Choice(_) => {}
     }
 }
 

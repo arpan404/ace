@@ -103,10 +103,12 @@ pub enum AccountsOperation {
     Migrate,
     ConsumeReset,
     RefreshLimits,
-    /// Management (`accounts.*` beyond list, status and migrate) and a provider account change.
+    /// `accounts.*` management requests (`AccountManagementRequest`), requiring `accounts` scope.
     Manage,
     /// `provider.accounts.list`.
     ProviderList,
+    /// `provider.accounts.{add,rename,setDefault,remove,reauth}`, requiring `operate` scope.
+    ProviderManage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,34 +197,72 @@ fn accounts(
     available: Availability,
     pending: u32,
 ) -> Decision {
-    let scope = match operation {
+    match operation {
+        AccountsOperation::ProviderList | AccountsOperation::ProviderManage => {
+            let scope = if operation == AccountsOperation::ProviderList {
+                Scope::Read
+            } else {
+                Scope::Operate
+            };
+            refuse_unless(grants, scope)
+                .or_else(|| unavailable(!available.account_management || !available.login))
+                .or_else(|| busy(pending))
+                .unwrap_or(Decision::Admit { scope })
+        }
+        AccountsOperation::ConsumeReset => {
+            let scope = Scope::Operate;
+            if !grants.allows(scope) {
+                return refuse(scope);
+            }
+            if !available.account_management || pending >= 8 {
+                return Decision::Refuse {
+                    code: "accounts_busy",
+                    detail: "Account reset unavailable",
+                };
+            }
+            Decision::Admit { scope }
+        }
+        AccountsOperation::RefreshLimits => {
+            let scope = Scope::Read;
+            if !grants.allows(scope) {
+                return refuse(scope);
+            }
+            if !available.accounts {
+                return Decision::Refuse {
+                    code: "accounts_unavailable",
+                    detail: "Accounts service is unavailable",
+                };
+            }
+            Decision::Admit { scope }
+        }
         AccountsOperation::List
         | AccountsOperation::Status
-        | AccountsOperation::RefreshLimits
-        | AccountsOperation::ProviderList => Scope::Read,
-        AccountsOperation::Migrate
-        | AccountsOperation::ConsumeReset
-        | AccountsOperation::Manage => Scope::Operate,
-    };
-    if !grants.allows(scope) {
-        return refuse(scope);
+        | AccountsOperation::Migrate
+        | AccountsOperation::Manage => {
+            let scope = match operation {
+                AccountsOperation::Manage => Scope::Accounts,
+                AccountsOperation::Migrate => Scope::Operate,
+                _ => Scope::Read,
+            };
+            if !grants.allows(scope) {
+                return refuse(scope);
+            }
+            let management_needed = operation == AccountsOperation::Manage;
+            if !available.accounts || (management_needed && !available.account_management) {
+                return Decision::Refuse {
+                    code: "accounts_unavailable",
+                    detail: "Accounts service is unavailable",
+                };
+            }
+            if pending >= 8 {
+                return Decision::Refuse {
+                    code: "accounts_busy",
+                    detail: "Too many account requests",
+                };
+            }
+            Decision::Admit { scope }
+        }
     }
-    // Reading limits only needs the account service; everything else that changes or lists a
-    // saved account needs the management service too.
-    let management_needed = matches!(
-        operation,
-        AccountsOperation::Migrate | AccountsOperation::ConsumeReset | AccountsOperation::Manage
-    );
-    if !available.accounts || (management_needed && !available.account_management) {
-        return Decision::Refuse {
-            code: "accounts_unavailable",
-            detail: "Accounts service is unavailable",
-        };
-    }
-    if let Some(busy) = busy(pending) {
-        return busy;
-    }
-    Decision::Admit { scope }
 }
 
 fn refuse(scope: Scope) -> Decision {
@@ -615,8 +655,51 @@ mod tests {
                 8
             ),
             Decision::Refuse {
-                code: "busy",
-                detail: BUSY_DETAIL
+                code: "accounts_busy",
+                detail: "Too many account requests"
+            }
+        );
+    }
+
+    #[test]
+    fn account_management_requires_accounts_scope_not_only_operate() {
+        assert_eq!(
+            admit(
+                SetupRequest::Accounts(AccountsOperation::Manage),
+                operator(),
+                running(),
+                0
+            ),
+            Decision::Refuse {
+                code: "forbidden",
+                detail: "accounts scope required"
+            }
+        );
+        let with_accounts = Grants {
+            accounts: true,
+            ..operator()
+        };
+        assert_eq!(
+            admit(
+                SetupRequest::Accounts(AccountsOperation::Manage),
+                with_accounts,
+                running(),
+                0
+            ),
+            Decision::Admit {
+                scope: Scope::Accounts
+            }
+        );
+        assert_eq!(
+            admit(
+                SetupRequest::Accounts(AccountsOperation::Manage),
+                with_accounts,
+                running(),
+                8
+            ),
+            Decision::Refuse {
+                code: "accounts_busy",
+                detail: "Too many account requests"
             }
         );
     }
