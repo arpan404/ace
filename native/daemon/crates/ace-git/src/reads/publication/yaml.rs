@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use yaml_rust2::parser::{Event, Parser, Tag};
+use yaml_rust2::scanner::TScalarStyle;
 
 use crate::core::error::{GitError, GitErrorCode};
 
@@ -41,11 +42,19 @@ fn allowed_tag(tag: Option<&Tag>) -> bool {
     )
 }
 
-fn is_null_scalar(text: &str, tag: Option<&Tag>) -> bool {
-    if tag.is_some_and(|tag| tag.handle == "!!" && tag.suffix == "null") {
+/// `populated` is false for a YAML null and for the empty string: a plain `null`/`~` (or one
+/// tagged `!!null`) resolves to nothing, and `""` is no value either. Quoted, `"null"` is the
+/// text `null`, so it is a value like any other and blocks publication.
+fn is_null_scalar(text: &str, style: TScalarStyle, tag: Option<&Tag>) -> bool {
+    if text.is_empty() {
         return true;
     }
-    matches!(text, "" | "~")
+    if tag.is_some_and(|tag| {
+        tag.suffix == "null" && matches!(tag.handle.as_str(), "!!" | "tag:yaml.org,2002:")
+    }) {
+        return true;
+    }
+    style == TScalarStyle::Plain && matches!(text, "~" | "null" | "Null" | "NULL")
 }
 
 #[derive(Debug)]
@@ -118,7 +127,7 @@ pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
                 pending = Pending::None;
             }
             Event::Alias(_) => return Err(yaml_incomplete()),
-            Event::Scalar(value, _, _, tag) => {
+            Event::Scalar(value, style, _, tag) => {
                 nodes += 1;
                 if nodes > YAML_NODE_LIMIT || !allowed_tag(tag.as_ref()) {
                     return Err(yaml_incomplete());
@@ -148,7 +157,7 @@ pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
                     continue;
                 }
                 if let Pending::Credential | Pending::ExecEnv = pending
-                    && !is_null_scalar(&value, tag.as_ref())
+                    && !is_null_scalar(&value, style, tag.as_ref())
                 {
                     return Err(if matches!(pending, Pending::Credential) {
                         CredentialValue::Field.sensitive()
@@ -265,5 +274,34 @@ mod tests {
         }
         let incomplete = assert_publication_yaml(b"key: *anchor\n").expect_err("alias");
         assert_eq!(incomplete.message, "YAML credential scan incomplete");
+    }
+
+    #[test]
+    fn a_yaml_null_is_not_a_value_and_a_quoted_null_is() {
+        // The loader resolves these to nothing: an empty credential field is not populated.
+        for yaml in [
+            "password:\n",
+            "password: ~\n",
+            "password: null\n",
+            "password: Null\n",
+            "password: NULL\n",
+            "password: !!null ''\n",
+            "users:\n- user:\n    'token':\n",
+        ] {
+            assert!(assert_publication_yaml(yaml.as_bytes()).is_ok(), "{yaml:?}");
+        }
+        // Quoted, the same bytes are a string and populated, so the field-specific message wins.
+        for yaml in ["password: \"null\"\n", "password: '~'\n", "password: ' '\n"] {
+            let error = assert_publication_yaml(yaml.as_bytes()).expect_err(yaml);
+            assert_eq!(error.message, "Sensitive YAML credential field", "{yaml:?}");
+        }
+        // The empty string is no value in any style.
+        for yaml in [
+            "password: \"\"\n",
+            "password: ''\n",
+            "users:\n- user:\n    'token': \"\"\n",
+        ] {
+            assert!(assert_publication_yaml(yaml.as_bytes()).is_ok(), "{yaml:?}");
+        }
     }
 }

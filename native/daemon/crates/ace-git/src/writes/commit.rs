@@ -462,14 +462,43 @@ mod tests {
         assert_eq!(error.message, "The commit message is too long");
     }
 
+    // `z.string().trim()` uses the runtime's whitespace: U+0085 is not whitespace there, so a
+    // message of only U+0085 is a message (Rust's `trim` would empty it and refuse).
     #[tokio::test]
-    async fn the_pathspec_byte_cap_refuses_an_overlong_batch() {
-        let path = "a".repeat(90_000);
-        assert!(!within_commit_path_bytes(&[
-            path.clone(),
-            path.clone(),
-            path
-        ]));
+    async fn a_message_of_runtime_non_whitespace_commits_trimmed() {
+        let fixture = Fixture::new("g4a-message-nel");
+        let repo = fixture.repository("repo");
+        std::fs::write(repo.join("file.txt"), "x\n").expect("file");
+        let port = ProcessCommands { fixture: &fixture };
+        let mut request = request("  \u{0085}  ");
+        request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
+            .await
+            .expect("head");
+        commit_changes(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &request,
+            false,
+        )
+        .await
+        .expect("commit");
+        let shown = String::from_utf8_lossy(&fixture.git(&repo, &["log", "-1", "--format=%B"]))
+            .into_owned();
+        assert_eq!(shown.trim_end_matches('\n'), "\u{0085}");
+    }
+
+    #[tokio::test]
+    async fn the_pathspec_cap_counts_utf8_bytes_not_characters() {
+        // `Buffer.byteLength`: 100 names of 1,000 emoji are 100,000 characters but 400,000 bytes,
+        // past the 256 KiB cap; the same names in ASCII would be well inside it.
+        let wide = "\u{1F600}".repeat(1_000);
+        let paths: Vec<String> = (0..100).map(|_| wide.clone()).collect();
+        assert!(!within_commit_path_bytes(&paths));
+        let narrow: Vec<String> = (0..100).map(|_| "a".repeat(1_000)).collect();
+        assert!(within_commit_path_bytes(&narrow));
+        let error = commit_paths(&paths).expect_err("over the cap");
+        assert_eq!(error.message, "Name between 1 and 1000 paths to commit");
     }
 
     #[tokio::test]

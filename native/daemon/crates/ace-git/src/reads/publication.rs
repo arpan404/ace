@@ -271,6 +271,9 @@ pub async fn scan_publication(
     }
     let mut objects: HashSet<String> = HashSet::new();
     let mut yaml_objects: HashSet<String> = HashSet::new();
+    // Git's own enumeration order, kept beside the membership set: the passes below append
+    // objects they discover, so the list must stay ordered and the set answers "seen?".
+    let mut ids: Vec<String> = Vec::new();
     let mut yaml_ids: Vec<String> = Vec::new();
     let listing = scanner
         .read(
@@ -305,7 +308,9 @@ pub async fn scan_publication(
         }
         if kind == "blob" {
             let id = crate::core::decode::hash(id)?;
-            objects.insert(id.clone());
+            if objects.insert(id.clone()) {
+                ids.push(id.clone());
+            }
             if publication_yaml_name(path) && !yaml_objects.contains(&id) {
                 yaml_objects.insert(id.clone());
                 yaml_ids.push(id);
@@ -326,36 +331,34 @@ pub async fn scan_publication(
         .await?;
     for id in String::from_utf8_lossy(&reachable).lines() {
         if !id.is_empty() {
-            objects.insert(crate::core::decode::hash(id)?);
+            let id = crate::core::decode::hash(id)?;
+            if objects.insert(id.clone()) {
+                ids.push(id);
+            }
         }
     }
     if objects.len() > OBJECT_COUNT_LIMIT {
         return Err(incomplete_publication_scan());
     }
-    let mut ids: Vec<String> = objects.iter().cloned().collect();
     let mut total = 0u64;
     let mut batch: Vec<ScanObject> = Vec::new();
     let mut batch_bytes = 0u64;
     for phase_yaml in [false, true] {
         let mut position = 0usize;
-        while position
-            < if phase_yaml {
-                yaml_ids.len()
-            } else {
-                ids.len()
-            }
-        {
-            let end = if phase_yaml {
-                yaml_ids.len().min(position + 512)
-            } else {
-                ids.len().min(position + 512)
+        loop {
+            // The live list: a tree or commit edge found in this pass appends its child, and the
+            // pass reaches it instead of stopping at the list it started with. Only the batch
+            // being read is copied, because the flush appends to the list it walks.
+            let group: Vec<String> = {
+                let live = if phase_yaml { &yaml_ids } else { &ids };
+                if position >= live.len() {
+                    break;
+                }
+                let end = live.len().min(position + 512);
+                let group = live[position..end].to_vec();
+                position = end;
+                group
             };
-            let group: Vec<String> = if phase_yaml {
-                yaml_ids[position..end].to_vec()
-            } else {
-                ids[position..end].to_vec()
-            };
-            position = end;
             let mut input = group.join("\n");
             input.push('\n');
             let headers = scanner
@@ -367,7 +370,7 @@ pub async fn scan_publication(
                 .await?;
             let header_text = String::from_utf8_lossy(&headers).into_owned();
             let lines: Vec<&str> = header_text.trim().split('\n').collect();
-            if group.is_empty() || lines.len() != group.len() {
+            if lines.len() != group.len() {
                 return Err(incomplete_publication_scan());
             }
             for (index, line) in lines.iter().enumerate() {
@@ -867,13 +870,26 @@ mod scan_order_tests {
         }
 
         fn tree() -> Vec<u8> {
-            let mut tree = b"100644 data.txt\0".to_vec();
+            // A name publication accepts, so only the blob's own bytes can refuse the scan.
+            let mut tree = b"100644 notes.txt\0".to_vec();
             tree.extend(Self::hex(BLOB));
             tree
         }
     }
 
     impl CommandPort for TreeThenBlob {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = self.run(command).await?;
+                consume(&output.stdout);
+                Ok(output)
+            })
+        }
+
         fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
             Box::pin(async move {
                 let output = |stdout: Vec<u8>| CommandOutput {
@@ -940,5 +956,7 @@ mod scan_order_tests {
             .await
             .expect_err("the tree's child holds a credential");
         assert_eq!(error.code, GitErrorCode::SensitivePublication, "{error:?}");
+        // Not the tree entry's name: the blob's content is what the live pass reaches.
+        assert_eq!(error.message, "Sensitive publication content");
     }
 }

@@ -411,6 +411,15 @@ pub(crate) mod test_support {
     }
 
     impl CommandPort for InterceptingCommands<'_> {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> crate::core::spawn::BoxFuture<'a, Result<crate::reads::CommandOutput, GitError>>
+        {
+            self.inner.run_streaming(command, consume)
+        }
+
         fn run(
             &self,
             command: Command,

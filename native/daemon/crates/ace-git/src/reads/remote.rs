@@ -401,14 +401,26 @@ pub async fn remote_default_branch(
     .await
     {
         Ok(result) => result,
-        Err(error) if error.code != GitErrorCode::GitClosed => return Ok(None),
+        // A timeout, a refused transfer or an unreachable remote is "no answer"; cancellation and
+        // a closed service are not answers, so they propagate.
+        Err(error)
+            if !matches!(
+                error.code,
+                GitErrorCode::GitCancelled | GitErrorCode::GitClosed
+            ) =>
+        {
+            return Ok(None);
+        }
         Err(error) => return Err(error),
     };
-    Ok(if result.exit_code == 0 && result.stopped.is_none() {
-        symref_head(&String::from_utf8_lossy(&result.stdout))
-    } else {
-        None
-    })
+    // A budget-stopped query is a partial answer: the branch it names is unknown.
+    Ok(
+        if result.exit_code == 0 && result.stopped.as_deref() != Some("budget") {
+            symref_head(&String::from_utf8_lossy(&result.stdout))
+        } else {
+            None
+        },
+    )
 }
 
 /// One remote and its URLs, for the callers that take `RepositoryInfo`.
@@ -424,7 +436,9 @@ pub struct RemoteUrls {
 mod tests {
     use super::*;
     use crate::core::credentials::test_support::Fixture;
+    use crate::core::spawn::BoxFuture;
     use crate::reads::test_support::ProcessCommands;
+    use crate::reads::{Command, CommandOutput, CommandPort};
 
     fn same(left: &str, right: &str) -> bool {
         normalize_remote_url(left, "/") == normalize_remote_url(right, "/")
@@ -557,22 +571,46 @@ mod tests {
     }
 
     #[test]
-    fn a_local_path_with_a_leading_emoji_does_not_panic_and_file_urls_ignore_queries() {
-        let emoji_repo = "../\u{1F600}-repo";
-        let _ = normalize_remote_url(emoji_repo, "/base");
+    fn a_local_remote_naming_an_emoji_keys_its_path_and_file_urls_drop_a_query_and_fragment() {
+        // A relative path whose first seven bytes end inside the emoji: byte slicing would panic.
+        assert_eq!(
+            normalize_remote_url("../\u{1F600}-repo", "/repos/base"),
+            "/repos/\u{1F600}-repo"
+        );
+        assert_eq!(
+            normalize_remote_url("\u{1F600}-repo.git", "/repos"),
+            "/repos/\u{1F600}-repo.git"
+        );
+        // `new URL` reads the pathname alone: a query and a fragment are not path bytes.
         assert_eq!(
             normalize_remote_url("file:///tmp/repo?x=1#frag", "/"),
             "/tmp/repo"
         );
+        assert_eq!(
+            normalize_remote_url("FILE:///tmp/repo#frag", "/"),
+            "/tmp/repo"
+        );
+        assert_eq!(
+            normalize_remote_url("file:///srv/app%20name.git?depth=1", "/"),
+            "/srv/app name.git"
+        );
     }
 
     #[test]
-    fn a_symref_head_branch_may_contain_ecmascript_non_separator_characters() {
+    fn a_symref_head_line_is_trimmed_and_matched_with_the_runtime_s_whitespace() {
+        // `\S+` is "not ECMAScript whitespace": U+0085 is a branch character, a space is not.
         let branch = "br\u{0085}anch";
         assert_eq!(
             symref_head(&format!("ref: refs/heads/{branch}\tHEAD\n")),
             Some(branch.to_owned())
         );
+        // `line.trim()` strips U+FEFF and U+00A0, which Rust's `trim` leaves.
+        for padded in [
+            "\u{FEFF}ref: refs/heads/main\tHEAD\u{00A0}\n".to_string(),
+            "  ref: refs/heads/main\tHEAD  \n".to_string(),
+        ] {
+            assert_eq!(symref_head(&padded), Some("main".to_owned()), "{padded:?}");
+        }
     }
 
     #[test]
@@ -632,81 +670,156 @@ mod tests {
         assert_eq!(symref_head("ref: refs/heads/with space\tHEAD\n"), None);
     }
 
-    #[tokio::test]
-    async fn a_timeout_refused_or_capped_query_returns_unknown_and_git_closed_propagates() {
-        use crate::core::spawn::BoxFuture;
-        use crate::reads::{Command, CommandOutput, CommandPort};
+    /// A port whose `ls-remote` answers, refuses or fails, with no recorded remote HEAD.
+    struct QueryPort {
+        answer: Result<CommandOutput, GitError>,
+    }
 
-        struct MockPort {
-            error: Option<GitError>,
+    impl CommandPort for QueryPort {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = self.run(command).await?;
+                consume(&output.stdout);
+                Ok(output)
+            })
         }
-        impl CommandPort for MockPort {
-            fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
-                Box::pin(async move {
-                    if command.args.first().is_some_and(|arg| arg == "remote") {
-                        Ok(CommandOutput {
-                            stdout: b"origin\n".to_vec(),
-                            stderr: String::new(),
-                            exit_code: 0,
-                            truncated: false,
-                            stopped: None,
-                        })
-                    } else if command
-                        .args
-                        .first()
-                        .is_some_and(|arg| arg == "symbolic-ref")
-                    {
-                        Ok(CommandOutput {
-                            stdout: Vec::new(),
-                            stderr: String::new(),
-                            exit_code: 1,
-                            truncated: false,
-                            stopped: None,
-                        })
-                    } else if let Some(error) = &self.error {
-                        Err(error.clone())
-                    } else {
-                        Ok(CommandOutput {
-                            stdout: Vec::new(),
-                            stderr: String::new(),
-                            exit_code: 128,
-                            truncated: false,
-                            stopped: None,
-                        })
-                    }
+
+        fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let first = command.args.first().map(String::as_str).unwrap_or_default();
+                Ok(match first {
+                    "remote" => CommandOutput {
+                        stdout: b"origin\n".to_vec(),
+                        stderr: String::new(),
+                        exit_code: 0,
+                        truncated: false,
+                        stopped: None,
+                    },
+                    "symbolic-ref" => CommandOutput {
+                        stdout: Vec::new(),
+                        stderr: String::new(),
+                        exit_code: 1,
+                        truncated: false,
+                        stopped: None,
+                    },
+                    _ => self.answer.clone()?,
                 })
-            }
+            })
         }
-        let port = MockPort {
-            error: Some(GitError::new(GitErrorCode::GitTimeout, "timeout")),
+    }
+
+    fn symref_answer(stdout: &str, stopped: Option<&str>) -> Result<CommandOutput, GitError> {
+        Ok(CommandOutput {
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: String::new(),
+            exit_code: 0,
+            truncated: stopped.is_some(),
+            stopped: stopped.map(str::to_owned),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_failed_query_is_unknown_and_cancellation_and_a_closed_service_are_not() {
+        let timeout = QueryPort {
+            answer: Err(GitError::new(GitErrorCode::GitTimeout, "timed out")),
         };
         assert_eq!(
-            remote_default_branch(&port, "/repo", "origin", 1_000)
+            remote_default_branch(&timeout, "/repo", "origin", 1_000)
                 .await
                 .expect("timeout"),
             None
         );
-        let port = MockPort {
-            error: Some(GitError::new(GitErrorCode::GitClosed, "closed")),
+        let refused = QueryPort {
+            answer: Err(GitError::new(
+                GitErrorCode::GitFailed,
+                "fatal: could not read from remote repository",
+            )),
         };
         assert_eq!(
-            remote_default_branch(&port, "/repo", "origin", 1_000)
-                .await
-                .expect_err("closed")
-                .code,
-            GitErrorCode::GitClosed
-        );
-        assert_eq!(
-            remote_default_branch(&MockPort { error: None }, "/repo", "origin", 3_000_000_000)
-                .await
-                .expect("capped"),
-            None
-        );
-        let port = MockPort { error: None };
-        assert_eq!(
-            remote_default_branch(&port, "/repo", "origin", 1_000)
+            remote_default_branch(&refused, "/repo", "origin", 1_000)
                 .await
                 .expect("refused"),
+            None
+        );
+        for (code, expected) in [
+            (GitErrorCode::GitCancelled, GitErrorCode::GitCancelled),
+            (GitErrorCode::GitClosed, GitErrorCode::GitClosed),
+        ] {
+            let port = QueryPort {
+                answer: Err(GitError::new(code, "not an answer")),
+            };
+            assert_eq!(
+                remote_default_branch(&port, "/repo", "origin", 1_000)
+                    .await
+                    .expect_err("propagates")
+                    .code,
+                expected
+            );
+        }
+        // Non-zero exit and a remote that isn't configured are unknown, never a failure.
+        let failed = QueryPort {
+            answer: Ok(CommandOutput {
+                stdout: Vec::new(),
+                stderr: String::new(),
+                exit_code: 128,
+                truncated: false,
+                stopped: None,
+            }),
+        };
+        assert_eq!(
+            remote_default_branch(&failed, "/repo", "origin", 1_000)
+                .await
+                .expect("unreachable"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bounded_query_answer_names_a_branch_only_when_it_was_not_stopped() {
+        let complete = QueryPort {
+            answer: symref_answer("ref: refs/heads/trunk\tHEAD\n", None),
+        };
+        assert_eq!(
+            remote_default_branch(&complete, "/repo", "origin", 1_000)
+                .await
+                .expect("complete"),
+            Some("trunk".to_owned())
+        );
+        // The capture bound cut the listing short: what arrived is still the answer.
+        let captured = QueryPort {
+            answer: symref_answer("ref: refs/heads/trunk\tHEAD\n", Some("capture")),
+        };
+        assert_eq!(
+            remote_default_branch(&captured, "/repo", "origin", 1_000)
+                .await
+                .expect("captured"),
+            Some("trunk".to_owned())
+        );
+        // The work budget stopped the query mid-line: the branch is unknown.
+        let budget = QueryPort {
+            answer: symref_answer("ref: refs/heads/tru", Some("budget")),
+        };
+        assert_eq!(
+            remote_default_branch(&budget, "/repo", "origin", 1_000)
+                .await
+                .expect("budget"),
+            None
+        );
+        // The zod bound is 2,147,483,647: above it there is no query at all.
+        assert_eq!(
+            remote_default_branch(&complete, "/repo", "origin", 2_147_483_648)
+                .await
+                .expect("cap"),
+            None
+        );
+        assert_eq!(
+            remote_default_branch(&complete, "/repo", "origin", 0)
+                .await
+                .expect("zero"),
             None
         );
     }

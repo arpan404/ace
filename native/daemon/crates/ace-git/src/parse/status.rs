@@ -418,26 +418,28 @@ mod tests {
     }
 
     #[test]
-    fn invalid_submodule_flags_are_malformed_and_dirty_and_moved_ones_are_not() {
+    fn a_moved_or_dirty_submodule_is_a_status_and_a_letter_out_of_position_is_malformed() {
         let ordinary = ordinary_record();
-        rejects(&format!(
-            "{HEADERS}{} file\0",
-            ordinary.replace("N...", "S.U.")
-        ));
-        let dirty = parse_status(
-            format!("{HEADERS}{} dirty-sub\0", ordinary.replace("N...", "S.M.")).as_bytes(),
-        )
-        .expect("dirty submodule");
-        assert_eq!(dirty.status.staged[0].submodule, "S.M.");
-        let moved = parse_status(
-            format!(
-                "{HEADERS}{} moved-sub.txt\0",
-                ordinary.replace("N...", "SCM.")
+        // `S<C><M><U>`: each slot has its own letter. A moved submodule changes its commit, a
+        // dirty one its content, and one with untracked files only the last slot.
+        for (flags, path) in [
+            ("SC..", "moved"),
+            ("S.M.", "dirty"),
+            ("S..U", "untracked"),
+            ("SCMU", "moved and dirty"),
+        ] {
+            let parsed = parse_status(
+                format!("{HEADERS}{} {path}\0", ordinary.replace("N...", flags)).as_bytes(),
             )
-            .as_bytes(),
-        )
-        .expect("moved submodule");
-        assert_eq!(moved.status.staged[0].submodule, "SCM.");
+            .expect(flags);
+            assert_eq!(parsed.status.staged[0].submodule, flags);
+        }
+        for flags in ["S.U.", "S.C.", "S..C", "S.MU", "SX.."] {
+            rejects(&format!(
+                "{HEADERS}{} sub\0",
+                ordinary.replace("N...", flags)
+            ));
+        }
     }
 
     #[test]
