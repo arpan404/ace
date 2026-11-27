@@ -237,6 +237,14 @@ injection and reads its own provider's configuration in ADR 0223 E3. `index`,
 `market-verbs`' export path and `suit-port` stay as the package's TypeScript surface while any
 TypeScript caller remains.
 
+## Intended differences
+
+- **No new TypeScript/napi bridges (ADR 0226, 2026-11-26 amendment)**: M2 onward live directly in `ace-mcp` (and the Rust `ace` CLI for M5) and are proven by Rust tests rather than wired through `ace-daemon-node` switches or `native-server.ts`.
+- **Full-list `tools_find` omits repeated schemas**: Rust's `find_delivery` (`ace-mcp/src/tool_delivery.rs`) does not repeat input schemas when the caller's `tools/list` already includes every tool, whereas TypeScript's `findDelivery` still sends them; align TypeScript when M3's catalog fixture lands.
+- **Constant-time bearer digest comparison and schema-sourced mirrored headers**: Rust compares bearer digests in constant time across live leases, redacts `HttpRequest` headers and bodies in `Debug`, and reads mirrored `Mcp-Param-*` headers directly from each descriptor's `x-mcp-header` (skipping tools outside the caller's capabilities so foreign tools fail with `tool_unavailable` rather than `Header mismatch`).
+- **Drop-guard cleanup for in-flight requests**: Rust releases request admission counters, pending request ids, progress heartbeats, and unstarted execution slots via drop guards when a transport drops an in-flight future.
+- **Live registry `initialize` instructions**: `Instructions::for_tools` inspects the registry's actually registered tool names (`screen_state` / `screen_open_app` / `guide ace-computer-use` and `screen_display`) rather than serving a hard-coded list.
+
 ## When you are done
 
 - Every (a) file of your item passes alone with the switch on and off; your (b) cases pass in

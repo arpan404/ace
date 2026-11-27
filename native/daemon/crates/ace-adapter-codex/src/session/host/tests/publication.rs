@@ -162,7 +162,7 @@ fn a_notification_is_published_after_the_frame_it_belongs_to() {
     );
     let notified = position(
         &published,
-        |thing| matches!(thing, Published::Notification { tenant: 1, method } if method == "thread/name/updated"),
+        |thing| matches!(thing, Published::Notification { tenant: 1, method, .. } if method == "thread/name/updated"),
     );
     assert!(
         settle < delivered,
@@ -171,6 +171,16 @@ fn a_notification_is_published_after_the_frame_it_belongs_to() {
     assert!(
         delivered < notified,
         "the notification follows the frame it belongs to"
+    );
+    // The notification carries the params of the frame it followed: a channel
+    // that publishes `params: None` loses the name the frame carried.
+    let Published::Notification { params, .. } = &published[notified] else {
+        panic!("the recorded notification")
+    };
+    assert_eq!(
+        params.as_ref(),
+        Some(&ace_json::json!({"threadId": "t", "name": "later"})),
+        "the notification is published with the frame's params"
     );
 }
 
@@ -488,8 +498,13 @@ pub(super) enum Published {
         method: String,
         id: Option<String>,
     },
-    /// One notification delivered to its channel, by method.
-    Notification { tenant: u64, method: String },
+    /// One notification delivered to its channel, by method and with the params
+    /// the host took from the notification's own frame.
+    Notification {
+        tenant: u64,
+        method: String,
+        params: Option<Value>,
+    },
     /// One server request served to its channel, by method.
     Request { tenant: u64, method: String },
     /// One refused frame, and why.
@@ -539,10 +554,11 @@ impl ChannelHandlers for Channel {
         });
     }
 
-    fn notification(&self, method: &JsString, _params: Option<&Value>) {
+    fn notification(&self, method: &JsString, params: Option<&Value>) {
         self.record(Published::Notification {
             tenant: self.tenant,
             method: method.as_str().to_owned(),
+            params: params.cloned(),
         });
     }
 

@@ -564,3 +564,32 @@ fn a_closed_session_and_a_blocked_shell_refuse_a_send_before_queueing() {
         ))]
     );
 }
+
+/// A queued prompt the peer refuses when it has already closed leaves the queue, so the
+/// recorder's count must drop with it (`session.ts:671`-`:675` reports in `finally`).
+#[test]
+fn a_queued_prompt_a_closed_peer_refuses_still_reports_the_queue() {
+    let (mut core, _prompt) = core_with_prompt("t-closed-peer-queue");
+    let effects = send(&mut core, 63, Delivery::Queue, None);
+    assert!(
+        sent_json_messages(&effects).is_empty(),
+        "queued behind the turn"
+    );
+    assert_eq!(core.queue_len(), 1);
+
+    // The turn's end has settled, but the peer closed before the drain could write the job.
+    core.active = false;
+    core.active_prompt = None;
+    let _ = core.peer.close("ACP process exited");
+    let mut drained = Vec::new();
+    core.drain(&mut drained);
+    assert_eq!(core.queue_len(), 0, "the refused job left the queue");
+    let reported = drained.iter().any(|effect| {
+        matches!(effect, AcpEffect::Frame { channel, text, .. }
+            if channel == "recorder" && text.contains("queue-changed"))
+    });
+    assert!(
+        reported,
+        "the recorder hears that the queue is empty: {drained:?}"
+    );
+}

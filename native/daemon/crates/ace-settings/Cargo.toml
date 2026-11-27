@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-settings"
+description = "The settings document, validation, roles and batches (ADR 0226, slice 4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-protocol: provider names are its generated enum.
+ace-protocol = { path = "../ace-protocol" }
+# url: the origin-only remote and gateway settings.
+url = "2"
+# serde_json: the versioned document's values and unknown-key preservation.
+serde_json = { version = "1", features = ["preserve_order"] }
+# regex: the credential and retired-key rules from the TypeScript.
+regex = { version = "1" }
+# libc: O_NOFOLLOW and O_NONBLOCK when reading a settings file.
+libc = { version = "0.2" }
+# notify: the settings watcher's directory watches.
+notify = { version = "8" }
+# getrandom: the UUID in an atomic write's temporary file name.
+getrandom = { version = "0.4" }
