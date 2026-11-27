@@ -623,22 +623,31 @@ pub fn escape_handoff_text(text: &str) -> String {
 }
 
 /// `text` without ace's leading handoff block, or none when it doesn't start with one
-/// (`envelope.ts:29`).
+/// (`envelope.ts:29`). The result is cut out of the original string by UTF-16 units, so a lone
+/// surrogate after the block is kept.
 pub fn without_handoff_envelope(text: &JsString) -> Option<JsString> {
     let display = text.as_str();
     let trimmed = display.trim_start();
-    let trimmed_units = text
-        .len_utf16()
-        .saturating_sub(JsString::from(trimmed).len_utf16());
-    if trimmed_units > 512 * 1024 + 64 * 1024 {
+    let removed_units = units(&display[..display.len() - trimmed.len()]);
+    if removed_units > 512 * 1024 + 64 * 1024 {
         return None;
     }
     if let Some(end) = plain_envelope_end(trimmed) {
-        return Some(JsString::from(
-            trimmed[end..].trim_start_matches(['\r', '\n']),
-        ));
+        let suffix = trimmed[end..].trim_start_matches(['\r', '\n']);
+        let suffix_bytes = end + (trimmed[end..].len() - suffix.len());
+        let start = removed_units + units(&trimmed[..suffix_bytes]);
+        return Some(text.slice_units(start, text.len_utf16()));
     }
-    without_json_manifest(trimmed)
+    without_json_manifest(text, trimmed, removed_units)
+}
+
+/// Length in UTF-16 units, as JavaScript measures a string.
+fn units(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        text.encode_utf16().count()
+    }
 }
 
 /// The byte index just past the plain block's closing tag, when `text` opens one.
@@ -647,7 +656,7 @@ fn plain_envelope_end(text: &str) -> Option<usize> {
     let rest = text.strip_prefix(&open)?;
     let end = rest.find('"')?;
     let source = &rest[..end];
-    if source.is_empty() || source.chars().count() > 256 || source.contains(['"', '\n']) {
+    if source.is_empty() || units(source) > 256 || source.contains(['"', '\n']) {
         return None;
     }
     let rest = rest[end + 1..].strip_prefix(" through_seq=\"")?;
@@ -659,22 +668,22 @@ fn plain_envelope_end(text: &str) -> Option<usize> {
     let rest = rest[seq_end + 1..].strip_prefix(">\n")?;
     let close = format!("\n</{HANDOFF_TAG}>");
     let end = rest.find(&close)?;
-    if end > 512 * 1024 {
+    if units(&rest[..end]) > 512 * 1024 {
         return None;
     }
     Some(text.len() - rest.len() + end + close.len())
 }
 
-/// The version 1 envelope: the manifest itself as JSON, validated before it is removed
-/// (`envelope.ts:42`).
-fn without_json_manifest(text: &str) -> Option<JsString> {
-    if !starts_manifest(text) || text.len() > 512 * 1024 {
+/// The version 1 envelope: the manifest itself as JSON, validated against the wire contract
+/// before it is removed (`envelope.ts:42`).
+fn without_json_manifest(text: &JsString, trimmed: &str, removed_units: usize) -> Option<JsString> {
+    if !starts_manifest(trimmed) || units(trimmed) > 512 * 1024 {
         return None;
     }
     let mut depth = 0i64;
     let mut quoted = false;
     let mut escaped = false;
-    for (index, character) in text.char_indices() {
+    for (index, character) in trimmed.char_indices() {
         if quoted {
             if escaped {
                 escaped = false;
@@ -690,15 +699,116 @@ fn without_json_manifest(text: &str) -> Option<JsString> {
         } else if character == '}' {
             depth -= 1;
             if depth == 0 {
-                let candidate = ace_json::parse(&text[..=index]).ok()?;
-                PortableHandoff::from_value(&candidate)?;
-                return Some(JsString::from(
-                    text[index + 1..].trim_start_matches(['\r', '\n']),
-                ));
+                let candidate = ace_json::parse(&trimmed[..=index]).ok()?;
+                wire_handoff(&candidate)?;
+                let suffix = trimmed[index + 1..].trim_start_matches(['\r', '\n']);
+                let suffix_bytes = index + 1 + (trimmed[index + 1..].len() - suffix.len());
+                let start = removed_units + units(&trimmed[..suffix_bytes]);
+                return Some(text.slice_units(start, text.len_utf16()));
             }
         }
     }
     None
+}
+
+/// The wire contract of a legacy manifest (`@ace/protocol`'s `PortableHandoff`). A block that
+/// does not parse is left in place rather than half removed.
+fn wire_handoff(value: &Value) -> Option<PortableHandoff> {
+    if value.get("version").and_then(Value::as_f64) != Some(1.0) {
+        return None;
+    }
+    let text = |key: &str| value.get(key).and_then(Value::as_str);
+    if text("sourceThreadId")?.is_empty() {
+        return None;
+    }
+    let integer = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_f64)
+            .filter(|n| *n >= 0.0 && n.fract() == 0.0)
+    };
+    integer("throughSeq")?;
+    if value.get("lossy").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    if !matches!(
+        text("policy"),
+        Some("recent-complete-items" | "conversation-first")
+    ) {
+        return None;
+    }
+    if let Some(sources) = value.get("sources") {
+        let sources = sources.as_array()?;
+        if sources.len() > 8 {
+            return None;
+        }
+        for source in sources {
+            provider_kind(source.get("provider")?.as_str()?)?;
+            if let Some(model) = source.get("model") {
+                // A zod string bound counts code points.
+                let len = model.as_str()?.chars().count();
+                if !(1..=256).contains(&len) {
+                    return None;
+                }
+            }
+        }
+    }
+    if let Some(since) = value.get("since") {
+        let since = since.as_f64()?;
+        if since < 0.0 || since.fract() != 0.0 {
+            return None;
+        }
+    }
+    let excerpts = value.get("excerpts")?.as_array()?;
+    if excerpts.len() > 200 {
+        return None;
+    }
+    for excerpt in excerpts {
+        let citation = excerpt.get("citation")?;
+        if citation.get("threadId").and_then(Value::as_str)?.is_empty()
+            || citation.get("itemId").and_then(Value::as_str)?.is_empty()
+        {
+            return None;
+        }
+        let body = excerpt.get("text")?.as_js_str()?;
+        if body.len_utf16() > 8192 {
+            return None;
+        }
+    }
+    integer("omittedItems")?;
+    let history = value.get("history")?;
+    if history.get("type").and_then(Value::as_str) != Some("items.page")
+        || history.get("tool").and_then(Value::as_str) != Some("handoff_read")
+        || history.get("threadId").and_then(Value::as_str)?.is_empty()
+        || history.get("limit").and_then(Value::as_f64) != Some(50.0)
+    {
+        return None;
+    }
+    if !history
+        .get("before")
+        .and_then(Value::as_f64)
+        .is_some_and(|n| n > 0.0 && n.fract() == 0.0)
+    {
+        return None;
+    }
+    if text("limitations")? != LIMITATIONS {
+        return None;
+    }
+    PortableHandoff::from_value(value)
+}
+
+/// `@ace/protocol`'s `ProviderKind`.
+fn provider_kind(provider: &str) -> Option<&str> {
+    const KINDS: [&str; 7] = [
+        "claude",
+        "codex",
+        "opencode",
+        "cursor",
+        "antigravity",
+        "acp",
+        "pi",
+    ];
+    KINDS.contains(&provider).then_some(provider)
 }
 
 /// `^\{\s*"version"\s*:\s*1\s*,` (`envelope.ts:38`).
@@ -849,6 +959,9 @@ fn copied_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
         match part {
             ContentPart::Mention { .. } => copied.push(part.clone()),
             ContentPart::Text { text, source, .. } => {
+                // The source stream is measured against the part as it arrived: removing ace's
+                // block is not a truncation.
+                let original_units = text.len_utf16() as i64;
                 // A message sent right after a handoff still carries ace's block in front.
                 let mut value = if index == 0 {
                     without_handoff_envelope(text).unwrap_or_else(|| text.clone())
@@ -856,7 +969,7 @@ fn copied_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
                     text.clone()
                 };
                 if let Some(source) = source
-                    && source.bytes > value.len_utf16() as i64 * 2
+                    && source.bytes > original_units * 2
                 {
                     // A cut between the halves of a surrogate pair would leave half a character.
                     let mut units = value.len_utf16();
@@ -1138,6 +1251,125 @@ mod tests {
             Some("Ship it".to_owned())
         );
         assert_eq!(without_handoff_envelope(&JsString::from("Ship it")), None);
+    }
+
+    fn envelope(source: &str, body: &str, tail: &str) -> JsString {
+        JsString::from(format!(
+            "<{HANDOFF_TAG} source_thread=\"{source}\" through_seq=\"7\">\n{body}\n</{HANDOFF_TAG}>{tail}"
+        ))
+    }
+
+    // `envelope.ts:22`: the source id's bound counts UTF-16 units, so 129 astral characters are
+    // over 256 and the block is not ace's.
+    #[test]
+    fn an_envelope_source_id_is_bounded_in_utf16_units() {
+        let astral = "\u{1f600}".repeat(129);
+        assert_eq!(
+            without_handoff_envelope(&envelope(&astral, "body", " tail")),
+            None
+        );
+        let allowed = "\u{1f600}".repeat(128);
+        assert_eq!(
+            without_handoff_envelope(&envelope(&allowed, "body", " tail"))
+                .map(|text| text.to_string_lossy().into_owned()),
+            Some(" tail".to_owned())
+        );
+    }
+
+    // `envelope.ts:31`: the closing tag's offset is a UTF-16 offset, not a byte one.
+    #[test]
+    fn a_plain_envelope_close_is_measured_in_utf16_units() {
+        let body = "\u{1f600}".repeat(150 * 1024);
+        let text = envelope("s", &body, "");
+        assert!(
+            text.len() > 512 * 1024,
+            "the body's bytes are past the limit; its units are not"
+        );
+        assert_eq!(
+            without_handoff_envelope(&text).map(|text| text.to_string_lossy().into_owned()),
+            Some(String::new())
+        );
+    }
+
+    // `envelope.ts:43`: the version 1 manifest's own limit is in UTF-16 units too.
+    #[test]
+    fn a_legacy_manifest_is_bounded_in_utf16_units() {
+        let filler = "\u{1f600}".repeat(750);
+        let excerpts: Vec<String> = (0..200)
+            .map(|index| {
+                format!(
+                    "{{\"citation\":{{\"threadId\":\"s\",\"itemId\":\"i{index}\"}},\"text\":\"{filler}\"}}"
+                )
+            })
+            .collect();
+        let manifest = format!(
+            "{{\"version\":1,\"sourceThreadId\":\"s\",\"throughSeq\":1,\"lossy\":true,\"policy\":\"conversation-first\",\"excerpts\":[{}],\"omittedItems\":0,\"history\":{{\"type\":\"items.page\",\"tool\":\"handoff_read\",\"threadId\":\"s\",\"before\":2,\"limit\":50}},\"limitations\":\"{LIMITATIONS}\"}}",
+            excerpts.join(",")
+        );
+        let text = JsString::from(format!("{manifest}\n\ntail"));
+        assert!(text.len() > 512 * 1024, "bytes are past the limit");
+        assert!(text.len_utf16() < 512 * 1024, "units are not");
+        assert_eq!(
+            without_handoff_envelope(&text).map(|text| text.to_string_lossy().into_owned()),
+            Some("tail".to_owned())
+        );
+    }
+
+    // A legacy block that is not the wire contract stays in place: half-removing it would show
+    // a truncated history.
+    #[test]
+    fn a_malformed_legacy_manifest_is_not_stripped() {
+        let text = JsString::from(r#"{"version":1,"sourceThreadId":"s","throughSeq":1} rest"#);
+        assert_eq!(without_handoff_envelope(&text), None);
+    }
+
+    // The suffix is cut out of the original string, so a lone surrogate after the block stays.
+    #[test]
+    fn a_stripped_suffix_keeps_a_lone_surrogate() {
+        let mut units: Vec<u16> = envelope("s", "body", " ").encode_utf16().collect();
+        units.push(0xd800);
+        units.extend("end".encode_utf16());
+        let text = JsString::from_units(&units);
+        let stripped = without_handoff_envelope(&text).expect("stripped");
+        assert!(
+            stripped.as_well_formed().is_none(),
+            "the lone half survives"
+        );
+        assert_eq!(stripped.encode_utf16().last(), "end".encode_utf16().last());
+    }
+
+    // `inherited.ts:39`: removing ace's block is not a truncation, even when the source stream
+    // is longer than the words that remain.
+    #[test]
+    fn stripping_the_envelope_is_not_a_truncation() {
+        let block = envelope("source", "quoted history", "");
+        let words = format!(
+            "{}{}",
+            block.to_string_lossy().into_owned(),
+            "the person's words"
+        );
+        let bytes = words.encode_utf16().count() as i64 * 2;
+        let ask = item(serde_json::json!({
+            "id": "m", "agentId": "root", "type": "message", "role": "user",
+            "complete": true, "createdAt": 1,
+            "origin": { "kind": "person" },
+            "parts": [{
+                "type": "text",
+                "text": words,
+                "source": { "streamId": "s", "bytes": bytes, "encoding": "utf-16le" }
+            }]
+        }));
+        let drafts = inherited_drafts(&[ask], "root", false);
+        let copied = drafts[0].draft("source");
+        let text = copied
+            .get("parts")
+            .and_then(Value::as_array)
+            .and_then(|parts| parts.first())
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert_eq!(text, "the person's words");
+        assert!(!text.contains(TRIMMED_TEXT));
     }
 
     // From `index.test.ts`: a returning provider is told only what happened while it was away.
