@@ -8,7 +8,9 @@
 //! `controlRevision`, releases the lease before anything is awaited, and a holder
 //! that comes back to a different revision loses with `busy`.
 
-use super::binding::{Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, finish_bind};
+use super::binding::{
+    Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, fail_bind, finish_bind,
+};
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
 use super::words;
@@ -196,6 +198,14 @@ pub fn resume_human_controller_with_thread(
     now: f64,
 ) -> Result<(), DeviceError> {
     let ThreadedTakeover { assignment, bind } = takeover;
+    // `binding.ts` throws the cleanup's own failure before it checks the epoch or
+    // the disable, so a control change from a disable and a fresh takeover that
+    // landed during the cleanup must not replace it.
+    if cleanup_failed && let Some(epoch) = bind.cleanup_epoch() {
+        fail_bind(session, epoch);
+        cancel_assign(session, assignment);
+        return Ok(());
+    }
     if !control_still_current(session, &bind) {
         abort_stale_bind(session, &bind);
         cancel_assign(session, assignment);
@@ -211,7 +221,7 @@ pub fn resume_human_controller_with_thread(
             }
         }
         Bind::Cleanup { epoch, .. } => {
-            match finish_bind(session, thread_id, *epoch, cleanup_failed, enabled) {
+            match finish_bind(session, thread_id, *epoch, false, enabled) {
                 Ok(Bound::CleanupFailed) => {
                     cancel_assign(session, assignment);
                     return Ok(());
@@ -244,6 +254,13 @@ pub fn resume_claim_for_agent(
     now: f64,
 ) -> Result<Option<Assignment>, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
+    // The cleanup's own failure outranks the control check, as `binding.ts` throws
+    // it before its epoch and disable checks: a disable and a fresh takeover that
+    // landed during the cleanup must not replace it.
+    if cleanup_failed && let Some(epoch) = bind.cleanup_epoch() {
+        fail_bind(session, epoch);
+        return Ok(None);
+    }
     if !control_still_current(session, &bind) {
         abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
@@ -257,7 +274,7 @@ pub fn resume_claim_for_agent(
             }
         }
         Bind::Cleanup { epoch, .. } => {
-            match finish_bind(session, thread_id, *epoch, cleanup_failed, enabled) {
+            match finish_bind(session, thread_id, *epoch, false, enabled) {
                 Ok(Bound::CleanupFailed) => return Ok(None),
                 Ok(Bound::Bound) => {}
                 Err(error) => {

@@ -47,6 +47,14 @@ impl Bind {
             } => *control_revision,
         }
     }
+
+    /// The epoch of the cleanup this bind started, if it ran one.
+    pub fn cleanup_epoch(&self) -> Option<u64> {
+        match self {
+            Self::Cleanup { epoch, .. } => Some(*epoch),
+            Self::Unchanged { .. } => None,
+        }
+    }
 }
 
 /// A person's takeover supersedes an agent's bind that is still cleaning up.
@@ -120,6 +128,21 @@ pub fn begin_bind_for_person(
     begin_bind(session, thread_id, owner)
 }
 
+/// The cleanup threw. Its failure is the caller's error whatever else happened to
+/// the device: `binding.ts` throws the AggregateError before it checks the epoch
+/// or the disable, so a hand-back, a disable and a fresh takeover that landed
+/// during the cleanup cannot hide it. Only the bind that still owns the epoch
+/// clears the reservation and the publication its cleanup never got to clear.
+pub fn fail_bind(session: &mut Session, epoch: u64) -> Bound {
+    if session.binding_epoch == epoch {
+        session.changing_binding = false;
+        session.binding_owner = None;
+        session.completed = None;
+        session.recording_artifact = None;
+    }
+    Bound::CleanupFailed
+}
+
 /// `bindDevice`'s second half: the cleanup ran (the caller's `guard` already
 /// checked the caller's lifetime), so bind the device unless devices were turned
 /// off or a newer bind passed this one.
@@ -134,23 +157,18 @@ pub fn finish_bind(
     cleanup_failed: bool,
     enabled: bool,
 ) -> Result<Bound, DeviceError> {
+    if cleanup_failed {
+        // The cleanup's own failure outranks the newer epoch, as `binding.ts`
+        // throws it before its disabled check.
+        return Ok(fail_bind(session, epoch));
+    }
     if session.binding_epoch != epoch {
-        // The cleanup's own failure is the caller's error, and it outranks the
-        // newer epoch: `binding.ts` throws the AggregateError before its disabled
-        // check. Report it without touching the newer bind's reservation, epoch or
-        // published recording.
-        if cleanup_failed {
-            return Ok(Bound::CleanupFailed);
-        }
         return Err(words::refusal(TURNED_OFF_KEY));
     }
     session.changing_binding = false;
     session.binding_owner = None;
     session.completed = None;
     session.recording_artifact = None;
-    if cleanup_failed {
-        return Ok(Bound::CleanupFailed);
-    }
     if !enabled {
         return Err(words::refusal(TURNED_OFF_KEY));
     }

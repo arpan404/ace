@@ -684,6 +684,53 @@ fn a_retired_bind_clears_the_recording_its_skipped_cleanup_would_have() {
 }
 
 #[test]
+fn an_agents_cleanup_failure_outranks_a_disable_and_a_fresh_takeover() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    // The cleanup is still out while devices go off and on again, and a fresh
+    // takeover advances the revision.
+    begin_disable(&mut session);
+    let fresh = begin_assign(&mut session, &person(), NOW).expect("a fresh takeover");
+    finish_assign(&mut session, fresh, Some(&person()), NOW).expect("the person holds it");
+
+    let outcome = resume_claim_for_agent(&mut session, &agent(), bind, true, true, NOW)
+        .expect("the cleanup failure is reported ahead of the control change");
+    assert_eq!(outcome, None, "the failed cleanup never assigns control");
+    assert_eq!(
+        session.lease.status(NOW).controller,
+        Controller::Human,
+        "the fresh takeover keeps control"
+    );
+}
+
+#[test]
+fn a_persons_cleanup_failure_outranks_a_disable_and_a_fresh_takeover() {
+    let mut session = Session::new("ios:AAAA");
+    let other = Actor::human("person-2");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the first person's threaded takeover");
+    begin_disable(&mut session);
+    let fresh = begin_assign(&mut session, &other, NOW).expect("a fresh takeover");
+    finish_assign(&mut session, fresh, Some(&other), NOW).expect("the later person holds it");
+
+    resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-person",
+        Some(&person()),
+        true,
+        true,
+        NOW,
+    )
+    .expect("the cleanup failure is reported ahead of the control change");
+    assert!(
+        session.lease.owned("person-2", NOW),
+        "the fresh takeover keeps control"
+    );
+    assert_eq!(session.pending_controller, None);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");
