@@ -651,6 +651,39 @@ fn an_agents_cleanup_failure_racing_a_disable_reports_the_failure_not_the_disabl
 }
 
 #[test]
+fn a_retired_bind_clears_the_recording_its_skipped_cleanup_would_have() {
+    let mut session = Session::new("ios:AAAA");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the person's threaded takeover");
+    session.completed = Some(String::from("old-recording"));
+    session.recording_artifact = Some(String::from("old-artifact"));
+
+    // The person drops while their bind is still cleaning up. The reservation is
+    // retired, so the cleanup that would have cleared the recording never runs.
+    invalidate_pending_owner(&mut session, "person");
+    assert!(!session.changing_binding);
+    assert_eq!(
+        session.completed, None,
+        "the retired bind cleared its recording"
+    );
+    assert_eq!(session.recording_artifact, None);
+
+    // The stale continuation does not re-publish it.
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-person",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect_err("the person dropped mid-bind");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.completed, None);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");

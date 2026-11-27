@@ -346,7 +346,10 @@ fn pending_still_matches(session: &Session, assignment: &Assignment) -> bool {
 
 /// Retire the bind reservation at `epoch`, and only that one: a reservation that
 /// started later holds a newer epoch and keeps its guard and its owner, so its own
-/// cleanup is not refused by a stale assignment that landed later.
+/// cleanup is not refused by a stale assignment that landed later. The cleanup this
+/// reservation was waiting for is skipped from now on, so its publication is
+/// cleared here, as `bindDevice` clears it before its own checks: an old recording
+/// must not stay published.
 fn retire_bind_at_epoch(session: &mut Session, epoch: u64) {
     if !session.changing_binding || session.binding_epoch != epoch {
         return;
@@ -354,6 +357,8 @@ fn retire_bind_at_epoch(session: &mut Session, epoch: u64) {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.changing_binding = false;
     session.binding_owner = None;
+    session.completed = None;
+    session.recording_artifact = None;
 }
 
 /// Retire the bind reservation this owner's takeover started, if it is still
