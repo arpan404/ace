@@ -210,3 +210,69 @@ fn a_transition_intent_runs_before_a_waiting_message() {
     // The message was never marked for delivery.
     assert_eq!(pass.status("after").as_deref(), Some("pending"));
 }
+
+#[test]
+fn admitting_new_work_wakes_the_threads_worker_and_runs_a_pass() {
+    let conn = home("t", &header("t"));
+    let (_, shell) = Shell::store_with_controls(&conn);
+    let registry = r#"[{"provider":"codex","adapter":1,"capabilities":{"steer":true,"childControls":"full"},"discovery":{},"current":true}]"#;
+    let engine = crate::Engine::new(
+        shell.clone(),
+        shell.clone(),
+        crate::Inputs::default(),
+        registry,
+        Box::new(ManualPump),
+        &conn,
+        Rc::new(ActorDeps::production(Rc::new(UnportedLive), 0.0)),
+    )
+    .expect("engine");
+    shell.set_thread("t", r#"{"id":"t","provider":"codex"}"#.to_owned());
+    shell.hold_after_commit();
+    conn.exec("INSERT INTO engine_queue (thread_id) VALUES ('t')")
+        .expect("queue");
+    conn.exec("INSERT OR REPLACE INTO engine_sessions (thread_id, cwd, backend) VALUES ('t', '/tmp', NULL)")
+        .expect("session");
+    let core = engine.core();
+    core.with_state(|state| state.repo.probe_passthrough = true)
+        .unwrap();
+    let command = ace_json::parse(
+        r#"{"id":"wake-me","deviceId":"device","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hello"}]}}"#,
+    )
+    .expect("json");
+    let accepted = core
+        .store
+        .atomic(|_| core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?)
+        .expect("receipt")
+        .expect("claimed");
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+    // Releasing after-commit wakes the sends worker; pumping runs the pass even with no
+    // pre-existing actor in memory.
+    core.release_after_commit();
+    struct Turn;
+    impl crate::executor::Budget for Turn {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
+    for _ in 0..8 {
+        let mut budget = Turn;
+        engine.pump(&mut budget);
+    }
+    let status = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT status AS value FROM intents WHERE command_id='wake-me'",
+        Vec::new(),
+    )
+    .expect("row")
+    .and_then(|row| {
+        row.get("value")
+            .and_then(crate::repository::residency::cell_text)
+            .map(str::to_owned)
+    });
+    assert_eq!(
+        status.as_deref(),
+        Some("queued"),
+        "the woken worker must run a pass and advance the admitted intent"
+    );
+}

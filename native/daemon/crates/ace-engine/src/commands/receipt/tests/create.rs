@@ -254,6 +254,133 @@ fn a_thrown_receipt_leaves_no_reclaim_marks_behind() {
 }
 
 #[test]
+fn a_rolled_back_outer_transaction_after_receipt_leaves_no_reclaim_marks_behind() {
+    let receipt = Receipt::new(LimitOverrides {
+        max_active_threads: Some(1.0),
+        ..LimitOverrides::default()
+    });
+    receipt.exec("INSERT INTO engine_slots VALUES ('warm')");
+    receipt
+        .core()
+        .with_state(|state| {
+            let mut actor = crate::actor::ActorInstance::new("warm".to_owned(), 0);
+            actor.session_attached = true;
+            actor.idle_since = Some(1.0);
+            state.actors.by_thread.insert(
+                "warm".to_owned(),
+                std::rc::Rc::new(std::cell::RefCell::new(actor)),
+            );
+        })
+        .unwrap();
+    // The stack holds after-commit tokens until the outermost transaction commits.
+    receipt.shell.defer_commits();
+    let command = ace_json::parse(&send("rolled-back")).expect("json");
+    let core = receipt.core();
+    let outcome: Result<(), EngineError> = core.store.atomic(|_| {
+        let accepted = core
+            .with_state(|state| crate::commands::prelude::handle(core, state, &command))??
+            .expect("claimed");
+        assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+        Err(EngineError::Registry("outer rollback".to_owned()))
+    });
+    assert!(outcome.is_err());
+    receipt.shell.drop_deferred();
+    core.discard_after_commit(&receipt.shell.take_dropped());
+    core.with_state(|state| {
+        assert!(
+            state.repo.retiring.is_empty(),
+            "outer rollback must leave retiring empty"
+        );
+        assert!(
+            !state
+                .actors
+                .by_thread
+                .get("warm")
+                .expect("actor")
+                .borrow()
+                .idle_due,
+            "outer rollback must leave idle_due unset"
+        );
+    })
+    .unwrap();
+
+    // Once a receipt commits, its deferred reclaim marks apply on commit.
+    let command = ace_json::parse(&send("committed")).expect("json");
+    let accepted = core
+        .store
+        .atomic(|_| core.with_state(|state| crate::commands::prelude::handle(core, state, &command))?)
+        .expect("commit")
+        .expect("claimed");
+    assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
+    core.store.flush_events().expect("flush");
+    core.after.release(&receipt.shell.take_released());
+    core.with_state(|state| {
+        assert!(state.repo.retiring.contains("warm"));
+        assert!(
+            state
+                .actors
+                .by_thread
+                .get("warm")
+                .expect("actor")
+                .borrow()
+                .idle_due
+        );
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_closing_warm_session_is_not_reclaimed_while_a_fenced_one_is() {
+    let receipt = Receipt::new(LimitOverrides {
+        max_active_threads: Some(1.0),
+        ..LimitOverrides::default()
+    });
+    receipt.exec("INSERT INTO engine_slots VALUES ('warm')");
+    receipt
+        .core()
+        .with_state(|state| {
+            let mut actor = crate::actor::ActorInstance::new("warm".to_owned(), 0);
+            actor.session_attached = true;
+            actor.idle_since = Some(1.0);
+            state.actors.by_thread.insert(
+                "warm".to_owned(),
+                std::rc::Rc::new(std::cell::RefCell::new(actor)),
+            );
+            state.sessions.closing.insert("warm".to_owned());
+        })
+        .unwrap();
+    assert_eq!(
+        receipt.handle(&send("c1")),
+        result("c1", "engine_capacity_exceeded")
+    );
+
+    // Once no longer closing, a fenced session without idle_since still yields its slot.
+    receipt
+        .core()
+        .with_state(|state| {
+            state.sessions.closing.remove("warm");
+            state
+                .actors
+                .by_thread
+                .get("warm")
+                .expect("actor")
+                .borrow_mut()
+                .idle_since = None;
+        })
+        .unwrap();
+    receipt.exec(
+        "INSERT INTO thread_ownership (thread_id, state, transfer_id, peer, epoch, at) \
+         VALUES ('warm', 'moved', 'transfer', '{}', 1, 0)",
+    );
+    let accepted = receipt.handle(&send("c2"));
+    assert_eq!(
+        accepted.get("ok").and_then(Value::as_bool),
+        Some(true),
+        "{accepted}"
+    );
+}
+
+#[test]
 fn a_handoff_that_names_a_live_source_reaches_the_unwired_port() {
     let receipt = Receipt::new(LimitOverrides::default());
     // A missing source is validation's own refusal.
