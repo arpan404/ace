@@ -308,7 +308,11 @@ fn a_watch_reports_a_change_to_its_file_and_ignores_a_sibling() {
         )
         .unwrap_or_else(|error| panic!("{error}"));
 
-    std::thread::sleep(Duration::from_millis(200));
+    // macOS FSEvents can deliver the pre-watch creation of `settings.json` asynchronously
+    // after the watch starts; drain startup noise before testing sibling isolation.
+    std::thread::sleep(Duration::from_millis(300));
+    io.pump();
+    hits.set(0);
     std::fs::write(root.join("sibling.json"), "{}").unwrap_or_else(|error| panic!("{error}"));
     // A sibling write is not this file's change.
     let quiet = Instant::now() + Duration::from_millis(800);

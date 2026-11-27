@@ -13,11 +13,12 @@ use std::rc::{Rc, Weak};
 
 use serde_json::Value;
 
+use crate::document::validate_assignment;
 use crate::file::{FileDiagnostic, Scheduler, SettingsFile, SettingsIo, Stop};
 use crate::layers::{
     Entry, Layer, LayerValues, Provenance, check_batch, placement, resolve, validate_overrides,
 };
-use crate::schema::{is_key, validate_value};
+use crate::schema::is_key;
 use crate::validation::{SettingsCode, SettingsError};
 use crate::workspace::{RealWorkspaceFs, WorkspaceFs, WorkspaceGuards};
 
@@ -479,7 +480,7 @@ impl SettingsService {
         Ok(kept)
     }
 
-    /// Writes one value on one layer, after its placement and schema.
+    /// Writes one value on one layer, after its placement, credential guard and schema.
     pub fn set(
         service: &Rc<RefCell<Self>>,
         key: &str,
@@ -493,7 +494,7 @@ impl SettingsService {
             ));
         }
         placement(key, layer)?;
-        let value = validate_value(key, value)?;
+        let value = validate_assignment(key, value)?;
         let file = Self::file(service, layer)?;
         let result = file.borrow_mut().set(key, &value);
         Self::drain(service);
@@ -507,8 +508,14 @@ impl SettingsService {
         value: &Value,
         layer: &Layer,
     ) -> Result<bool, SettingsError> {
+        if !is_key(key) {
+            return Err(SettingsError::new(
+                SettingsCode::Validation,
+                "Unknown settings key",
+            ));
+        }
         placement(key, layer)?;
-        let value = validate_value(key, value)?;
+        let value = validate_assignment(key, value)?;
         let file = Self::file(service, layer)?;
         let result = file.borrow_mut().set_if_absent(key, &value);
         Self::drain(service);
@@ -525,7 +532,7 @@ impl SettingsService {
         check_batch(keys, layer)?;
         let mut checked = Vec::with_capacity(entries.len());
         for (key, value) in entries {
-            checked.push((key.clone(), validate_value(key, value)?));
+            checked.push((key.clone(), validate_assignment(key, value)?));
         }
         // A setting the daemon handles on its own (host identity, remote access, canonical
         // folders) is never part of a batch, as `apps/daemon/src/settings.ts:179` refuses.

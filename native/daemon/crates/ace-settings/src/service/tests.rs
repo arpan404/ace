@@ -630,3 +630,187 @@ fn a_change_listener_can_read_the_value_it_just_saw_committed() {
         )]
     );
 }
+
+#[test]
+fn reset_removes_more_than_thirty_two_keys_in_one_commit() {
+    let io = Arc::new(MemoryIo::default());
+    let service = service(io.clone());
+    let keys: Vec<String> = [
+        "storage.scheduledCleanup",
+        "storage.worktreeRetentionDays",
+        "storage.backupWorktrees",
+        "storage.retentionDays",
+        "logs.maxBytes",
+        "threads.followUpBehavior",
+        "threads.forkOnSwitch",
+        "threads.limitPolicy",
+        "providers.default",
+        "providers.coder.provider",
+        "providers.coder.model",
+        "providers.coder.tier",
+        "providers.coder.reasoningEffort",
+        "providers.reviewer.provider",
+        "providers.reviewer.model",
+        "providers.reviewer.tier",
+        "providers.reviewer.reasoningEffort",
+        "providers.planner.provider",
+        "providers.planner.model",
+        "providers.planner.tier",
+        "providers.planner.reasoningEffort",
+        "providers.verifier.provider",
+        "providers.verifier.model",
+        "providers.verifier.tier",
+        "providers.verifier.reasoningEffort",
+        "providers.claude.chrome",
+        "browser.backend",
+        "browser.backendLoss",
+        "browser.profile",
+        "browser.profileScope",
+        "browser.downloadDir",
+        "browser.downloadDefault",
+        "browser.userChrome.storageReads",
+        "threads.sortBy",
+        "threads.settleOnClose",
+        "threads.settleOnMerge",
+        "threads.keepSettledFor",
+        "threads.useWorktree",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert!(keys.len() > 32, "test must exceed the 32-key batch cap");
+
+    // Seed a few keys so reset has real entries to remove.
+    SettingsService::set(&service, "threads.sortBy", &json!("manual"), &Layer::Global)
+        .unwrap_or_else(|error| panic!("{error}"));
+    SettingsService::set(
+        &service,
+        "threads.settleOnClose",
+        &json!(true),
+        &Layer::Global,
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let writes_before = MemoryIo::count(&io.writes);
+
+    // Empty reset is a zero-write no-op.
+    SettingsService::reset(&service, &[]).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(MemoryIo::count(&io.writes), writes_before);
+
+    // Unknown key is refused without writing.
+    assert_eq!(
+        SettingsService::reset(&service, &["not.a.real.key".to_owned()])
+            .map_err(|error| error.code),
+        Err(SettingsCode::Validation)
+    );
+    assert_eq!(MemoryIo::count(&io.writes), writes_before);
+
+    SettingsService::reset(&service, &keys).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        MemoryIo::count(&io.writes),
+        writes_before + 1,
+        "all keys reset in a single commit"
+    );
+    assert_eq!(
+        SettingsService::get(&service, "threads.sortBy", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"))
+            .provenance,
+        Provenance::Defaults
+    );
+    assert_eq!(
+        SettingsService::get(&service, "threads.settleOnClose", &Scope::default())
+            .unwrap_or_else(|error| panic!("{error}"))
+            .provenance,
+        Provenance::Defaults
+    );
+}
+
+#[test]
+fn a_secret_assignment_is_refused_before_opening_the_file() {
+    let io = Arc::new(MemoryIo::default());
+    let service = service(io.clone());
+    let secret = json!({ "accent": "sk-ant-api03-123456789012345678901234567890" });
+    let entries = vec![("clients.theme".to_owned(), secret.clone())];
+
+    assert_eq!(
+        SettingsService::set(&service, "clients.theme", &secret, &Layer::Global)
+            .map_err(|error| error.code),
+        Err(SettingsCode::Secret)
+    );
+    assert_eq!(
+        SettingsService::set_if_absent(&service, "clients.theme", &secret, &Layer::Global)
+            .map_err(|error| error.code),
+        Err(SettingsCode::Secret)
+    );
+    assert_eq!(
+        SettingsService::set_many(&service, &entries, &Layer::Global).map_err(|error| error.code),
+        Err(SettingsCode::Secret)
+    );
+    assert_eq!(MemoryIo::count(&io.reads), 0, "file was never opened");
+    assert_eq!(MemoryIo::count(&io.writes), 0, "file was never written");
+    assert_eq!(MemoryIo::count(&io.watches), 0, "watch was never installed");
+}
+
+#[test]
+fn a_write_rewatches_so_a_newly_created_directory_upgrades_its_watch() {
+    let io = Arc::new(MemoryIo::default());
+    let service = service(io.clone());
+    SettingsService::get(&service, "threads.sortBy", &Scope::default())
+        .unwrap_or_else(|error| panic!("{error}"));
+    let watches_before = MemoryIo::count(&io.watches);
+    SettingsService::set(&service, "threads.sortBy", &json!("manual"), &Layer::Global)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        MemoryIo::count(&io.watches),
+        watches_before + 1,
+        "committing a write rewatches the file so a newly created parent directory is watched"
+    );
+}
+
+#[test]
+fn setting_providers_configuration_normalizes_cursor_rows_and_prefers_sdk_on_collision() {
+    let io = Arc::new(MemoryIo::default());
+    let service = service(io.clone());
+    let rows = json!([
+        {
+            "provider": "cursor",
+            "instance": "cursor-cli-default",
+            "binaryPath": "/usr/local/bin/cursor-agent",
+            "defaultModel": "cli-model"
+        },
+        {
+            "provider": "cursor",
+            "instance": "cursor-sdk-default",
+            "binaryPath": "/usr/local/bin/cursor-sdk",
+            "defaultModel": "sdk-model"
+        },
+        {
+            "provider": "claude",
+            "binaryPath": "/usr/local/bin/claude"
+        }
+    ]);
+    SettingsService::set(&service, "providers.configuration", &rows, &Layer::Global)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let entry = SettingsService::get(&service, "providers.configuration", &Scope::default())
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        entry.value,
+        json!([
+            {
+                "provider": "cursor",
+                "instance": "cursor-sdk-default",
+                "defaultModel": "sdk-model"
+            },
+            {
+                "provider": "claude",
+                "binaryPath": "/usr/local/bin/claude"
+            }
+        ])
+    );
+    let writes = MemoryIo::count(&io.writes);
+    SettingsService::refresh(&service, &Layer::Global).unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        MemoryIo::count(&io.writes),
+        writes,
+        "reloading normalized Cursor rows does not rewrite the file"
+    );
+}

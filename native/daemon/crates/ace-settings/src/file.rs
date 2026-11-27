@@ -352,6 +352,9 @@ impl SettingsFile {
                 .write(&self.path, &result.text, self.validate.as_ref())?;
         }
         self.publish(result);
+        if let Some(schedule) = self.schedule.clone() {
+            let _ = self.watch(schedule);
+        }
         Ok(())
     }
 
