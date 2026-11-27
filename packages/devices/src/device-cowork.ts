@@ -1,5 +1,6 @@
 import type { AgentPointer, AgentPointerKind, DeviceActivity, DeviceState } from "@ace/protocol";
 import { PersonPresence, personWaitMs, waitedNote } from "@ace/interaction/presence";
+import { catalogHint } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import type { DeviceInputWait } from "./input-queue.ts";
@@ -57,7 +58,7 @@ export class DeviceCowork {
       throw new DeviceError(
         "person_busy",
         `The person is using ${name}; nothing was done`,
-        "Try again shortly, or work elsewhere meanwhile.",
+        catalogHint("personBusyHint"),
       );
     return waitedNote(outcome.waitedMs, name);
   }
@@ -71,7 +72,7 @@ export class DeviceCowork {
       new DeviceError(
         "person_busy",
         `The person is using ${name}; nothing was done`,
-        "Try again shortly, or work elsewhere meanwhile.",
+        catalogHint("personBusyHint"),
       );
     return {
       active,
