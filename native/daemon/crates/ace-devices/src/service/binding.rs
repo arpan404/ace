@@ -159,6 +159,7 @@ pub fn begin_disable(session: &mut Session) {
     session.thread_id = None;
     session.changing_binding = false;
     session.binding_owner = None;
+    super::control::invalidate_pending_control(session);
 }
 
 /// The stop ran: the published recording it may have left is cleared.

@@ -330,6 +330,15 @@ fn clear_pending(session: &mut Session) {
     session.pending_controller_kind = None;
 }
 
+/// A disable stops every capture and unbinds the device, so a takeover whose
+/// cleanup is still out must not claim afterwards. TypeScript re-authorizes after
+/// the input release and moves the generation when it stops the capture; in Rust
+/// the state transition invalidates the pending takeover itself.
+pub(crate) fn invalidate_pending_control(session: &mut Session) {
+    session.generation = session.generation.saturating_add(1);
+    clear_pending(session);
+}
+
 fn pending_still_matches(session: &Session, assignment: &Assignment) -> bool {
     session.pending_controller.as_deref() == Some(assignment.owner.as_str())
         && assignment.revision == session.control_revision

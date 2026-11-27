@@ -537,6 +537,54 @@ fn an_agents_bind_that_a_disable_passed_is_refused_and_a_fresh_claim_holds() {
 }
 
 #[test]
+fn a_disable_during_an_agents_assignment_cleanup_grants_no_lease_and_a_fresh_claim_holds() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    let stale = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    // The shell is releasing the capture's input when devices are turned off, and
+    // the cleanup returns once they are on again.
+    begin_disable(&mut session);
+
+    let refused = finish_assign(&mut session, stale, Some(&agent()), NOW)
+        .expect_err("the disable passed the takeover");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert_eq!(session.pending_controller, None);
+
+    // Back on, a fresh claim reaches a holder.
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("a fresh bind");
+    let fresh = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, fresh, Some(&agent()), NOW).expect("the fresh claim holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn a_disable_during_a_threadless_persons_assignment_cleanup_grants_no_lease_and_a_fresh_claim_holds()
+ {
+    let mut session = Session::new("ios:AAAA");
+    let stale = begin_assign(&mut session, &person(), NOW).expect("the person begins");
+    // The shell is releasing the capture's input when devices are turned off, and
+    // the cleanup returns once they are on again.
+    begin_disable(&mut session);
+
+    let refused = finish_assign(&mut session, stale, Some(&person()), NOW)
+        .expect_err("the disable passed the takeover");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert_eq!(session.pending_controller, None);
+
+    // Back on, a fresh claim reaches a holder.
+    let fresh = begin_assign(&mut session, &person(), NOW).expect("a fresh claim");
+    finish_assign(&mut session, fresh, Some(&person()), NOW).expect("the fresh claim holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");
