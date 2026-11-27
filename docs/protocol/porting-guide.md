@@ -23,7 +23,8 @@ reachable check has no entry. A check on a whole message body stays in `ace-wire
 
 String checks run in Zod's order, because `.trim()` changes what the checks after it see. A
 triggered `.refine()` on an object sees the object after its defaults are filled and its unknown
-keys are stripped, as Zod's refine does.
+keys are stripped, as Zod's refine does. A pattern is a JavaScript regex: `regress` supplies
+ECMAScript's `\w`, `\d` and `\s` for ordinary patterns, and `fancy-regex` handles lookarounds.
 
 ## Presence and loose objects
 
