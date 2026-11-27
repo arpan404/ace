@@ -6,13 +6,20 @@
 //! source's previous rows and drops the rows of a source that authoritatively has none,
 //! so one failing connection never empties another's choices.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use ace_protocol::generated::{CatalogModel, ModelSource};
 use serde::{Deserialize, Serialize};
 
 use crate::cache::CacheEntry;
-use crate::failures::DiscoveryError;
+use crate::failures::{
+    DiscoveryError, DiscoveryFailure, ErrorContext, FailureCode, discovery_error,
+};
+use ace_models::source::provider_source;
+
+/// The most rows one instance may serve (`normalize.ts`'s 512).
+pub const MAX_MODELS: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -149,7 +156,74 @@ pub fn refreshed_sources(
             statuses
         }
     };
-    let combined: Vec<Arc<CatalogModel>> = models.into_iter().chain(retained).collect();
+    // The final merge applies one eligibility rule, one dedup and one cap over the
+    // HTTP catalog, the CLI supplement and the rows retained from a failed source: a
+    // fresh reply wins over a retained row, and the cap drops retained rows first so a
+    // healthy source is never cut for a stale one.
+    let mut statuses = statuses;
+    let mut seen = BTreeSet::new();
+    let mut combined: Vec<Arc<CatalogModel>> = Vec::with_capacity(models.len() + retained.len());
+    for model in models.into_iter().chain(retained) {
+        if seen.insert(model.id.0.clone()) {
+            combined.push(model);
+        }
+    }
+    let mut cut: BTreeMap<String, ModelSource> = BTreeMap::new();
+    if combined.len() > MAX_MODELS {
+        for model in &combined[MAX_MODELS..] {
+            let id = model
+                .source
+                .as_ref()
+                .map(|source| source.id.0.clone())
+                .or_else(|| {
+                    model
+                        .native_provider_id
+                        .as_ref()
+                        .map(|provider| provider.0.0.clone())
+                })
+                .unwrap_or_else(|| model.instance.0.clone());
+            let source = model
+                .source
+                .as_ref()
+                .map(|source| (**source).clone())
+                .unwrap_or_else(|| provider_source(&id));
+            cut.entry(id).or_insert(source);
+        }
+        combined.truncate(MAX_MODELS);
+    }
+    // Every source whose rows did not fit is reported stale, including one the reply
+    // never named: its first row was cut before it could appear in a status.
+    for (id, source) in cut {
+        let failure = DiscoveryFailure {
+            code: Some(FailureCode::ParseFailure.as_str().to_owned()),
+            ..DiscoveryFailure::default()
+        };
+        let provider = combined
+            .first()
+            .map(|model| model.provider.to_string())
+            .unwrap_or_default();
+        let error = discovery_error(
+            Some(&failure),
+            FailureCode::ParseFailure,
+            &ErrorContext {
+                provider: (!provider.is_empty()).then_some(provider.as_str()),
+                source: Some(&id),
+                backend: None,
+            },
+        );
+        match statuses.iter_mut().find(|status| status.source.id.0 == id) {
+            Some(status) => {
+                status.status = SourceState::Stale;
+                status.error = Some(error);
+            }
+            None => statuses.push(SourceStatus {
+                source,
+                status: SourceState::Stale,
+                last_refreshed_at: None,
+                error: Some(error),
+            }),
+        }
+    }
     let merged = without_empty_source_models(combined, Some(&statuses));
     let sources = statuses
         .into_iter()
@@ -300,5 +374,127 @@ mod tests {
         assert_eq!(refreshed.sources[0].source.id.0, "ollama");
         assert_eq!(refreshed.sources[0].status, SourceState::Fresh);
         assert_eq!(refreshed.sources[0].last_refreshed_at, Some(100.0));
+    }
+}
+
+#[cfg(test)]
+mod final_merge_tests {
+    //! The one merge over the HTTP catalog, the CLI supplement and retained rows.
+
+    use super::*;
+    use ace_models::instance::ModelInstance;
+    use ace_models::row::base;
+    use ace_models::source::model_source;
+    use ace_protocol::generated::ProviderKind;
+    use serde_json::json;
+
+    fn row(route: &str, id: &str) -> Arc<CatalogModel> {
+        let instance = ModelInstance::cli("opencode", ProviderKind::Opencode, "", "/repo");
+        let mut row = base(&instance, &format!("{route}/{id}"), id, &json!({}));
+        row.source = Some(model_source(route, id).into());
+        Arc::new(row)
+    }
+
+    fn failed(route: &str) -> SourceStatus {
+        SourceStatus {
+            source: model_source(route, ""),
+            status: SourceState::Stale,
+            last_refreshed_at: Some(10.0),
+            error: Some(crate::failures::DiscoveryError {
+                code: crate::failures::FailureCode::Unreachable,
+                message: "Provider could not be reached.".into(),
+                hint: "Check the provider endpoint and network, then refresh models.".into(),
+                action_id: None,
+                severity: None,
+            }),
+        }
+    }
+
+    fn healthy(route: &str) -> SourceStatus {
+        SourceStatus {
+            source: model_source(route, ""),
+            status: SourceState::Fresh,
+            last_refreshed_at: Some(10.0),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn a_duplicate_is_kept_once_and_the_cap_drops_retained_rows_before_fresh_ones() {
+        let mut fresh: Vec<Arc<CatalogModel>> = (0..512)
+            .map(|index| row("healthy", &format!("m{index}")))
+            .collect();
+        // The HTTP catalog and the supplement overlap on one id.
+        fresh.push(fresh[0].clone());
+        let previous = CacheEntry {
+            provider: ProviderKind::Opencode,
+            instance: "opencode".into(),
+            login_revision: Some("1".into()),
+            revision: "r1".into(),
+            refreshed_at: 10.0,
+            models: vec![row("failed", "old")],
+            sources: Some(vec![healthy("healthy"), failed("failed")]),
+            permission_modes: None,
+            identity_revision: None,
+            connection_revision: None,
+        };
+        let refreshed = refreshed_sources(
+            fresh,
+            Some(&[healthy("healthy"), failed("failed")]),
+            Some(&previous),
+            100.0,
+        );
+        assert_eq!(refreshed.models.len(), MAX_MODELS);
+        let ids: Vec<&str> = refreshed
+            .models
+            .iter()
+            .map(|model| model.id.0.as_str())
+            .collect();
+        assert_eq!(
+            ids.iter().filter(|id| **id == "healthy/m0").count(),
+            1,
+            "the overlap is served once"
+        );
+        assert!(
+            !ids.contains(&"failed/old"),
+            "the cap dropped the retained row, never a fresh one"
+        );
+        let cut = refreshed
+            .sources
+            .iter()
+            .find(|status| status.source.id.0 == "failed")
+            .unwrap_or_else(|| panic!("failed status"));
+        assert_eq!(cut.status, SourceState::Stale);
+        assert!(cut.error.is_some(), "the cut source reports why");
+        let kept = refreshed
+            .sources
+            .iter()
+            .find(|status| status.source.id.0 == "healthy")
+            .unwrap_or_else(|| panic!("healthy status"));
+        assert_eq!(kept.status, SourceState::Fresh);
+    }
+
+    #[test]
+    fn an_unseen_source_whose_first_row_was_cut_still_reports_stale() {
+        let mut fresh: Vec<Arc<CatalogModel>> = (0..MAX_MODELS)
+            .map(|index| row("healthy", &format!("m{index}")))
+            .collect();
+        fresh.push(row("unseen", "first"));
+        let refreshed = refreshed_sources(fresh, Some(&[healthy("healthy")]), None, 100.0);
+        assert_eq!(refreshed.models.len(), MAX_MODELS);
+        assert!(
+            !refreshed
+                .models
+                .iter()
+                .any(|model| model.id.0 == "unseen/first"),
+            "the unseen source's only row did not fit"
+        );
+        let unseen = refreshed
+            .sources
+            .iter()
+            .find(|status| status.source.id.0 == "unseen")
+            .unwrap_or_else(|| panic!("the cut source is still reported"));
+        assert_eq!(unseen.status, SourceState::Stale);
+        assert!(unseen.error.is_some());
     }
 }

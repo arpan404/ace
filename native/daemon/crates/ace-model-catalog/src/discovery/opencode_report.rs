@@ -465,10 +465,12 @@ fn failure_from_value(value: &Value) -> DiscoveryFailure {
                     tag: text("_tag"),
                     detail: text("detail"),
                     message: text("message"),
+                    // Each field is parsed on its own, so a null `status` falls back to
+                    // a usable `statusCode` instead of swallowing it.
                     status: entry
                         .get("status")
-                        .or_else(|| entry.get("statusCode"))
-                        .and_then(status),
+                        .and_then(status)
+                        .or_else(|| entry.get("statusCode").and_then(status)),
                     cause: nested("cause"),
                     error: nested("error"),
                     data: nested("data"),
@@ -801,4 +803,28 @@ fn push_listing_row(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_null_status_falls_back_to_a_usable_status_code() {
+        let failure = failure_from_value(&serde_json::json!({
+            "status": null,
+            "statusCode": 429,
+        }));
+        assert_eq!(failure.status, Some(429.0));
+        let detail = discovery_error(
+            Some(&failure),
+            FailureCode::DiscoveryFailed,
+            &ErrorContext::default(),
+        );
+        assert_eq!(
+            detail.code,
+            FailureCode::RateLimited,
+            "the fallback field classifies as rate limited"
+        );
+    }
 }

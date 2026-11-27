@@ -166,6 +166,15 @@ GitHub Copilot labelled as a subscription. Other Pi provider groups do not imply
 an authentication/payment method when Pi has not supplied it. Codex, Claude and
 Cursor use account IDs and account labels; a client may render one account flat.
 
+The final merge over the HTTP catalog, the CLI listing and the rows retained from a
+failed source applies eligibility, dedup and the 512-row cap once: a fresh reply wins over
+a retained row with the same id, and the cap drops retained rows before fresh ones so a
+healthy source is never cut for a stale one. Every source whose rows did not fit is
+reported stale with its fixed error, including a source the reply never named because its
+first row was cut. Failure classification parses each field on its own, so a null
+`status` falls back to a usable `statusCode` (`status: null, statusCode: 429` is rate
+limited).
+
 Cache payload schema v2 accepts unversioned/v1 rows, repairs old OpenCode
 execution IDs, and cleans names/classification before serving. The next durable
 replacement writes v2. Startup serves the persisted rows and revalidates in the
