@@ -329,6 +329,50 @@ mod tests {
         assert_eq!(ids.len(), 1, "both events name the same item");
     }
 
+    // `transitions.ts:72`-`:119`: a ninth merge context fails at admission, before the grant
+    // or any other write; the source keeps what it had.
+    #[test]
+    fn a_merge_past_the_context_limit_writes_nothing() {
+        let (conn, store, _shell) = two_threads();
+        let mut state = State::default();
+        state.repo.probe_passthrough = true;
+        let context: Vec<Value> = (0..8)
+            .map(|index| Value::from(format!("carried-{index}").as_str()))
+            .collect();
+        let mut metadata = ace_json::Map::new();
+        metadata.insert("context", Value::Array(context.into()));
+        state
+            .transition_set(&store, "t", &Value::Object(metadata))
+            .expect("metadata");
+        let citations = ace_json::json!([{ "threadId": "t2", "itemId": "own" }]);
+        let error = merge(
+            &store,
+            &mut state,
+            "t",
+            "t2",
+            MergeRequest {
+                summary: &Value::from("one too many"),
+                citations: &citations,
+                intent_id: 11,
+                intent: None,
+                patch_applied: false,
+                now: 5.0,
+            },
+        )
+        .expect_err("the ninth context is refused");
+        assert!(
+            error.to_string().contains("context"),
+            "the refusal names the context: {error}"
+        );
+        let grant = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT source FROM engine_handoff_grants WHERE recipient='t'",
+            Vec::new(),
+        )
+        .expect("grant");
+        assert!(grant.is_none(), "no grant was written");
+    }
+
     // The fork must still be the source's own; a re-parented lineage refuses.
     #[test]
     fn a_merge_refuses_a_fork_whose_lineage_changed() {

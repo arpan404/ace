@@ -246,7 +246,8 @@ impl State {
         Ok(Route { provider, backend })
     }
 
-    /// `repo.quiescent(requireState(id))` (`actor.ts:461`, `repository.ts:496`).
+    /// `repo.quiescent(requireState(id))` (`actor.ts:461`, `repository.ts:496`). Transitions
+    /// read the same rule, so a first send no run has started keeps both from closing a session.
     pub fn actor_quiescent(
         &mut self,
         store: &crate::EngineStore,

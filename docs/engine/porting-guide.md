@@ -2481,7 +2481,9 @@ For every E5 item:
   (`moves::workspace` `begin`/`commit`/`fail`) on the daemon's workspace runtime
   (`workspace-runtime.ts`) having a Rust owner. Boot prunes stale guards and settles an
   interrupted move only once its roots are gone; settling a root that still exists needs Git's
-  own answer through E5.5's `worktreeGit` port.
+  own answer through E5.5's `worktreeGit` port. A patch merge's Git effect and the durable
+  evidence that reconciles an interrupted one land with that same port; until then a patch
+  merge writes its context and item without an effect.
 - E5.9 intended differences from the TypeScript: a `thread.switch` is refused with
   `NativeEngineIncomplete` (E5.6) until the sessions and models ports land, and a switch intent
   found on restart stays queued for that dispatcher, because accepting it and running nothing

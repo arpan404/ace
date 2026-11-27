@@ -1025,14 +1025,10 @@ pub(crate) fn thread_quiescent(
     state: &mut State,
     id: &str,
 ) -> Result<bool, EngineError> {
-    let snapshot = state.repo.require_state(store, id)?;
-    let has_run = snapshot.borrow().state.has_run;
-    if !has_run && crate::intents::store::awaiting(store.conn(), id)?.is_some() {
+    if !readiness::rebuilt(store, state, id)? {
         return Ok(false);
     }
-    let view = snapshot.borrow_mut().quiescence_view()?;
-    let ready = readiness::rebuilt(store, state, id)? && readiness::agents_ready(store.conn(), id)?;
-    Ok(readiness::quiescent(&view, ready))
+    state.actor_quiescent(store, id)
 }
 
 /// `validateCitations` (`transition-history.ts:134`): every citation belongs to the fork and is
