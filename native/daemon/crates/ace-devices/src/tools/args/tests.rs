@@ -26,6 +26,8 @@ fn issue_paths(error: &super::ArgumentError) -> Vec<(&str, &str)> {
 }
 
 const IOS: &str = "ios:0F0E0D0C-0B0A-4908-8706-050403020100";
+const ID_PATTERN: &str = r"a string matching /^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$/";
+const REF_PATTERN: &str = r"a string matching /^@?e[1-9]\d{0,6}$/";
 
 #[test]
 fn every_tool_decodes_its_smallest_valid_call() {
@@ -35,6 +37,13 @@ fn every_tool_decodes_its_smallest_valid_call() {
         Ok(Args::Start(super::StartArgs {
             sim_id: IOS.to_owned(),
             boot: true
+        }))
+    );
+    assert_eq!(
+        decode(SimTool::Start, &json!({ "simId": IOS, "boot": false })),
+        Ok(Args::Start(super::StartArgs {
+            sim_id: IOS.to_owned(),
+            boot: false
         }))
     );
     assert_eq!(
@@ -79,51 +88,140 @@ fn every_tool_decodes_its_smallest_valid_call() {
 }
 
 #[test]
-fn a_device_id_must_name_a_platform() {
-    for bad in ["", "Pixel 9", "ios:not-a-uuid", "android:", "android:a b"] {
-        let error = decode(SimTool::Stop, &json!({ "simId": bad })).expect_err(bad);
-        assert!(
-            error.issues.iter().any(|issue| issue.path == "simId"),
-            "{bad}"
-        );
+fn every_tool_refuses_a_root_that_is_not_an_object() {
+    for tool in [
+        SimTool::List,
+        SimTool::Start,
+        SimTool::Stop,
+        SimTool::Ui,
+        SimTool::Act,
+        SimTool::Screenshot,
+        SimTool::Logs,
+    ] {
+        for raw in [json!(null), json!([]), json!("x"), json!(3)] {
+            let error = decode(tool, &raw).expect_err("not an object");
+            assert_eq!(
+                issue_paths(&error),
+                [("(arguments)", "object")],
+                "{}",
+                tool.as_str()
+            );
+        }
     }
-    // The longest Android name the schema allows.
-    let longest = format!("android:{}", "a".repeat(200));
-    decode(SimTool::Stop, &json!({ "simId": longest })).expect("200 units");
-    let longer = format!("android:{}", "a".repeat(201));
-    decode(SimTool::Stop, &json!({ "simId": longer })).expect_err("201 units");
 }
 
 #[test]
-fn an_unknown_field_names_the_fields_here() {
+fn a_field_sent_as_null_is_a_wrong_type_not_an_absent_one() {
+    let error = decode(SimTool::Start, &json!({ "simId": IOS, "boot": null })).expect_err("null");
+    assert_eq!(issue_paths(&error), [("boot", "boolean")]);
+    let error = decode(SimTool::Ui, &json!({ "simId": IOS, "role": null })).expect_err("null");
+    assert_eq!(issue_paths(&error), [("role", "string")]);
+}
+
+#[test]
+fn an_unknown_field_names_the_fields_here_or_how_to_remove_it() {
     let error = decode(SimTool::Stop, &json!({ "simId": IOS, "machine": "m1" })).expect_err("x");
     assert!(error.shape, "an unknown field is a shape issue");
     assert_eq!(
         issue_paths(&error),
         [("machine", "no such field; fields here: simId")]
     );
-    // The act object takes every field it declares; the action decides which are used.
-    let error = act(json!({ "simId": IOS, "action": "record_start", "text": "x" })).expect_err("x");
-    assert!(!error.shape, "a declared field is not a shape issue");
+
+    // `sim_list` has no fields at all, so it says how to remove the one sent.
+    let error = decode(SimTool::List, &json!({ "simId": IOS })).expect_err("x");
+    assert!(error.shape);
     assert_eq!(
         issue_paths(&error),
-        [("text", "Not used when action is record_start")]
+        [(
+            "simId",
+            "no such field: remove it, or check the spelling against the schema"
+        )]
+    );
+
+    // Every field the act object declares is named once.
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "machine": "m" })).expect_err("x");
+    assert!(error.shape);
+    assert_eq!(
+        issue_paths(&error),
+        [(
+            "machine",
+            "no such field; fields here: simId, action, ref, uiAction, value, name, x, y, toX, toY, durationMs, text, key, appId, url, path, posture"
+        )]
     );
 }
 
 #[test]
-fn a_missing_field_is_required() {
+fn a_missing_field_names_the_string_or_the_values_it_could_be() {
     let error = decode(SimTool::Start, &json!({})).expect_err("no simId");
     assert_eq!(issue_paths(&error), [("simId", "required string, missing")]);
+
+    // An enum that is absent answers with its values, as zod's enum does.
     let error = act(json!({ "simId": IOS })).expect_err("no action");
     assert_eq!(
         issue_paths(&error),
-        [("action", "required string, missing")]
+        [(
+            "action",
+            "one of \"ui\", \"tap\", \"long_press\", \"swipe\", \"type\", \"key\", \"open_app\", \"open_url\", \"install\", \"record_start\", \"record_stop\", \"clipboard_get\", \"clipboard_set\", \"posture\""
+        )]
+    );
+    // The required per-action field is named by the action, after the root fields.
+    let error = act(json!({ "simId": IOS, "action": "key" })).expect_err("no key");
+    assert_eq!(
+        issue_paths(&error),
+        [("key", "Required when action is key")]
     );
 }
 
 #[test]
-fn a_point_is_an_integer_in_range() {
+fn a_device_id_keeps_the_schemas_length_and_pattern() {
+    // An empty id passes the length bound and fails only the pattern.
+    let error = decode(SimTool::Start, &json!({ "simId": "" })).expect_err("empty");
+    assert_eq!(issue_paths(&error), [("simId", ID_PATTERN)]);
+
+    // Over 256 units, both the length and the pattern are reported, in that order.
+    let long = "x".repeat(257);
+    let error = decode(SimTool::Start, &json!({ "simId": long })).expect_err("long");
+    assert_eq!(
+        issue_paths(&error),
+        [("simId", "string <= 256 in length"), ("simId", ID_PATTERN)]
+    );
+
+    // The longest Android name the schema allows.
+    let longest = format!("android:{}", "a".repeat(200));
+    decode(SimTool::Stop, &json!({ "simId": longest })).expect("200 units");
+    let longer = format!("android:{}", "a".repeat(201));
+    let error = decode(SimTool::Stop, &json!({ "simId": longer })).expect_err("201 units");
+    assert_eq!(issue_paths(&error), [("simId", ID_PATTERN)]);
+
+    // JavaScript's `\w` is ASCII, and `\d` is ASCII too.
+    let non_ascii_digits = format!("ios:{}", "٣".repeat(36));
+    for bad in [
+        "Pixel 9",
+        "ios:not-a-uuid",
+        "android:",
+        "android:a b",
+        "android:émulateur",
+        non_ascii_digits.as_str(),
+    ] {
+        let error = decode(SimTool::Stop, &json!({ "simId": bad })).expect_err("bad id");
+        assert_eq!(issue_paths(&error), [("simId", ID_PATTERN)], "{bad}");
+    }
+}
+
+#[test]
+fn a_ref_is_at_most_seven_digits_with_no_leading_zero() {
+    for good in ["e3", "@e3", "e1234567"] {
+        act(json!({ "simId": IOS, "action": "tap", "ref": good })).expect(good);
+    }
+    for bad in ["e0", "e01", "e12345678", "button", "", "e٣"] {
+        let error = act(json!({ "simId": IOS, "action": "tap", "ref": bad })).expect_err(bad);
+        assert_eq!(issue_paths(&error), [("ref", REF_PATTERN)], "{bad}");
+    }
+}
+
+#[test]
+fn a_point_and_a_duration_are_integers_in_range() {
     for good in [0.0, 12.0, 16_384.0] {
         act(json!({ "simId": IOS, "action": "tap", "x": good, "y": good })).expect("in range");
     }
@@ -135,14 +233,16 @@ fn a_point_is_an_integer_in_range() {
             .iter()
             .any(|issue| issue.path == "x" && issue.expected == "number <= 16384")
     );
-    let error =
-        act(json!({ "simId": IOS, "action": "tap", "x": 1.5, "y": 0 })).expect_err("fraction");
+    let error = act(json!({ "simId": IOS, "action": "tap", "x": -1, "y": 0 })).expect_err("neg");
     assert!(
         error
             .issues
             .iter()
-            .any(|issue| issue.path == "x" && issue.expected == "number")
+            .any(|issue| issue.path == "x" && issue.expected == "number >= 0")
     );
+    // A fraction is not an integer, and zod names the type `int`.
+    let error = act(json!({ "simId": IOS, "action": "tap", "x": 1.5, "y": 0 })).expect_err("frac");
+    assert_eq!(issue_paths(&error), [("x", "int")]);
     // A duration is 1 to 10,000.
     let error = act(json!({
         "simId": IOS, "action": "long_press", "x": 1, "y": 1, "durationMs": 0
@@ -154,26 +254,21 @@ fn a_point_is_an_integer_in_range() {
             .iter()
             .any(|issue| issue.path == "durationMs" && issue.expected == "number >= 1")
     );
+    let error = act(json!({
+        "simId": IOS, "action": "long_press", "x": 1, "y": 1, "durationMs": 10_001
+    }))
+    .expect_err("too long");
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.path == "durationMs" && issue.expected == "number <= 10000")
+    );
 }
 
 #[test]
-fn a_ref_must_look_like_an_element_ref() {
-    let args = act(json!({ "simId": IOS, "action": "tap", "ref": "@e3" })).expect("a ref");
-    assert_eq!(args.reference.as_deref(), Some("@e3"));
-    for bad in ["e0", "e01", "e12345678", "button"] {
-        let error = act(json!({ "simId": IOS, "action": "tap", "ref": bad })).expect_err(bad);
-        assert!(
-            error.issues.iter().any(|issue| issue.path == "ref"
-                && issue.expected == "a string matching ^@?e[1-9]\\d{0,6}$"),
-            "{bad}: {:?}",
-            error.issues
-        );
-    }
-}
-
-#[test]
-fn an_action_takes_only_its_own_fields() {
-    // A field the action does not use.
+fn an_action_takes_only_its_own_fields_and_keeps_checking_what_it_read() {
+    // A declared field the action does not use.
     let error = act(json!({ "simId": IOS, "action": "tap", "x": 1, "y": 1, "text": "x" }))
         .expect_err("text is not a tap field");
     assert_eq!(
@@ -181,12 +276,41 @@ fn an_action_takes_only_its_own_fields() {
         [("text", "Not used when action is tap")]
     );
 
-    // A field the action requires.
-    let error =
-        act(json!({ "simId": IOS, "action": "ui" })).expect_err("the ui action needs its ref");
-    assert_eq!(issue_paths(&error), [("ref", "Required when action is ui")]);
+    // A field that broke its own bound does not stop the per-action rules: zod's
+    // bounds continue, so the field is still there and still unused.
+    let error = act(json!({ "simId": IOS, "action": "record_start", "x": 16_385 }))
+        .expect_err("x is not a record_start field");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("x", "number <= 16384"),
+            ("x", "Not used when action is record_start")
+        ]
+    );
 
-    // Every required field of a swipe.
+    // A wrong type aborts the object parse, so the per-action rules never run.
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "x": "bad" })).expect_err("wrong type");
+    assert_eq!(issue_paths(&error), [("x", "number")]);
+    // The same for an enum value and a union branch.
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "key": "escape" })).expect_err("enum");
+    assert_eq!(
+        issue_paths(&error),
+        [(
+            "key",
+            "one of \"home\", \"back\", \"rotate\", \"enter\", \"power\", \"recents\", \"volumeUp\", \"volumeDown\", \"action\", \"side\", \"keyboard\""
+        )]
+    );
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "value": 3 })).expect_err("union");
+    assert_eq!(
+        issue_paths(&error),
+        [("value", "string or boolean or object")]
+    );
+    assert!(error.shape, "a union failure is a shape issue");
+
+    // Every required field of a swipe, in the schema's order.
     let error = act(json!({ "simId": IOS, "action": "swipe" })).expect_err("no coordinates");
     assert_eq!(
         issue_paths(&error),
@@ -197,10 +321,22 @@ fn an_action_takes_only_its_own_fields() {
             ("toY", "Required when action is swipe"),
         ]
     );
+    // And the one `ui` needs.
+    let error = act(json!({ "simId": IOS, "action": "ui" })).expect_err("no ref");
+    assert_eq!(issue_paths(&error), [("ref", "Required when action is ui")]);
+
+    // Other actions take no fields at all.
+    let none = act(json!({ "simId": IOS, "action": "clipboard_get" })).expect("clipboard");
+    assert_eq!(none.action, ActAction::ClipboardGet);
+    let error = act(json!({ "simId": IOS, "action": "clipboard_get", "x": 1 })).expect_err("x");
+    assert_eq!(
+        issue_paths(&error),
+        [("x", "Not used when action is clipboard_get")]
+    );
 }
 
 #[test]
-fn a_tap_needs_a_ref_or_both_coordinates() {
+fn a_tap_needs_a_ref_or_both_coordinates_and_never_both() {
     let error = act(json!({ "simId": IOS, "action": "tap", "x": 1 })).expect_err("half a point");
     assert_eq!(
         issue_paths(&error),
@@ -214,6 +350,19 @@ fn a_tap_needs_a_ref_or_both_coordinates() {
         issue_paths(&error),
         [("ref", "long_press needs either ref or both x and y")]
     );
+    // A coordinate that broke its bound is still a coordinate for the rule.
+    let error =
+        act(json!({ "simId": IOS, "action": "tap", "x": 16_385 })).expect_err("big and alone");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("x", "number <= 16384"),
+            ("ref", "tap needs either ref or both x and y")
+        ]
+    );
+    // A wrong type aborts the rules, so no point issue joins the type issue.
+    let error = act(json!({ "simId": IOS, "action": "tap", "x": 1, "y": "2" })).expect_err("type");
+    assert_eq!(issue_paths(&error), [("y", "number")]);
     // Other actions are not located this way.
     act(json!({ "simId": IOS, "action": "type", "text": "hi" })).expect("a type");
     act(json!({ "simId": IOS, "action": "record_start" })).expect("a recording");
@@ -225,15 +374,19 @@ fn a_ui_read_and_a_log_limit_keep_their_bounds() {
     assert_eq!(issue_paths(&error), [("limit", "number <= 64")]);
     let error = decode(SimTool::Ui, &json!({ "simId": IOS, "maxDepth": 17 })).expect_err("depth");
     assert_eq!(issue_paths(&error), [("maxDepth", "number <= 16")]);
+    let error = decode(SimTool::Ui, &json!({ "simId": IOS, "maxNodes": 0 })).expect_err("nodes");
+    assert_eq!(issue_paths(&error), [("maxNodes", "number >= 1")]);
     let error = decode(SimTool::Logs, &json!({ "simId": IOS, "limit": 0 })).expect_err("limit");
     assert_eq!(issue_paths(&error), [("limit", "number >= 1")]);
+    let error = decode(SimTool::Logs, &json!({ "simId": IOS, "limit": 1.5 })).expect_err("frac");
+    assert_eq!(issue_paths(&error), [("limit", "int")]);
     // An empty role is below its minimum.
     let error = decode(SimTool::Ui, &json!({ "simId": IOS, "role": "" })).expect_err("empty");
     assert_eq!(issue_paths(&error), [("role", "string >= 1 in length")]);
 }
 
 #[test]
-fn the_act_enums_and_values_decode() {
+fn the_act_enums_and_text_fields_decode() {
     let args = act(json!({
         "simId": IOS, "action": "key", "key": "volumeUp"
     }))
@@ -245,31 +398,162 @@ fn the_act_enums_and_values_decode() {
         .expect("a posture");
     assert_eq!(args.posture, Some(ActPosture::PartiallyOpen));
 
-    // A scroll value keeps its defaults.
-    let args = act(json!({
-        "simId": IOS, "action": "ui", "ref": "@e3", "uiAction": "scroll", "value": { "dy": 3 }
-    }))
-    .expect("a scroll");
-    assert_eq!(args.value, Some(ActValue::Scroll { dx: 0, dy: 3 }));
+    // Typed text may be empty, but not over 4,096 code points.
+    let args = act(json!({ "simId": IOS, "action": "type", "text": "" })).expect("empty text");
+    assert_eq!(args.text.as_deref(), Some(""));
+    let long = "😀".repeat(4_096);
+    act(json!({ "simId": IOS, "action": "type", "text": long })).expect("4,096 code points");
+    let long = "😀".repeat(4_097);
+    let error = act(json!({ "simId": IOS, "action": "type", "text": long })).expect_err("over");
+    assert_eq!(issue_paths(&error), [("text", "string <= 4096 in length")]);
 
-    let args = act(json!({
-        "simId": IOS, "action": "ui", "ref": "@e3", "uiAction": "setValue", "value": "hello"
-    }))
-    .expect("text");
-    assert_eq!(args.value, Some(ActValue::Text(String::from("hello"))));
+    // An app id and a path have a one-unit minimum.
+    let error = act(json!({ "simId": IOS, "action": "open_app", "appId": "" })).expect_err("empty");
+    assert_eq!(issue_paths(&error), [("appId", "string >= 1 in length")]);
+    let error = act(json!({ "simId": IOS, "action": "install", "path": "" })).expect_err("empty");
+    assert_eq!(issue_paths(&error), [("path", "string >= 1 in length")]);
 
     // An unknown action names the values it could be.
     let error = act(json!({ "simId": IOS, "action": "swipee" })).expect_err("unknown");
     assert!(error.issues.iter().any(
         |issue| issue.path == "action" && issue.expected.starts_with("one of \"ui\", \"tap\"")
     ));
-    // An unknown key names its values too.
+    assert!(!error.shape, "an enum value is not a shape issue");
+}
+
+#[test]
+fn a_ui_actions_value_is_text_a_flag_or_a_whole_scroll() {
+    let args = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3", "uiAction": "setValue", "value": "hello"
+    }))
+    .expect("text");
+    assert_eq!(args.value, Some(ActValue::Text(String::from("hello"))));
+
+    let args = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3", "uiAction": "expand", "value": false
+    }))
+    .expect("a flag");
+    assert_eq!(args.value, Some(ActValue::Flag(false)));
+
+    // A scroll keeps its defaults and strips fields it does not know.
+    let args = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3", "uiAction": "scroll",
+        "value": { "dy": 3, "z": 2 }
+    }))
+    .expect("a scroll");
+    assert_eq!(args.value, Some(ActValue::Scroll { dx: 0, dy: 3 }));
+
+    // A value that is none of the three branches names them.
+    let error = act(json!({ "simId": IOS, "action": "ui", "ref": "@e3", "value": 3 }))
+        .expect_err("a number");
+    assert_eq!(
+        issue_paths(&error),
+        [("value", "string or boolean or object")]
+    );
+    assert!(error.shape);
+
+    // A branch that fails on a field is the union's generic refusal.
+    for bad in [
+        json!({ "dy": "3" }),
+        json!({ "dy": 1.5 }),
+        json!({ "dy": null }),
+        json!({ "dx": "a", "dy": 1001 }),
+    ] {
+        let error = act(json!({ "simId": IOS, "action": "ui", "ref": "@e3", "value": bad }))
+            .expect_err("a broken scroll");
+        assert_eq!(
+            issue_paths(&error),
+            [("value", "one of the documented shapes for this field")],
+            "{bad}"
+        );
+        assert!(error.shape);
+    }
+
+    // A bound that continues is reported at its own field, and the other bound
+    // beside it.
+    let error = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3", "value": { "dx": 1001, "dy": -1001 }
+    }))
+    .expect_err("out of range");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("value.dx", "number <= 1000"),
+            ("value.dy", "number >= -1000"),
+        ]
+    );
+    assert!(!error.shape);
+
+    // Too much text is its own bound.
+    let long = format!("value {}", "x".repeat(4_096));
+    let error = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3", "value": long
+    }))
+    .expect_err("too long");
+    assert_eq!(issue_paths(&error), [("value", "string <= 4096 in length")]);
+}
+
+#[test]
+fn the_argument_issues_stop_at_sixteen() {
+    let mut args = ace_json::Map::new();
+    args.insert("simId", json!(IOS));
+    args.insert("action", json!("record_start"));
+    for index in 0..20 {
+        args.insert(format!("k{index}"), json!(index));
+    }
+    let error = act(Value::Object(args)).expect_err("many unknown fields");
+    assert_eq!(error.issues.len(), 16);
+    assert_eq!(error.issues[0].path, "k0");
+    assert_eq!(error.issues[15].path, "k15");
+}
+
+#[test]
+fn issues_follow_the_schemas_field_order_before_the_unknowns_and_refinements() {
+    // The id's pattern is part of its field, before the next field's type.
     let error =
-        act(json!({ "simId": IOS, "action": "key", "key": "escape" })).expect_err("unknown");
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.path == "key" && issue.expected.starts_with("one of \"home\""))
+        decode(SimTool::Start, &json!({ "simId": "bad", "boot": null })).expect_err("both wrong");
+    assert_eq!(
+        issue_paths(&error),
+        [("simId", ID_PATTERN), ("boot", "boolean")]
+    );
+
+    // The act object reports its fields in shape order, unknown keys after them,
+    // and the per-action rules last.
+    let error =
+        act(json!({ "simId": "bad", "action": "tap", "ref": "bad", "x": "a" })).expect_err("wrong");
+    assert_eq!(
+        issue_paths(&error),
+        [("simId", ID_PATTERN), ("ref", REF_PATTERN), ("x", "number")]
+    );
+    let error = act(json!({ "simId": IOS, "action": "tap", "x": 1, "zz": 2 })).expect_err("x");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            (
+                "zz",
+                "no such field; fields here: simId, action, ref, uiAction, value, name, x, y, toX, toY, durationMs, text, key, appId, url, path, posture"
+            ),
+            ("ref", "tap needs either ref or both x and y"),
+        ]
+    );
+}
+
+#[test]
+fn typed_text_keeps_a_lone_surrogate_the_agent_sent() {
+    let mut args = ace_json::Map::new();
+    args.insert("simId", json!(IOS));
+    args.insert("action", json!("type"));
+    args.insert(
+        "text",
+        Value::String(ace_json::JsString::from_units(&[0xd800])),
+    );
+    let decoded = act(Value::Object(args)).expect("a text");
+    let text = decoded.text.expect("the text field");
+    let exact = ace_json::JsString::from_rust_text(&text)
+        .unwrap_or_else(|| ace_json::JsString::from(text.as_str()));
+    assert_eq!(
+        ace_json::to_string(&Value::String(exact)),
+        "\"\\ud800\"",
+        "the wire keeps the unpaired surrogate the agent sent"
     );
 }

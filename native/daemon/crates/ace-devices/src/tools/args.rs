@@ -10,9 +10,10 @@ use ace_json::{JsString, Value};
 
 use crate::service::sim_refs::is_ref;
 
-/// A string's cap counted as zod counts it: code points.
-fn code_points(text: &str) -> usize {
-    text.chars().count()
+/// A string's cap counted as zodiac counts it: code points, and one for each
+/// unpaired surrogate (`JsString::len_code_points`).
+fn code_points(text: &JsString) -> usize {
+    text.len_code_points()
 }
 
 /// One field's refusal, as `argumentIssues` renders it.
@@ -31,6 +32,9 @@ pub struct ArgumentError {
     /// A field or variant that does not exist: the caller points the agent at the
     /// tool's schema (`tools_find <tool> returns its schema.`).
     pub shape: bool,
+    /// A wrong type or an unknown enum value. Zod stops at one of these before its
+    /// refinements run, so the per-action rules must not add a second opinion.
+    aborted: bool,
 }
 
 impl ArgumentError {
@@ -38,6 +42,7 @@ impl ArgumentError {
         Self {
             issues: Vec::new(),
             shape: false,
+            aborted: false,
         }
     }
 
@@ -50,6 +55,13 @@ impl ArgumentError {
 
     fn unknown(&mut self, path: &str, allowed: &[&str]) {
         self.shape = true;
+        if allowed.is_empty() {
+            self.issue(
+                path,
+                "no such field: remove it, or check the spelling against the schema",
+            );
+            return;
+        }
         self.issue(
             path,
             format!("no such field; fields here: {}", allowed.join(", ")),
@@ -472,13 +484,20 @@ impl<'a> Fields<'a> {
 
     fn missing(&mut self, key: &str, kind: &str) {
         self.issues.issue(key, format!("required {kind}, missing"));
+        self.issues.aborted = true;
     }
 
-    fn string(&mut self, key: &str, min: usize, max: usize) -> Option<&'a str> {
+    /// What a value of the wrong type does: zodiac reports, then stops its checks.
+    fn wrong_type(&mut self, key: &str, expected: &str) {
+        self.issues.issue(key, expected);
+        self.issues.aborted = true;
+    }
+
+    fn string(&mut self, key: &str, min: usize, max: usize) -> Option<String> {
         match self.value(key) {
             None => None,
             Some(Value::String(text)) => {
-                let count = code_points(text.as_str());
+                let count = code_points(text);
                 if count < min {
                     self.issues.issue(key, format!("string >= {min} in length"));
                     return None;
@@ -487,16 +506,18 @@ impl<'a> Fields<'a> {
                     self.issues.issue(key, format!("string <= {max} in length"));
                     return None;
                 }
-                Some(text.as_str())
+                // The carrier keeps a lone surrogate, so the value the agent sent
+                // is the value the tool acts on.
+                Some(text.to_rust().into_owned())
             }
             Some(_) => {
-                self.issues.issue(key, "string");
+                self.wrong_type(key, "string");
                 None
             }
         }
     }
 
-    fn required_string(&mut self, key: &str, min: usize, max: usize) -> Option<&'a str> {
+    fn required_string(&mut self, key: &str, min: usize, max: usize) -> Option<String> {
         if self.object.get(key).is_none() {
             self.missing(key, "string");
             return None;
@@ -509,11 +530,11 @@ impl<'a> Fields<'a> {
             None => None,
             Some(value) => {
                 let Some(number) = value.as_f64() else {
-                    self.issues.issue(key, "number");
+                    self.wrong_type(key, "number");
                     return None;
                 };
                 if number.fract() != 0.0 {
-                    self.issues.issue(key, "number");
+                    self.wrong_type(key, "int");
                     return None;
                 }
                 if number < min {
@@ -536,7 +557,7 @@ impl<'a> Fields<'a> {
             None => None,
             Some(Value::Bool(flag)) => Some(*flag),
             Some(_) => {
-                self.issues.issue(key, "boolean");
+                self.wrong_type(key, "boolean");
                 None
             }
         }
@@ -550,12 +571,12 @@ impl<'a> Fields<'a> {
                 if allowed.contains(&value) {
                     Some(value)
                 } else {
-                    self.issues.issue(key, one_of(allowed));
+                    self.wrong_type(key, &one_of(allowed));
                     None
                 }
             }
             Some(_) => {
-                self.issues.issue(key, "string");
+                self.wrong_type(key, "string");
                 None
             }
         }
@@ -563,7 +584,7 @@ impl<'a> Fields<'a> {
 
     fn required_enum(&mut self, key: &str, allowed: &[&str]) -> Option<&'a str> {
         if self.object.get(key).is_none() {
-            self.missing(key, "string");
+            self.wrong_type(key, &one_of(allowed));
             return None;
         }
         self.enum_str(key, allowed)
@@ -611,16 +632,9 @@ pub fn decode(tool: SimTool, raw: &Value) -> Result<Args, ArgumentError> {
         }
         SimTool::Start => {
             let mut fields = Fields::new(raw)?;
-            let sim_id = fields.required_string("simId", 1, 256).map(str::to_owned);
+            let sim_id = device_id(&mut fields, raw);
             let boot = fields.boolean("boot");
             fields.unknown(START_FIELDS);
-            if let Some(sim_id) = &sim_id
-                && !is_device_id(sim_id)
-            {
-                fields
-                    .issues
-                    .issue("simId", format!("a string matching {}", DEVICE_ID_PATTERN));
-            }
             fields.finish()?;
             Ok(Args::Start(StartArgs {
                 sim_id: sim_id.unwrap_or_default(),
@@ -629,9 +643,8 @@ pub fn decode(tool: SimTool, raw: &Value) -> Result<Args, ArgumentError> {
         }
         SimTool::Stop | SimTool::Screenshot => {
             let mut fields = Fields::new(raw)?;
-            let sim_id = fields.required_string("simId", 1, 256).map(str::to_owned);
+            let sim_id = device_id(&mut fields, raw);
             fields.unknown(DEVICE_FIELDS);
-            check_device_id(&mut fields, &sim_id);
             fields.finish()?;
             Ok(if tool == SimTool::Stop {
                 Args::Stop(DeviceArgs {
@@ -645,15 +658,14 @@ pub fn decode(tool: SimTool, raw: &Value) -> Result<Args, ArgumentError> {
         }
         SimTool::Ui => {
             let mut fields = Fields::new(raw)?;
-            let sim_id = fields.required_string("simId", 1, 256).map(str::to_owned);
-            let role = fields.string("role", 1, 128).map(str::to_owned);
-            let name = fields.string("name", 1, 256).map(str::to_owned);
-            let text = fields.string("text", 1, 512).map(str::to_owned);
+            let sim_id = device_id(&mut fields, raw);
+            let role = fields.string("role", 1, 128);
+            let name = fields.string("name", 1, 256);
+            let text = fields.string("text", 1, 512);
             let limit = fields.integer("limit", 1.0, 64.0);
             let max_depth = fields.integer("maxDepth", 0.0, 16.0);
             let max_nodes = fields.integer("maxNodes", 1.0, 512.0);
             fields.unknown(UI_FIELDS);
-            check_device_id(&mut fields, &sim_id);
             fields.finish()?;
             Ok(Args::Ui(UiArgs {
                 sim_id: sim_id.unwrap_or_default(),
@@ -667,10 +679,9 @@ pub fn decode(tool: SimTool, raw: &Value) -> Result<Args, ArgumentError> {
         }
         SimTool::Logs => {
             let mut fields = Fields::new(raw)?;
-            let sim_id = fields.required_string("simId", 1, 256).map(str::to_owned);
+            let sim_id = device_id(&mut fields, raw);
             let limit = fields.integer("limit", 1.0, 256.0);
             fields.unknown(LOGS_FIELDS);
-            check_device_id(&mut fields, &sim_id);
             fields.finish()?;
             Ok(Args::Logs(LogsArgs {
                 sim_id: sim_id.unwrap_or_default(),
@@ -682,59 +693,64 @@ pub fn decode(tool: SimTool, raw: &Value) -> Result<Args, ArgumentError> {
 }
 
 /// `AppDeviceId`'s pattern, as the issue names it.
-const DEVICE_ID_PATTERN: &str = "^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$";
+const DEVICE_ID_PATTERN: &str = r"/^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$/";
 /// `simRefPattern`, as the issue names it.
-const REF_PATTERN: &str = "^@?e[1-9]\\d{0,6}$";
+const REF_PATTERN: &str = r"/^@?e[1-9]\d{0,6}$/";
 
-fn check_device_id(fields: &mut Fields<'_>, sim_id: &Option<String>) {
-    if let Some(sim_id) = sim_id
-        && !is_device_id(sim_id)
+/// `AppDeviceId`: the string bound, then its pattern, at the field's own position.
+fn device_id(fields: &mut Fields<'_>, raw: &Value) -> Option<String> {
+    let sim_id = fields.required_string("simId", 0, 256);
+    if let Some(value) = raw.get("simId").and_then(Value::as_str)
+        && !is_device_id(value)
     {
         fields
             .issues
             .issue("simId", format!("a string matching {DEVICE_ID_PATTERN}"));
     }
+    sim_id
 }
 
 /// `SimActFields` and its two refinements, in zod's order: the object, then
 /// `perAction`, then `simActPoint`.
 fn decode_act(raw: &Value) -> Result<ActArgs, ArgumentError> {
     let mut fields = Fields::new(raw)?;
-    let sim_id = fields.required_string("simId", 1, 256).map(str::to_owned);
+    let sim_id = device_id(&mut fields, raw);
     let action = fields
         .required_enum("action", &ActAction::ALL)
         .and_then(ActAction::parse);
-    let reference = fields.string("ref", 0, usize::MAX).map(str::to_owned);
-    let ui_action = fields
-        .enum_str("uiAction", &UiAction::ALL)
-        .and_then(UiAction::parse);
-    let value = act_value(&mut fields);
-    let name = fields.string("name", 1, 256).map(str::to_owned);
-    let x = fields.integer("x", 0.0, 16_384.0);
-    let y = fields.integer("y", 0.0, 16_384.0);
-    let to_x = fields.integer("toX", 0.0, 16_384.0);
-    let to_y = fields.integer("toY", 0.0, 16_384.0);
-    let duration_ms = fields.integer("durationMs", 1.0, 10_000.0);
-    let text = fields.string("text", 0, 4_096).map(str::to_owned);
-    let key = fields.enum_str("key", &ActKey::ALL).and_then(ActKey::parse);
-    let app_id = fields.string("appId", 1, 256).map(str::to_owned);
-    let url = fields.string("url", 1, 4_096).map(str::to_owned);
-    let path = fields.string("path", 1, 4_096).map(str::to_owned);
-    let posture = fields
-        .enum_str("posture", &ActPosture::ALL)
-        .and_then(ActPosture::parse);
-    fields.unknown(ACT_FIELDS);
-    check_device_id(&mut fields, &sim_id);
-    if let Some(reference) = &reference
-        && !is_ref(reference)
+    let reference = fields.string("ref", 0, usize::MAX);
+    if let Some(value) = raw.get("ref").and_then(Value::as_str)
+        && !is_ref(value)
     {
         fields
             .issues
             .issue("ref", format!("a string matching {REF_PATTERN}"));
     }
+    let ui_action = fields
+        .enum_str("uiAction", &UiAction::ALL)
+        .and_then(UiAction::parse);
+    let value = act_value(&mut fields);
+    let name = fields.string("name", 1, 256);
+    let x = fields.integer("x", 0.0, 16_384.0);
+    let y = fields.integer("y", 0.0, 16_384.0);
+    let to_x = fields.integer("toX", 0.0, 16_384.0);
+    let to_y = fields.integer("toY", 0.0, 16_384.0);
+    let duration_ms = fields.integer("durationMs", 1.0, 10_000.0);
+    let text = fields.string("text", 0, 4_096);
+    let key = fields.enum_str("key", &ActKey::ALL).and_then(ActKey::parse);
+    let app_id = fields.string("appId", 1, 256);
+    let url = fields.string("url", 1, 4_096);
+    let path = fields.string("path", 1, 4_096);
+    let posture = fields
+        .enum_str("posture", &ActPosture::ALL)
+        .and_then(ActPosture::parse);
+    fields.unknown(ACT_FIELDS);
 
-    // `perAction`, then `simActPoint`, only for an action the enum accepted.
-    if let Some(action) = action {
+    // `perAction`, then `simActPoint`, only for an action the enum accepted and
+    // only while the object parse has not aborted on a wrong type or variant.
+    if let Some(action) = action
+        && !fields.issues.aborted
+    {
         per_action(&mut fields, action, raw);
         point_rule(&mut fields, action, raw);
     }
@@ -761,51 +777,68 @@ fn decode_act(raw: &Value) -> Result<ActArgs, ArgumentError> {
 }
 
 /// `ScreenUIActOptions.shape.value`: text, a flag, or a scroll with its defaults.
+///
+/// The scroll is a union branch: a field that is not a number (or not an integer)
+/// makes the whole union fail generically, while a value merely out of range keeps
+/// its own `too_big` / `too_small` issue at `value.dx` or `value.dy`.
 fn act_value(fields: &mut Fields<'_>) -> Option<ActValue> {
     let value = fields.value("value")?;
     match value {
         Value::String(text) => {
-            if code_points(text.as_str()) > 4_096 {
+            if code_points(text) > 4_096 {
                 fields.issues.issue("value", "string <= 4096 in length");
-                return None;
             }
-            Some(ActValue::Text(text.as_str().to_owned()))
+            Some(ActValue::Text(text.to_rust().into_owned()))
         }
         Value::Bool(flag) => Some(ActValue::Flag(*flag)),
         Value::Object(object) => {
             let mut dx = 0.0;
             let mut dy = 0.0;
-            let mut ok = true;
+            let mut ranges: Vec<(&str, String)> = Vec::new();
+            let mut aborted = false;
             for (key, target) in [("dx", &mut dx), ("dy", &mut dy)] {
                 let Some(raw) = object.get(key) else {
                     continue;
                 };
-                let Some(number) = raw.as_f64() else {
-                    fields.issues.issue(&format!("value.{key}"), "number");
-                    ok = false;
+                let Some(number) = raw.as_f64().filter(|number| number.fract() == 0.0) else {
+                    aborted = true;
                     continue;
                 };
-                if number.fract() != 0.0 || !(-1000.0..=1000.0).contains(&number) {
-                    fields
-                        .issues
-                        .issue(&format!("value.{key}"), "number >= -1000 and <= 1000");
-                    ok = false;
+                if number < -1_000.0 {
+                    ranges.push((key, String::from("number >= -1000")));
+                    continue;
+                }
+                if number > 1_000.0 {
+                    ranges.push((key, String::from("number <= 1000")));
                     continue;
                 }
                 *target = number;
             }
-            ok.then_some(ActValue::Scroll {
+            if aborted {
+                union_failure(fields, "one of the documented shapes for this field");
+                return None;
+            }
+            for (key, expected) in ranges {
+                fields.issues.issue(&format!("value.{key}"), expected);
+            }
+            Some(ActValue::Scroll {
                 dx: dx as i64,
                 dy: dy as i64,
             })
         }
         _ => {
-            fields
-                .issues
-                .issue("value", "one of string, boolean, object");
+            union_failure(fields, "string or boolean or object");
             None
         }
     }
+}
+
+/// The union's own refusal: the three branch types, or the documented shapes when
+/// the object branch itself failed. Either way it is a shape issue.
+fn union_failure(fields: &mut Fields<'_>, expected: &str) {
+    fields.issues.issue("value", expected);
+    fields.issues.shape = true;
+    fields.issues.aborted = true;
 }
 
 /// `perAction`: the fields each action requires and allows.
@@ -825,7 +858,13 @@ fn per_action(fields: &mut Fields<'_>, action: ActAction, raw: &Value) {
     if let Some(object) = raw.as_object() {
         for key in object.keys() {
             let key = key.as_str();
-            if key == "action" || !sent(key) || rule.allowed.contains(&key) {
+            // Unknown fields are dropped by the strict object; zod's refinement
+            // never sees them, so they are not "not used" as well.
+            if key == "action"
+                || !ACT_FIELDS.contains(&key)
+                || !sent(key)
+                || rule.allowed.contains(&key)
+            {
                 continue;
             }
             fields
