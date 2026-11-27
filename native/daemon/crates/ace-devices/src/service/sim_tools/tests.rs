@@ -121,6 +121,33 @@ fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
         "controller": "none"
     });
     assert_eq!(summary(&long_model), long_model);
+
+    let numeric_serial = json!({
+        "device": {
+            "id": IOS,
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios",
+            "serial": 42
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&numeric_serial), numeric_serial);
+
+    // Zod counts code points: 257 emoji are over the optional fields' cap.
+    let long_serial = json!({
+        "device": {
+            "id": IOS,
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios",
+            "serial": "📱".repeat(257)
+        },
+        "lifecycle": "live",
+        "controller": "none"
+    });
+    assert_eq!(summary(&long_serial), long_serial);
 }
 
 #[test]
