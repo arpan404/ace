@@ -71,3 +71,16 @@ fn clearing_the_trusted_certificate_serves_the_pinned_one_again() {
         &pinned_key
     ));
 }
+
+/// An expiry timer clears only the certificate it was armed for: a newer
+/// certificate installed meanwhile stays served.
+#[test]
+fn an_expiry_timer_clears_only_its_own_generation() {
+    let resolver = SniResolver::new(rsa());
+    let first = resolver.set_trusted("ace.tail1234.ts.net", ec());
+    let _second = resolver.set_trusted("ace.tail1234.ts.net", rsa());
+    resolver.clear_trusted_if(first);
+    assert_eq!(resolver.select(Some("ace.tail1234.ts.net")).cert.len(), 1);
+    resolver.clear_trusted();
+    assert_eq!(resolver.select(Some("ace.tail1234.ts.net")).cert.len(), 1);
+}

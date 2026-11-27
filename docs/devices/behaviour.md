@@ -266,6 +266,15 @@ The Rust platform is held to §3, with these deliberate differences, each proven
   `configure` (`platform.ts:623`–`:635`) sets night mode and only then refuses the location on a
   phone, leaving the appearance changed on a request that failed. The Rust platform decides the
   whole request first (`lifecycle::configure`), so a refused configuration changes nothing.
+- **A person's takeover wins even when it began first.** `assignController` releases the lease
+  before it awaits the capture's cleanup, so a person's Take control and an agent's `sim_start`
+  can meet in that gap. Today whichever `assignController` finishes last wins: when the person
+  begins first, an agent's `claimForAgent` sees no controller and takes the device, and the
+  person's takeover is then refused with `busy`. Rust refuses an agent while any takeover is
+  pending (`claimForAgent`) and refuses an agent's takeover while a person's is pending
+  (`begin_assign`), so the person's revision is never superseded and a person always wins
+  (`service/control.rs`). A failed takeover clears its pending marker (`cancel_assign`), which
+  the TypeScript leaves set.
 - **An unreadable `wm size` override refuses the read instead of falling back to the physical
   size.** `androidDimensions` (`commands.ts:115`–`:129`) takes `override ?? physical`, so a
   malformed override line fails the read (as a `ZodError`) rather than reporting the physical
@@ -684,3 +693,83 @@ per-frame rule above; its ingest events and line splitter, once per switch, are 
 ## 14. D3.4: chrome and skins (2026-11-26)
 
 - **PDF streams inflate to at most 64 MiB** (D3.4, `pdf_objects.rs` `MAX_INFLATED`). Node's `inflateSync` has no smaller bound and throws only near its buffer limit, so a small Flate bomb in a device art PDF could exhaust memory. The Rust reader refuses the stream past 64 MiB, and that drawing renders without it. Apple's chrome PDFs are far smaller.
+
+## 15. D4: the service (2026-11-26)
+
+The service's decisions are `ace-devices`' `service/` module, sans-IO: the clock, the timers and
+every promise chain are the shell's, and each module returns what to do next.
+
+| TypeScript                     | Rust                                         | Decides                                                                                     |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `lease`, `lease-expiry`        | `service/lease.rs`                           | the 30 s claim, the takeover's epoch, expiry, retained tickets, the watch that re-arms      |
+| `device-queue`                 | `service/queue.rs`                           | one operation per device, the latest subscribe wins, an unsubscribe always runs             |
+| `input-queue`, `input-budget`  | `service/input_queue.rs`, `input_budget.rs`  | 32 per kind, the person's separate lane, the ticket a takeover invalidates, an input's time |
+| `held-pushes`                  | `service/held_pushes.rs`                     | pushes held before welcome, the latest of each kind, in last-change order                   |
+| `control-delivery`             | `service/control_delivery.rs`                | coalescing while frames drain, a log batch dropped, a reply always written                  |
+| `subscriptions`                | `service/subscriptions.rs`                   | one subscription per device, at most four, staged so a failed resubscribe leaves it         |
+| `session`, `binding`           | `service/session.rs`, `binding.rs`           | a session's values, moving a device between threads, disabling every device                 |
+| `actions`                      | `service/actions.rs`                         | a queued mutation's refusals, and whether the capture or the platform does it               |
+| `screen-controller`            | `service/screen_controller.rs`               | one lease for screen and device tools, including the release that lets go                   |
+| `screen-failure`, `failure`    | `service/screen_failure.rs`, `failure.rs`    | the screen helper's typed refusals, and any error as a `DeviceFailure`                      |
+| `device-cowork`                | `service/cowork.rs`                          | the person's presence, the agent's wait, the pointer viewers draw                           |
+| `sim-refs`, `sim-state`        | `service/sim_refs.rs`, `sim_state.rs`        | refs that survive reads, the two caps, the first-start how-to                               |
+| `sim-activity`, `sim-guidance` | `service/sim_activity.rs`, `sim_guidance.rs` | what a viewer is told about an action, and the how-to                                       |
+| `sim-act`                      | `service/sim_act.rs`                         | a ref's refusals, the label a message names, a tap's fallback point                         |
+| `sim-schemas`                  | `service/sim_schemas.rs`                     | the tools' bounds, each action's fields, and the tap's ref-or-coordinates rule              |
+| `sim-tools`                    | `service/sim_tools.rs`                       | the start/stop summary, the no-video answer, the screenshot's note, the public failure      |
+| `device-tools-wire`            | `service/device_tools_wire.rs`               | the install request's and reply's bounds (`serve_sim` owns their shapes)                    |
+| `stream-control`               | `service/stream_control.rs`                  | the four device streams, the JPEG refusal, a recording's idle stream, the codec check       |
+| `stream-owners`                | `service/stream_owners.rs`                   | overlapping views while a resubscribe is set up, and a disconnect that retains nothing      |
+| `bridge`                       | `service/bridge.rs`                          | who may speak, whose thread a device may be seen from, the 32-request budget                |
+| `devices-setting` (daemon)     | `service/devices_setting.rs`                 | the next step, a busy retry, and what counts as a new choice                                |
+
+The shell keeps the composition: the promise chains, the timers, the capture, the media binding,
+the stills and the settings loop. `@ace/screen`'s `StreamOwners` arbitration and `commonStream`
+stay that package's (screen S-items); `stream_control` is the device's rules around them. `sim-schemas.ts` stays TypeScript until D5 pins the typed
+decoding; the ref pattern it reads moved with `sim-refs`.
+
+Intended differences, each proven in Rust:
+
+- **A subscribe the queue drops never starts.** `device-queue.ts` throws `Device subscription
+superseded` from a queued subscribe whose turn a newer operation passed. The Rust queue reports
+  it in `Finished::dropped`, and a running subscribe is told through `superseded()` so it rolls
+  itself back, as the TypeScript's ticket flag does.
+- **The lease expires through `release()`**, as `lease.ts` does, so an expiry moves the epoch and
+  clears the deadline exactly as a hand-back does. An empty thread or agent id names no holder
+  (the TypeScript tests the ids by truthiness), and a retained ticket is consumed by its release,
+  so an unreleased retain cannot grow the lease's maps (the TypeScript's per-closure flag).
+- **The service's words come from the catalog.** `leaseRequired`, `inputQueueFull`,
+  `commandQueueFull`, `bindingBusy`, `bindingDisabled`, `inputOneFinger`, `unsupportedAction`,
+  `screenDisabled`, `screenLimit`, `frontmostTyping`, `permissionScreenRecording`,
+  `permissionAccessibility`, `uiNeedsRef`, and the `tools` hints `personBusyHint`,
+  `foregroundRequiredHint`, `simRefUnknownHint`, `simStaleRefHint`, `simActionUnsupportedHint` and
+  `simActionNoRefHint` are in `native/daemon/catalog/devices.json`, and the TypeScript reads them
+  too. `check:devices-catalog` fails on a source that spells one.
+- **A tap's middle is rounded and never negative** (`sim-act.ts:72`), and a second finger is read
+  by truthiness: `pointerId: 0` is the first finger, not a second one.
+
+## 16. D5: the `sim_*` tools (2026-11-26)
+
+The tools' decisions are `ace-devices`' `tools/` module. `sim-schemas.ts`'s Zod decoding is
+`tools/args.rs`: the same fields, bounds (code points for strings, integers for points and
+durations), defaults and refusals, with the same public `invalid_arguments` issues — a path and
+what the schema expected, never a value the agent sent. The per-action rules and the tap's
+ref-or-coordinates rule run after the object, in zod's order.
+
+`tools/describe.rs` holds the descriptors and reads M1's catalog (`ace-mcp`, `tools.json`) when it
+has the entry. `tools/result.rs` holds what a call answers: the start/stop summary, the answer an
+Android device with no live video gives, the how-to on a first start only, the screenshot's note,
+and the failure body, whose words come from M1's public error catalog (`errors.json`).
+
+**What waits for M2 (the server).** The registration itself stays TypeScript until M2 lands:
+
+- `devicesToolkit`'s `registry.registerContent` line and the family's `machine` routing;
+- the MCP content rendering (a JSON text part, or the JPEG plus its note) and the `modelImage`
+  call that makes a screenshot's picture;
+- `callSimTool`'s signal wiring: a cancelled call disconnects the actor's owner, and every step
+  checks the signal first;
+- the `sim_*` descriptors joining `native/daemon/catalog/tools.json`, so `describe` reads them
+  from the catalog rather than the copies beside it (`scripts/export-catalog.ts` and the MCP
+  catalogue budget move with that);
+- the advertised input JSON schema each tool declares (the schemas' `advertised-schema.ts`
+  output), which is the catalog's, not the decoder's.

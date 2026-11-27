@@ -15,6 +15,9 @@ workspace = true
 [dependencies]
 # ace-json: every JS-visible value serializes with JSON.parse/JSON.stringify semantics, never serde_json.
 ace-json = { path = "../ace-json" }
+# ace-mcp: M1's catalog holds the tools' prose and the public error words, so the
+# sim_* descriptors and failures read the same files the server serves.
+ace-mcp = { path = "../ace-mcp" }
 # ace-supervisor: every child process (adb start-server, SDK commands) runs supervised.
 ace-supervisor = { path = "../ace-supervisor" }
 # base64: the registry's sha512 integrity strings are base64.

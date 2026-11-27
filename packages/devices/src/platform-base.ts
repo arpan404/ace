@@ -374,12 +374,7 @@ export class DevicePlatformBase {
   ) {
     if (this.controller.signal.aborted) throw catalogRefusal("deviceServiceClosed");
     if (this.active >= 8) {
-      if (this.waiters.length >= 128)
-        throw new DeviceError(
-          "busy",
-          "Device command queue is full",
-          "Wait for pending device actions.",
-        );
+      if (this.waiters.length >= 128) throw catalogRefusal("commandQueueFull");
       await new Promise<void>((resolve) => this.waiters.push(resolve));
     } else this.active++;
     try {

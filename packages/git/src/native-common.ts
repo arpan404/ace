@@ -110,8 +110,6 @@ interface GitAddon {
   gitVerifyVersion(stdout: Uint8Array, binary: string): void;
   gitDecodeVersion(text: string): string;
   NativeGitCore: new (configJson: string, onPort: NativePortHandler) => NativeGitCoreHandle;
-  gitReadsProbe(op: string): string;
-  gitWritesProbe(op: string): string;
   gitCheckpointsProbe(op: string): string;
   gitBridgeVersion(): string;
   GitPortBridge: new () => GitPortBridgeHandle;
@@ -286,8 +284,28 @@ export function gitVerify(): GitVerify {
   throw new Error(`ACE_GIT_VERIFY takes strict or shadow, not ${mode}`);
 }
 
-/** Calls the probe of a part whose every operation still defers; each item replaces its probe. */
-function attemptNative(part: GitPart, op: string): string {
+/**
+ * Parts with no addon export: reads and writes are Rust-only, so no whole operation of theirs
+ * runs through this addon and each one runs its TypeScript path.
+ */
+type ProbelessPart = "reads" | "writes";
+
+function hasProbe(part: GitPart): part is Exclude<GitPart, ProbelessPart> {
+  return part !== "reads" && part !== "writes";
+}
+
+function recordTypescriptFallback(
+  seq: number,
+  op: string,
+  part: GitPart,
+  selected: NativeBackend,
+): void {
+  appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
+  countFallback("unimplemented");
+}
+
+/** Calls the probe of a part that exports one. */
+function attemptNative(part: Exclude<GitPart, ProbelessPart>, op: string): string {
   const addon = gitAddon();
   switch (part) {
     case "refs":
@@ -296,10 +314,6 @@ function attemptNative(part: GitPart, op: string): string {
       throw new Error("refs dispatches per process, not per operation");
     case "core":
       return addon.gitCoreProbe(op);
-    case "reads":
-      return addon.gitReadsProbe(op);
-    case "writes":
-      return addon.gitWritesProbe(op);
     case "checkpoints":
     case "snapshot-hash":
     case "status-gix":
@@ -325,6 +339,10 @@ export async function runNativeOp<T>(
     appendOp({ seq, op, part, selected, completed: "typescript" });
     return typescript();
   }
+  if (!hasProbe(part)) {
+    recordTypescriptFallback(seq, op, part, selected);
+    return typescript();
+  }
   try {
     const value = JSON.parse(attemptNative(part, op)) as T;
     // G5's comparison of a native-completed checkpoint against the CLI path
@@ -338,8 +356,7 @@ export async function runNativeOp<T>(
       appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
-    countFallback("unimplemented");
+    recordTypescriptFallback(seq, op, part, selected);
     return typescript();
   }
 }
@@ -350,6 +367,10 @@ export function runNativeOpSync<T>(part: GitPart, op: string, typescript: () => 
   const seq = reserveGitOpSeq();
   if (selected === "typescript") {
     appendOp({ seq, op, part, selected, completed: "typescript" });
+    return typescript();
+  }
+  if (!hasProbe(part)) {
+    recordTypescriptFallback(seq, op, part, selected);
     return typescript();
   }
   try {
@@ -363,8 +384,7 @@ export function runNativeOpSync<T>(part: GitPart, op: string, typescript: () => 
       appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
-    countFallback("unimplemented");
+    recordTypescriptFallback(seq, op, part, selected);
     return typescript();
   }
 }

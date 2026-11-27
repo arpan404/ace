@@ -110,6 +110,13 @@ impl RemoteListener {
         &self.resolver
     }
 
+    /// The same chooser as a handle a later task can push to: the daemon program
+    /// fetches Tailscale's certificate in the background, without holding the
+    /// listener.
+    pub fn resolver_handle(&self) -> Arc<SniResolver> {
+        Arc::clone(&self.resolver)
+    }
+
     /// The counters this listener has kept since it bound (T1b.1b).
     pub fn stats(&self) -> Arc<Stats> {
         Arc::clone(&self.stats)

@@ -4,7 +4,7 @@ import { DeviceClient } from "@ace/devices/client";
 import { DevicePlatform, DevicesService } from "@ace/devices";
 import { DeviceId, SocketTicket } from "@ace/protocol";
 import { LazyDevices } from "./lazy-devices.ts";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
 
 function devicesService() {
   const platform = new DevicePlatform({ platform: "linux", home: "/unused", env: {} });
@@ -28,8 +28,29 @@ function devicesService() {
 }
 
 /** An administrator's devices channel, as the Devices page opens it. */
+/** A device paired over HTTP from the host token, for a binary daemon with no store. */
+async function pairedDevice(f: { server: { httpUrl: string } }) {
+  const issued = await fetch(`${f.server.httpUrl}/v1/pairings`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ scopes: ["admin"] }),
+  });
+  const pairing = await issued.json();
+  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
+  const redeemed = await fetch(`${f.server.httpUrl}/v1/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, name: "Viewer" }),
+  });
+  if (!redeemed.ok) throw new Error(`pairing failed: ${redeemed.status}`);
+  return (await redeemed.json()) as { device: { id: string }; token: string };
+}
+
 async function viewer(f: Awaited<ReturnType<typeof fixture>>) {
-  const credential = f.store.devices.create("Viewer", ["admin"], 1);
+  const credential =
+    process.env.ACE_TEST_DAEMON_BINARY && (f as { binary?: boolean }).binary
+      ? await pairedDevice(f)
+      : f.store.devices.create("Viewer", ["admin"], 1);
   const ticketResponse = await fetch(f.server.url.replace("ws:", "http:") + "/v1/tickets", {
     method: "POST",
     headers: { Authorization: `Bearer ${credential.token}` },
@@ -82,7 +103,10 @@ test("devices load on first use, and viewers already watching hear about them", 
     builds++;
     return service;
   });
-  const f = await fixture({ devices });
+  const f = await fixture({
+    devices,
+    ...(process.env.ACE_TEST_DAEMON_BINARY ? { remote: {} as never } : {}),
+  });
   onTestFinished(async () => {
     await f.close();
     await devices.close();

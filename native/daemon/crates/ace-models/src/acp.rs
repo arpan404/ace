@@ -697,22 +697,34 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_category_is_not_a_model_selector() {
-        // selectors.ts's category is `z.string().max(128)`: "" is a category, so the
-        // option is not the id-named model selector.
-        let payload = json!({
-            "configOptions": [{
-                "id": "model",
-                "category": "",
-                "type": "select",
-                "currentValue": "a",
-                "options": [{ "value": "a", "name": "A" }]
-            }]
+    fn an_empty_category_reads_as_the_id_named_model_selector() {
+        // selectors.ts's `!config.category` treats "" like an absent category, so the
+        // option `id: "model"` is the model selector, and its values still filter a
+        // legacy list. Without a legacy list TS throws "Missing model options".
+        let option = json!({
+            "id": "model",
+            "category": "",
+            "type": "select",
+            "currentValue": "a",
+            "options": [{ "value": "a", "name": "A" }]
         });
-        assert!(
-            normalize_acp(&payload, &local())
-                .unwrap_or_default()
-                .is_empty()
+        assert_eq!(
+            normalize_acp(&json!({ "configOptions": [option.clone()] }), &local()).err(),
+            Some(AcpError::MissingModelOptions)
+        );
+        let rows = normalize_acp(
+            &json!({
+                "configOptions": [option],
+                "models": { "availableModels": [{ "modelId": "a" }, { "modelId": "b" }] }
+            }),
+            &local(),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // Measured against `normalizeAcp`: one row, and the selector it was read through
+        // (the config option itself is dropped, so the legacy list supplies the row).
+        assert_eq!(
+            simple(&rows, &["id", "selectorMethod"]),
+            [[json!("a"), json!("session/set_config_option")]]
         );
     }
 

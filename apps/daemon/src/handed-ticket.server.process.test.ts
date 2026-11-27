@@ -9,11 +9,33 @@ function handed(message: ServerMessage) {
   return message.ticket;
 }
 
+const binary = () => Boolean(process.env.ACE_TEST_DAEMON_BINARY);
+
+/** A device paired over HTTP from the host token, for a binary daemon with no store. */
+async function pairedDevice(f: { server: { httpUrl: string } }, scopes: string[]) {
+  const issued = await fetch(`${f.server.httpUrl}/v1/pairings`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ scopes }),
+  });
+  const pairing = await issued.json();
+  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
+  const redeemed = await fetch(`${f.server.httpUrl}/v1/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, name: "Phone" }),
+  });
+  if (!redeemed.ok) throw new Error(`pairing failed: ${redeemed.status}`);
+  return (await redeemed.json()) as { device: { id: string }; token: string };
+}
+
 // One real socket per connect, through the daemon's own ticket exchange and welcome.
 async function setup() {
-  const f = await fixture();
+  const f = await fixture(binary() ? { remote: {} as never } : {});
   onTestFinished(() => f.close());
-  const phone = f.store.devices.create("Phone", ["projects"], 1);
+  const phone = binary()
+    ? await pairedDevice(f, ["projects"])
+    : f.store.devices.create("Phone", ["projects"], 1);
   const exchanged = async () => {
     const response = await fetch(`${f.server.httpUrl}/v1/tickets`, {
       method: "POST",
