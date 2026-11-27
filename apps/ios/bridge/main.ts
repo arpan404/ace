@@ -599,6 +599,7 @@ async function start(json: string): Promise<void> {
   // API keys go only on their own `provider_auth` channel, and only through ace's relay (ADR 0002).
   services.keys = {
     channel: () => nativeFeatureChannel(featureConfig, "provider_auth"),
+    owner: client,
     relayed: () => standingRoute === "account",
     id: () => host.uuid(),
     schedule: (delayMs, callback) => scheduler.set(delayMs, callback),

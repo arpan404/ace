@@ -14,6 +14,7 @@ import { settingsFixture } from "./settings-fixture.ts";
  */
 
 const key = "sk-proj-PHONEKEY0123456789abcdef";
+const types = (frames: string[]) => frames.map((frame) => (JSON.parse(frame) as Answer).type);
 let client: ClientCore | undefined;
 afterEach(async () => {
   await client?.close();
@@ -30,7 +31,10 @@ interface Socket {
   hello(): Answer;
 }
 
-async function open(options: { relayed?: boolean; fromDaemon?: (frame: Answer) => void } = {}) {
+/** What the daemon sends the phone; `false` loses that frame and drops the socket. */
+type FromDaemon = (frame: Answer, sent: string[]) => boolean | void;
+
+async function open(options: { relayed?: boolean; fromDaemon?: FromDaemon } = {}) {
   const fixture = await settingsFixture();
   client = fixture.owner;
   const sockets: Socket[] = [];
@@ -52,10 +56,12 @@ async function open(options: { relayed?: boolean; fromDaemon?: (frame: Answer) =
     );
   const deps = {
     channel,
+    owner: fixture.owner,
     relayed: () => options.relayed ?? true,
     id: () => crypto.randomUUID(),
+    // The hand-off's own waits run a hundred times fast, so a lost answer times out in the test.
     schedule: (delayMs: number, callback: () => void) => {
-      const timer = setTimeout(callback, delayMs);
+      const timer = setTimeout(callback, delayMs / 100);
       return () => clearTimeout(timer);
     },
   };
@@ -86,9 +92,9 @@ async function open(options: { relayed?: boolean; fromDaemon?: (frame: Answer) =
 }
 
 /** A socket straight into the fake daemon, as Swift's relay socket is to the real one. */
-function fakeSocket(daemon: FakeDaemon, sockets: Socket[], fromDaemon?: (frame: Answer) => void) {
-  const listeners = new Map<string, ((event?: { data: unknown; code?: number }) => void)[]>();
-  const emit = (type: string, event?: { data: unknown; code?: number }) =>
+function fakeSocket(daemon: FakeDaemon, sockets: Socket[], fromDaemon?: FromDaemon) {
+  const listeners = new Map<string, ((event: { data: unknown; code?: number }) => void)[]>();
+  const emit = (type: string, event: { data: unknown; code?: number } = { data: null }) =>
     queueMicrotask(() => {
       for (const listener of listeners.get(type) ?? []) listener(event);
     });
@@ -97,9 +103,15 @@ function fakeSocket(daemon: FakeDaemon, sockets: Socket[], fromDaemon?: (frame: 
     hello: () => JSON.parse(record.frames[0] ?? "null") as Answer,
   };
   sockets.push(record);
+  let lost = false;
   const connection = daemon.connect({
     send: (text) => {
-      fromDaemon?.(JSON.parse(text) as Answer);
+      if (lost) return;
+      if (fromDaemon?.(JSON.parse(text) as Answer, record.frames) === false) {
+        lost = true;
+        emit("close", { data: null, code: 1006 });
+        return;
+      }
       emit("message", { data: text });
     },
     close: (code) => emit("close", { data: null, code }),
@@ -108,7 +120,7 @@ function fakeSocket(daemon: FakeDaemon, sockets: Socket[], fromDaemon?: (frame: 
   return {
     binaryType: "arraybuffer",
     bufferedAmount: 0,
-    addEventListener(type: string, listener: (event?: { data: unknown; code?: number }) => void) {
+    addEventListener(type: string, listener: (event: { data: unknown; code?: number }) => void) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
     send(data: string | Uint8Array) {
@@ -204,6 +216,33 @@ test("a sheet that goes while the CLI gets ready never sends the key, and no acc
   expect(sent.map((frame) => (JSON.parse(frame) as Answer).type)).not.toContain(
     "provider.login.apiKey",
   );
-  // The staged account never joins the list.
+  // Its sign-in was cancelled, so the staged account never joins the list.
+  expect(types(sent)).toContain("provider.login.cancel");
   expect((await screen("codex")).accounts).toHaveLength(before);
+});
+
+test("a key whose answer never comes is cancelled before the channel closes, so it can't finish later", async () => {
+  const { add, daemon, sockets, screen } = await open();
+  const before = ((await screen("codex")).accounts as Answer[]).length;
+  daemon.holdRequests("provider.login.apiKey");
+  const { answer } = await add();
+  expect(answer.ok).toBe(false);
+  const sent = types(sockets[0]?.frames ?? []);
+  expect(sent.indexOf("provider.login.cancel")).toBeGreaterThan(
+    sent.indexOf("provider.login.apiKey"),
+  );
+  expect((await screen("codex")).accounts).toHaveLength(before);
+});
+
+test("an add that committed while its answer was lost is reported added, so a retry never doubles it", async () => {
+  const { add, screen } = await open({
+    // Everything after the key goes is lost with the channel: the account is in, the phone unsure.
+    fromDaemon: (_frame, sent) => !types(sent).includes("provider.login.apiKey"),
+  });
+  const before = ((await screen("codex")).accounts as Answer[]).length;
+  const { answer } = await add();
+  expect(answer).toMatchObject({ ok: true, instance: expect.any(String) });
+  const accounts = (await screen("codex")).accounts as Answer[];
+  expect(accounts).toHaveLength(before + 1);
+  expect(accounts.find((row) => row.id === answer.instance)).toMatchObject({ label: "Work" });
 });

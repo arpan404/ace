@@ -100,6 +100,7 @@ test("a key hand-off goes to the provider_auth path, and its answer and request 
       throw new Error("a direct link opens no channel");
     },
     relayed: () => false,
+    owner: client,
     id: () => crypto.randomUUID(),
     schedule: () => () => {},
   };
