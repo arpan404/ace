@@ -426,6 +426,7 @@ mod tests {
             ("SC..", "moved"),
             ("S.M.", "dirty"),
             ("S..U", "untracked"),
+            ("S.MU", "dirty and untracked"),
             ("SCMU", "moved and dirty"),
         ] {
             let parsed = parse_status(
@@ -434,11 +435,8 @@ mod tests {
             .expect(flags);
             assert_eq!(parsed.status.staged[0].submodule, flags);
         }
-        for flags in ["S.U.", "S.C.", "S..C", "S.MU", "SX.."] {
-            rejects(&format!(
-                "{HEADERS}{} sub\0",
-                ordinary.replace("N...", flags)
-            ));
+        for flags in ["S.U.", "S.C.", "S..C", "SX.."] {
+            rejects(&format!("{} sub\0", ordinary.replace("N...", flags)));
         }
     }
 
