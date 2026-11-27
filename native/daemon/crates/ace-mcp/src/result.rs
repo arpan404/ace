@@ -26,6 +26,7 @@ pub struct CallToolResult {
     pub is_error: bool,
     pub content: Vec<Content>,
     pub structured: Option<Value>,
+    pub meta: Option<Box<Map>>,
 }
 
 impl CallToolResult {
@@ -35,6 +36,7 @@ impl CallToolResult {
             is_error: false,
             content: vec![Content::text(ace_json::to_string(&structured))],
             structured: Some(structured),
+            meta: None,
         }
     }
 
@@ -44,6 +46,7 @@ impl CallToolResult {
             is_error,
             content: vec![Content::text(ace_json::to_string(&structured))],
             structured: Some(structured),
+            meta: None,
         }
     }
 
@@ -53,12 +56,13 @@ impl CallToolResult {
             is_error: true,
             content: vec![Content::text(text)],
             structured: None,
+            meta: None,
         }
     }
 
-    /// `{isError?, content, structuredContent?}`, in the TypeScript's key order.
+    /// `{isError?, content, structuredContent?, _meta?}`, in the TypeScript's key order.
     pub fn to_json(&self) -> Value {
-        let mut map = Map::with_capacity(3);
+        let mut map = Map::with_capacity(4);
         if self.is_error {
             map.insert("isError", Value::Bool(true));
         }
@@ -79,6 +83,9 @@ impl CallToolResult {
         );
         if let Some(structured) = &self.structured {
             map.insert("structuredContent", structured.clone());
+        }
+        if let Some(meta) = &self.meta {
+            map.insert("_meta", Value::Object((**meta).clone()));
         }
         Value::Object(map)
     }

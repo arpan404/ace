@@ -295,11 +295,13 @@ name = "ace-mcp"
 version = "0.1.0"
 dependencies = [
  "ace-json",
+ "ace-store",
  "base64",
  "futures",
  "getrandom 0.4.3",
  "indexmap",
  "sha2 0.11.1",
+ "tempfile",
  "thiserror",
  "tokio",
 ]

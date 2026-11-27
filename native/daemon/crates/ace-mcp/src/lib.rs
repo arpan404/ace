@@ -4,8 +4,12 @@
 //! TypeScript, embedded here so both backends serve the same bytes.
 
 pub mod action;
+pub mod awareness;
+pub mod brief;
+pub mod call_records;
 pub mod calls;
 pub mod catalog;
+pub mod changes;
 pub mod claude;
 pub mod credentials;
 pub mod delivery;
@@ -16,9 +20,12 @@ pub mod limits;
 pub mod public_error;
 pub mod registry;
 pub mod result;
+pub mod roles;
 pub mod scope;
+pub mod session_guidance;
 pub mod sessions;
 pub mod signal;
 pub mod streams;
 pub mod tool_names;
+pub mod tool_search;
 pub mod toolsets;

@@ -30,3 +30,8 @@ futures = { version = "0.3" }
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 # getrandom: a legacy transport session's id is random (UUID v4), as `randomUUID` makes it.
 getrandom = { version = "0.4" }
+# ace-store: M3 call record correlation shares the daemon's single SQLite connection (ADR 0222).
+ace-store = { path = "../ace-store" }
+
+[dev-dependencies]
+tempfile = { version = "3" }
