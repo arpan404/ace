@@ -251,10 +251,14 @@ impl<'a> Service<'a> {
         self.held.retain(|key, _| !key.starts_with(&prefix));
     }
 
-    fn held_ids(&self) -> HashSet<String> {
+    /// Automations whose held occurrence is still inside its wait. A hold past its window keeps
+    /// its stamp until the occurrence is consumed, but no longer keeps the job from firing.
+    fn held_ids(&self, now: i64) -> HashSet<String> {
+        let hold = self.ports.model_hold_ms.unwrap_or(MODEL_HOLD_MS);
         self.held
-            .keys()
-            .filter_map(|key| key.split('\u{0}').next().map(str::to_owned))
+            .iter()
+            .filter(|(_, since)| now - **since < hold)
+            .filter_map(|(key, _)| key.split('\u{0}').next().map(str::to_owned))
             .collect()
     }
 
@@ -284,10 +288,12 @@ impl<'a> Service<'a> {
                 return Ok(Some(job));
             }
             let hold = self.ports.model_hold_ms.unwrap_or(MODEL_HOLD_MS);
+            // Expiry is not consumed here: [`Service::arm_delay`] asks for the next job too, and
+            // deleting the stamp would let the next tick start the same occurrence's wait over.
+            // It lives until the occurrence is consumed or a newer one replaces it.
             if let Some(since) = self.held.get(&key)
                 && now - *since >= hold
             {
-                self.held.remove(&key);
                 return Ok(Some(job));
             }
             self.held.entry(key).or_insert(now);
@@ -586,7 +592,7 @@ impl<'a> Service<'a> {
             return Ok(None);
         }
         let generation = self.generation;
-        let skip = self.held_ids();
+        let skip = self.held_ids(now);
         let outcome = self.scheduler().tick_skipping(self.ports.ids, &skip);
         let outcome = match outcome {
             Ok(outcome) => outcome,

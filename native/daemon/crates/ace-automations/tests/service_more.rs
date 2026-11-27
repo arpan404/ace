@@ -764,3 +764,48 @@ fn a_github_retry_moves_the_deadline_and_rearms_the_timer() {
         Some(START - 60_000 + 1000)
     );
 }
+
+#[test]
+fn a_rearm_after_a_model_hold_expires_does_not_restart_the_hold() {
+    let h = Harness::new();
+    let is_loading = |_automation: &Definition| true;
+    let mut service = Service::new(
+        &h.store,
+        Ports {
+            clock: &h.clock,
+            random: &h.random,
+            admission: &h.admission,
+            timer: &h.timer,
+            ids: &h.ids,
+            workspace: Some(&h.workspace),
+            model_loading: Some(&is_loading),
+            model_hold_ms: Some(10_000),
+            model_retry_ms: Some(1_000),
+        },
+    );
+    service.start().expect("start");
+    h.clock.0.set(START);
+    service.put(&scheduled("skip", 0), None).expect("put");
+
+    assert!(service.tick().expect("tick").is_none(), "held");
+    assert_eq!(service.armed_delay().expect("delay"), 1_000);
+
+    // The hold passes; the host re-arms one more time before its timer runs. The expiry is not
+    // consumed by asking, so the fire still sees the elapsed wait.
+    h.clock.0.set(START + 10_000);
+    assert_eq!(service.arm_delay().expect("delay"), Some(0));
+    assert_eq!(
+        service.arm_delay().expect("delay"),
+        Some(0),
+        "a second rearm keeps the elapsed wait"
+    );
+    service.models_ready();
+    let run = service
+        .timer_fired()
+        .expect("timer")
+        .expect("the held occurrence fires");
+    assert_eq!(
+        sv(&run, "eventKey"),
+        Some(format!("schedule:{START}").as_str())
+    );
+}
