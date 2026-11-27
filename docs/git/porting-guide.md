@@ -225,6 +225,15 @@ Each read keeps its exact Git command and its strict parse, ported.
   overwritten silently; TypeScript still relies on Git's default merge/switch behaviour.
 - Commit, merge, and branch cleanup hold the serial turn and compare-and-swap HEAD/index (and
   unmerged stages for resolutions) before mutating; TypeScript rechecks HEAD but not the index.
+  The merge starts and the merge commit run only while HEAD is still the observed OID, and a
+  commit is refused (not written) when the index moved after ace's own stage.
+- A resolution and a taken side stage exactly the blob that was written or checked out: the stage
+  after `add` is compared with it, and an index that took an edit made meanwhile gets its recorded
+  stages back. TypeScript's `add` stages whatever the file holds at that moment.
+- Branch cleanup deletes under the serial turn and, when a checkout of the branch appears after
+  the worktree scan, puts the ref back and refuses; TypeScript never rechecks the worktrees.
+- Every long write carries `longWriteTimeoutMs` as the command's `timeoutMs` (a hung hook stops
+  with `git_timeout`), not as the output budget, which resolves with partial output.
 - Branch cleanup uses `--no-deref` and refuses symbolic cleanup branches; TypeScript may delete a
   different direct ref at the same OID.
 - Writing-context fingerprints omit absent `remote` and serialize `baseRef`; TypeScript matches

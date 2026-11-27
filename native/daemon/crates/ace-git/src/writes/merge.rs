@@ -8,14 +8,13 @@
 
 use std::path::Path;
 
-use sha2::{Digest, Sha256};
-
 use crate::core::decode::{hash_schema, nul};
 use crate::core::error::{GitError, GitErrorCode};
 use crate::core::paths;
 use crate::reads::{Command, CommandPort, checked, text_output};
 use crate::writes::bind::{
-    guarded_regular_write, long_writing, serial_turn, stage_bytes, stage_literal,
+    blob_id, guarded_regular_write, index_entries, long_writing, serial_turn, stage_bytes,
+    stage_exactly, stage_literal,
 };
 
 /// `maxConflictFileBytes`: the largest resolution ace writes.
@@ -85,14 +84,10 @@ pub async fn start_merge(
             "A merge is already in progress",
         ));
     }
-    let observed = crate::writes::bind::checkout_snapshot(port, root).await?;
-    if observed.head.as_deref() != Some(expected.as_str()) {
-        return Err(GitError::new(
-            GitErrorCode::HeadMoved,
-            "HEAD moved; refresh first",
-        ));
-    }
     let state = crate::reads::status::state(port, root, &[]).await?;
+    // The status read may refresh the index; the snapshot is taken after it.
+    let observed = crate::writes::bind::checkout_snapshot(port, root).await?;
+    observed.assert_head(Some(expected.as_str()))?;
     if !state.status.conflicted.is_empty()
         || !state.status.staged.is_empty()
         || !state.status.unstaged.is_empty()
@@ -125,6 +120,17 @@ pub async fn start_merge(
     }
     observed.assert_index_unchanged(port, root).await?;
     crate::writes::overlap::refuse_merge_overwrite(port, root, &target).await?;
+    // Git merges into HEAD only while it is still the commit the caller saw: a terminal that
+    // committed (or staged) while the preflight ran is a refusal, never a merge into someone
+    // else's work.
+    let now = crate::writes::bind::checkout_snapshot(port, root).await?;
+    now.assert_head(Some(expected.as_str()))?;
+    if now.index != observed.index {
+        return Err(GitError::new(
+            GitErrorCode::HeadMoved,
+            "The index changed meanwhile; refresh first",
+        ));
+    }
     let merged = checked(
         port,
         long_writing(Command::new(
@@ -321,6 +327,7 @@ pub async fn write_resolution(
     }
     let (_key, _serial) = serial_turn(root).await?;
     let stages = assert_unmerged(port, root, path).await?;
+    let entries = index_entries(port, root, path).await?;
     if regular_file(root, path).is_none() {
         return Err(GitError::new(
             GitErrorCode::HeadMoved,
@@ -331,7 +338,11 @@ pub async fn write_resolution(
     if crate::reads::conflicts::has_conflict_hunks(content) {
         return Ok(false);
     }
+    // Stage exactly the bytes that were written: an edit made between the write and the add is
+    // never taken in their place, and the stages it displaced are put back.
+    let resolved = blob_id(port, root, path, content).await?;
     stage_literal(port, root, path, Some(stages)).await?;
+    stage_exactly(port, root, path, &resolved, &entries).await?;
     Ok(true)
 }
 
@@ -348,6 +359,7 @@ pub async fn take_side(
     let (_key, _serial) = serial_turn(root).await?;
     let snapshot = crate::writes::bind::checkout_snapshot(port, root).await?;
     let stages = assert_unmerged(port, root, path).await?;
+    let entries = index_entries(port, root, path).await?;
     let present = if side == "ours" { stages[1] } else { stages[2] };
     if !present {
         crate::writes::bind::assert_stages(port, root, path, stages).await?;
@@ -368,7 +380,14 @@ pub async fn take_side(
             format!("{path} changed since it was read; refresh first"),
         ));
     }
-    stage_literal(port, root, path, Some(stages)).await
+    // The side's own blob, exactly: an edit made after the checkout is not staged in its place.
+    let side_entry = entries
+        .iter()
+        .find(|entry| entry.stage == if side == "ours" { 2 } else { 3 })
+        .map(|entry| entry.oid.clone())
+        .unwrap_or_default();
+    stage_literal(port, root, path, Some(stages)).await?;
+    stage_exactly(port, root, path, &side_entry, &entries).await
 }
 
 /// Commit the merge in progress with exactly what is staged and the message `startMerge` gave.
@@ -379,9 +398,9 @@ pub async fn commit_merge(
 ) -> Result<String, GitError> {
     let expected = commit_id(expected_head)?;
     let (_key, _serial) = serial_turn(root).await?;
-    let snapshot = crate::writes::bind::checkout_snapshot(port, root).await?;
-    snapshot.assert_head(Some(expected.as_str()))?;
     let state = crate::reads::status::state(port, root, &[]).await?;
+    let observed = crate::writes::bind::checkout_snapshot(port, root).await?;
+    observed.assert_head(Some(expected.as_str()))?;
     if !merging(port, root).await? {
         return Err(invalid("No merge is in progress"));
     }
@@ -391,7 +410,15 @@ pub async fn commit_merge(
             "Resolve every conflicted file first",
         ));
     }
-    snapshot.assert_index_unchanged(port, root).await?;
+    // The merge commits exactly the index and HEAD checked above.
+    let now = crate::writes::bind::checkout_snapshot(port, root).await?;
+    now.assert_head(Some(expected.as_str()))?;
+    if now.index != observed.index {
+        return Err(GitError::new(
+            GitErrorCode::StagedMeanwhile,
+            "Something was staged meanwhile. Review and commit again.",
+        ));
+    }
     checked(
         port,
         long_writing(
@@ -432,7 +459,7 @@ mod tests {
     use super::*;
     use crate::core::credentials::test_support::Fixture;
     use crate::reads::test_support::ProcessCommands;
-    use crate::writes::branches::switch_branch;
+    use sha2::{Digest, Sha256};
 
     fn conflicting(fixture: &Fixture, repo: &Path) -> String {
         fixture.git(repo, &["checkout", "--quiet", "-b", "other"]);
@@ -564,6 +591,11 @@ mod tests {
         take_side(&port, &root, "file.txt", "theirs")
             .await
             .expect("take");
+        // The side chosen is the whole version the incoming branch held.
+        assert_eq!(
+            std::fs::read_to_string(repo.join("file.txt")).expect("file"),
+            "theirs line\n"
+        );
         let status = crate::reads::status::status(&port, &root, &[])
             .await
             .expect("status");
@@ -605,6 +637,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_resolution_does_not_stage_an_edit_made_before_the_add() {
+        let fixture = Fixture::new("g4-resolution-add-race");
+        let repo = fixture.repository("repo");
+        let head = conflicting(&fixture, &repo);
+        let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
+            .trim_end()
+            .to_owned();
+        let plain = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        start_merge(&plain, &root, &other, &head, "merge")
+            .await
+            .expect("start");
+        let revision = format!(
+            "{:x}",
+            Sha256::digest(std::fs::read(repo.join("file.txt")).expect("conflict file"))
+        );
+        // The person saves the file between the guarded write and the stage.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "add",
+            {
+                let repo = repo.clone();
+                move || std::fs::write(repo.join("file.txt"), "edited meanwhile\n").expect("edit")
+            },
+        );
+        assert_eq!(
+            write_resolution(&port, &root, "file.txt", "resolved\n", &revision)
+                .await
+                .expect_err("moved")
+                .code,
+            GitErrorCode::HeadMoved
+        );
+        assert!(port.fired());
+        // Their bytes stay, and the conflict is still open for them to resolve.
+        assert_eq!(
+            std::fs::read_to_string(repo.join("file.txt")).expect("kept"),
+            "edited meanwhile\n"
+        );
+        let status = crate::reads::status::status(&plain, &root, &[])
+            .await
+            .expect("status");
+        assert_eq!(status.conflicted.len(), 1);
+        assert!(status.staged.is_empty());
+    }
+
+    #[tokio::test]
+    async fn taking_a_side_does_not_stage_an_edit_made_before_the_add() {
+        let fixture = Fixture::new("g4-take-add-race");
+        let repo = fixture.repository("repo");
+        let head = conflicting(&fixture, &repo);
+        let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
+            .trim_end()
+            .to_owned();
+        let plain = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        start_merge(&plain, &root, &other, &head, "merge")
+            .await
+            .expect("start");
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "add",
+            {
+                let repo = repo.clone();
+                move || std::fs::write(repo.join("file.txt"), "edited meanwhile\n").expect("edit")
+            },
+        );
+        assert_eq!(
+            take_side(&port, &root, "file.txt", "theirs")
+                .await
+                .expect_err("moved")
+                .code,
+            GitErrorCode::HeadMoved
+        );
+        assert!(port.fired());
+        assert_eq!(
+            std::fs::read_to_string(repo.join("file.txt")).expect("kept"),
+            "edited meanwhile\n"
+        );
+        let status = crate::reads::status::status(&plain, &root, &[])
+            .await
+            .expect("status");
+        assert_eq!(status.conflicted.len(), 1);
+    }
+
+    #[tokio::test]
     async fn aborting_a_merge_restores_diff3_markers_file_bytes_and_the_index() {
         let fixture = Fixture::new("g4-abort-bytes");
         let repo = fixture.repository("repo");
@@ -612,8 +729,9 @@ mod tests {
         let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
             .trim_end()
             .to_owned();
-        let index_before = std::fs::read(repo.join(".git/index")).expect("index");
         let file_before = std::fs::read(repo.join("file.txt")).expect("file");
+        // The index's rows, not its cached stat data: `merge --abort` refreshes those.
+        let index_before = fixture.git(&repo, &["ls-files", "--stage", "-z"]);
         let port = ProcessCommands { fixture: &fixture };
         let root = repo.to_string_lossy();
         start_merge(&port, &root, &other, &head, "merge other")
@@ -638,6 +756,108 @@ mod tests {
             .await
             .expect("status");
         assert!(after.conflicted.is_empty() && after.staged.is_empty());
+        assert_eq!(
+            fixture.git(&repo, &["ls-files", "--stage", "-z"]),
+            index_before
+        );
+        // A real second merge starts from the restored checkout.
+        assert_eq!(
+            start_merge(&port, &root, &other, &head, "merge again")
+                .await
+                .expect("again"),
+            MergeStart::Conflicts
+        );
+        abort_merge(&port, &root).await.expect("abort again");
+    }
+
+    #[tokio::test]
+    async fn a_merge_commit_refuses_a_hunk_staged_after_the_conflict_check() {
+        let fixture = Fixture::new("g4-merge-commit-race");
+        let repo = fixture.repository("repo");
+        let head = conflicting(&fixture, &repo);
+        let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
+            .trim_end()
+            .to_owned();
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        start_merge(&port, &root, &other, &head, "merge")
+            .await
+            .expect("start");
+        take_side(&port, &root, "file.txt", "theirs")
+            .await
+            .expect("take");
+        std::fs::write(repo.join("other.txt"), "staged by a terminal\n").expect("other");
+        // The terminal stages a file after ace's conflict check, before its commit.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "MERGE_HEAD^{commit}",
+            {
+                let repo = repo.clone();
+                move || {
+                    let output = std::process::Command::new("git")
+                        .current_dir(&repo)
+                        .args(["add", "other.txt"])
+                        .output()
+                        .expect("stage");
+                    assert!(output.status.success());
+                }
+            },
+        );
+        assert_eq!(
+            commit_merge(&port, &root, &head)
+                .await
+                .expect_err("staged meanwhile")
+                .code,
+            GitErrorCode::StagedMeanwhile
+        );
+        assert!(port.fired());
+        assert!(
+            merging(&ProcessCommands { fixture: &fixture }, &root)
+                .await
+                .expect("still merging")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_head_advanced_while_the_preflight_ran_stops_the_merge_before_git() {
+        let fixture = Fixture::new("g4-merge-head-race");
+        let repo = fixture.repository("repo");
+        let head = conflicting(&fixture, &repo);
+        let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
+            .trim_end()
+            .to_owned();
+        // The terminal commits while ace lists the ignored files the merge could clobber.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "--exclude-standard",
+            {
+                let repo = repo.clone();
+                move || {
+                    let output = std::process::Command::new("git")
+                        .current_dir(&repo)
+                        .args(["commit", "--allow-empty", "--quiet", "-m", "moved"])
+                        .output()
+                        .expect("commit");
+                    assert!(output.status.success());
+                }
+            },
+        );
+        assert_eq!(
+            start_merge(&port, &repo.to_string_lossy(), &other, &head, "merge")
+                .await
+                .expect_err("moved")
+                .code,
+            GitErrorCode::HeadMoved
+        );
+        assert!(port.fired());
+        assert!(
+            !merging(
+                &ProcessCommands { fixture: &fixture },
+                &repo.to_string_lossy()
+            )
+            .await
+            .expect("no merge")
+        );
     }
 
     #[tokio::test]

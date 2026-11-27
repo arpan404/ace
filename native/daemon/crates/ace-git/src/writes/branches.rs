@@ -177,17 +177,19 @@ pub async fn delete_unchanged_branch(
             "Cleanup branch changed",
         ));
     }
+    let (_key, _serial) = serial_turn(root).await?;
+    let checked_out = |trees: &[crate::parse::repository::Worktree]| {
+        trees
+            .iter()
+            .any(|tree| tree.branch.as_deref() == Some(branch))
+    };
     let trees = crate::reads::info::worktrees(port, root, cfg!(windows)).await?;
-    if trees
-        .iter()
-        .any(|tree| tree.branch.as_deref() == Some(branch))
-    {
+    if checked_out(&trees) {
         return Err(GitError::new(
             GitErrorCode::RestoreCollision,
             "Cleanup branch is still checked out",
         ));
     }
-    let (_key, _serial) = serial_turn(root).await?;
     // Compare-and-delete prevents a changed ref being removed between observation and mutation.
     checked(
         port,
@@ -205,6 +207,31 @@ pub async fn delete_unchanged_branch(
         )),
     )
     .await?;
+    // A checkout that appeared between the scan and the delete is put back: the branch is never
+    // deleted out from under a working tree.
+    let trees = crate::reads::info::worktrees(port, root, cfg!(windows)).await?;
+    if checked_out(&trees) {
+        checked(
+            port,
+            long_writing(Command::new(
+                root,
+                &[
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "update-ref",
+                    "--no-deref",
+                    &reference,
+                    &head,
+                    &"0".repeat(head.len()),
+                ],
+            )),
+        )
+        .await?;
+        return Err(GitError::new(
+            GitErrorCode::RestoreCollision,
+            "Cleanup branch is still checked out",
+        ));
+    }
     Ok(())
 }
 
@@ -407,6 +434,61 @@ mod tests {
                 .expect_err("checked out elsewhere")
                 .code,
             GitErrorCode::RestoreCollision
+        );
+    }
+
+    #[tokio::test]
+    async fn a_checkout_that_appears_after_the_scan_gets_the_branch_back() {
+        let fixture = Fixture::new("g4-cleanup-scan-race");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        let head = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "HEAD"]))
+            .trim_end()
+            .to_owned();
+        create_branch(&port, &root, "feature", "HEAD")
+            .await
+            .expect("create");
+        // A second checkout of the branch appears between the scan and the delete.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "update-ref",
+            {
+                let repo = repo.clone();
+                let tree = fixture.root.join("late-worktree");
+                move || {
+                    let output = std::process::Command::new("git")
+                        .current_dir(&repo)
+                        .args([
+                            "worktree",
+                            "add",
+                            "--quiet",
+                            &tree.to_string_lossy(),
+                            "feature",
+                        ])
+                        .output()
+                        .expect("worktree");
+                    assert!(output.status.success());
+                }
+            },
+        );
+        assert_eq!(
+            delete_unchanged_branch(&port, &root, "feature", &head)
+                .await
+                .expect_err("checked out")
+                .code,
+            GitErrorCode::RestoreCollision
+        );
+        assert!(port.fired());
+        // The ref is back where the checkout needs it.
+        assert!(
+            fixture
+                .command(&repo, &[])
+                .args(["show-ref", "--verify", "--quiet", "refs/heads/feature"])
+                .output()
+                .expect("show-ref")
+                .status
+                .success()
         );
     }
 

@@ -37,6 +37,8 @@ pub struct Command {
     pub stop_at_capture: bool,
     /// The work budget (`stopAfterMs`), enforced by the supervisor when wired.
     pub stop_after_ms: Option<u64>,
+    /// The deadline (`timeoutMs`); `None` means the CLI's 30 s default.
+    pub timeout_ms: Option<u64>,
     /// True when a non-zero exit is an answer, as `allowFailure` is.
     pub allow_failure: bool,
 }
@@ -52,6 +54,7 @@ impl Command {
             capture_bytes: None,
             stop_at_capture: false,
             stop_after_ms: None,
+            timeout_ms: None,
             allow_failure: false,
         }
     }
@@ -66,6 +69,7 @@ impl Command {
             capture_bytes: None,
             stop_at_capture: false,
             stop_after_ms: None,
+            timeout_ms: None,
             allow_failure: false,
         }
     }
@@ -105,6 +109,12 @@ impl Command {
 
     pub fn stopping_after(mut self, milliseconds: u64) -> Self {
         self.stop_after_ms = Some(milliseconds);
+        self
+    }
+
+    /// The caller's deadline, as `GitCli.call`'s `timeoutMs`.
+    pub fn with_timeout_ms(mut self, milliseconds: u64) -> Self {
+        self.timeout_ms = Some(milliseconds);
         self
     }
 }
@@ -172,6 +182,37 @@ pub fn text_output(bytes: &[u8]) -> Result<String, GitError> {
 }
 
 #[cfg(test)]
+mod tests {
+    use super::test_support::ProcessCommands;
+    use super::{Command, CommandPort};
+    use crate::core::credentials::test_support::Fixture;
+    use crate::core::error::GitErrorCode;
+
+    #[tokio::test]
+    async fn a_git_write_that_overruns_its_deadline_is_stopped_and_reported() {
+        let fixture = Fixture::new("g4-write-deadline");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let error = port
+            .run(
+                Command::new(
+                    &repo.to_string_lossy(),
+                    &["-c", "alias.wait=!sleep 30", "wait"],
+                )
+                .with_timeout_ms(300),
+            )
+            .await
+            .expect_err("stopped at its deadline");
+        assert_eq!(error.code, GitErrorCode::GitTimeout);
+        assert!(
+            error
+                .details
+                .contains_key(&ace_json::JsString::from("args"))
+        );
+    }
+}
+
+#[cfg(test)]
 pub(crate) mod test_support {
     //! The read commands against a real Git in a fixture checkout (never the person's
     //! configuration), reusing G2c's fixture.
@@ -180,8 +221,49 @@ pub(crate) mod test_support {
 
     use super::{Command, CommandOutput, CommandPort};
     use crate::core::credentials::test_support::Fixture;
-    use crate::core::error::GitError;
+    use crate::core::deadline::DEFAULT_TIMEOUT_MS;
+    use crate::core::error::{GitError, GitErrorCode};
     use crate::core::spawn::BoxFuture;
+
+    /// Waits for a child until the command's deadline, as `GitCli.call` does: a Git that
+    /// overruns is killed and reported as `git_timeout` with its arguments.
+    fn wait_with_deadline(
+        child: std::process::Child,
+        command: &Command,
+    ) -> Result<std::process::Output, GitError> {
+        let deadline = command.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
+        let pid = child.id();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            let _ = sender.send(child.wait_with_output());
+        });
+        match receiver.recv_timeout(std::time::Duration::from_millis(deadline)) {
+            Ok(output) => {
+                let _ = waiting.join();
+                output.map_err(|error| GitError::new(GitErrorCode::GitMissing, error.to_string()))
+            }
+            Err(_) => {
+                #[cfg(unix)]
+                #[allow(unsafe_code)]
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGKILL);
+                }
+                let _ = waiting.join();
+                let args = ace_json::Value::Array(
+                    command
+                        .args
+                        .iter()
+                        .map(|arg| ace_json::Value::from(arg.as_str()))
+                        .collect(),
+                );
+                Err(GitError::new(
+                    GitErrorCode::GitTimeout,
+                    format!("Git exceeded {deadline}ms"),
+                )
+                .with_detail("args", args))
+            }
+        }
+    }
 
     pub(crate) struct ProcessCommands<'a> {
         pub(crate) fixture: &'a Fixture,
@@ -223,19 +305,17 @@ pub(crate) mod test_support {
                             error.to_string(),
                         )
                     })?;
-                if let Some(input) = command.input {
+                if let Some(input) = &command.input {
                     use std::io::Write;
                     if let Some(stdin) = child.stdin.as_mut() {
-                        let _ = stdin.write_all(&input);
+                        let _ = stdin.write_all(input);
                     }
                 }
                 drop(child.stdin.take());
-                let output = child.wait_with_output().map_err(|error| {
-                    GitError::new(
-                        crate::core::error::GitErrorCode::GitMissing,
-                        error.to_string(),
-                    )
-                })?;
+                let output = match wait_with_deadline(child, &command) {
+                    Ok(output) => output,
+                    Err(timeout) => return Err(timeout),
+                };
                 let mut stdout = output.stdout;
                 let truncated = command
                     .capture_bytes

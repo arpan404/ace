@@ -583,6 +583,97 @@ mod tests {
     use crate::core::credentials::test_support::Fixture;
     use crate::reads::test_support::ProcessCommands;
 
+    /// A repository built with fixed dates and identities, so its commits are the same on
+    /// every run and the real TypeScript's fingerprints can be pinned against it.
+    fn pinned_repository(fixture: &Fixture, name: &str) -> std::path::PathBuf {
+        let repo = fixture.root.join(name);
+        std::fs::create_dir_all(&repo).expect("repo");
+        dated(fixture, &repo, &["init", "--quiet", "-b", "main"]);
+        fixture.git(&repo, &["config", "user.email", "test@example.invalid"]);
+        fixture.git(&repo, &["config", "user.name", "Test"]);
+        std::fs::write(repo.join("file.txt"), "before\n").expect("file");
+        std::fs::write(repo.join("AGENTS.md"), "rules\n").expect("agents");
+        dated(fixture, &repo, &["add", "."]);
+        dated(fixture, &repo, &["commit", "--quiet", "-m", "initial"]);
+        repo
+    }
+
+    /// Runs Git with the dates and identities the TypeScript's pins were computed with.
+    fn dated(fixture: &Fixture, repo: &Path, args: &[&str]) -> Vec<u8> {
+        let output = fixture
+            .command(
+                repo,
+                &[
+                    ("GIT_AUTHOR_NAME", "Test"),
+                    ("GIT_AUTHOR_EMAIL", "test@example.invalid"),
+                    ("GIT_COMMITTER_NAME", "Test"),
+                    ("GIT_COMMITTER_EMAIL", "test@example.invalid"),
+                    ("GIT_AUTHOR_DATE", "2024-01-02T03:04:05+00:00"),
+                    ("GIT_COMMITTER_DATE", "2024-01-02T03:04:05+00:00"),
+                ],
+            )
+            .args(args)
+            .output()
+            .expect("git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    }
+
+    #[tokio::test]
+    async fn the_fingerprint_is_the_one_the_typescript_writing_context_computes() {
+        // Both values are `writingContext`'s own output, from running it in `packages/git` over
+        // repositories built exactly as these are.
+        let fixture = Fixture::new("g4-fingerprint-real");
+        let port = ProcessCommands { fixture: &fixture };
+        let temp = fixture.root.to_string_lossy().into_owned();
+        let commit_repo = pinned_repository(&fixture, "commit");
+        std::fs::write(commit_repo.join("file.txt"), "after\n").expect("after");
+        let context = writing_context(
+            &port,
+            &commit_repo.to_string_lossy(),
+            &temp,
+            &SourceControlSelection::Commit {
+                paths: vec!["file.txt".to_owned()],
+            },
+        )
+        .await
+        .expect("commit context");
+        assert_eq!(
+            context.head.as_deref(),
+            Some("41e7e82f5348af0b6ef573d9cd3770f3b01fa92e")
+        );
+        assert_eq!(
+            context.fingerprint,
+            "f4d77646a50ab64e01dff4987f6a90041fd8f7e4c10ca3cb4148ac6f367a847a"
+        );
+
+        let pr_repo = pinned_repository(&fixture, "pr");
+        dated(&fixture, &pr_repo, &["checkout", "--quiet", "-b", "base"]);
+        dated(&fixture, &pr_repo, &["checkout", "--quiet", "main"]);
+        std::fs::write(pr_repo.join("file.txt"), "main\n").expect("main");
+        dated(&fixture, &pr_repo, &["commit", "--quiet", "-am", "change"]);
+        let context = writing_context(
+            &port,
+            &pr_repo.to_string_lossy(),
+            &temp,
+            &SourceControlSelection::Pr {
+                branch: "main".to_owned(),
+                base: "base".to_owned(),
+                base_ref: Some("refs/heads/base".to_owned()),
+            },
+        )
+        .await
+        .expect("pr context");
+        assert_eq!(
+            context.fingerprint,
+            "3dcd7c24d973957845b90d8241b07dd47869624cfcb6c72ff83e5a56d90892e1"
+        );
+    }
+
     #[tokio::test]
     async fn a_commit_selection_describes_its_paths_patch_conventions_and_fingerprint() {
         let fixture = Fixture::new("g4-context");

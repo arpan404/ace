@@ -113,6 +113,10 @@ pub async fn commit_changes(
         return Err(head_moved("HEAD changed; refresh before committing"));
     }
     let state = crate::reads::status::state(port, root, &[]).await?;
+    // The status read may refresh the index; the snapshot is taken after it, so what a
+    // terminal stages from here on is what the guards see.
+    let observed = checkout_snapshot(port, root).await?;
+    let mut staged = observed.clone();
     if !state.status.conflicted.is_empty() {
         return Err(GitError::new(
             GitErrorCode::Conflicts,
@@ -128,12 +132,6 @@ pub async fn commit_changes(
         return Err(GitError::new(
             GitErrorCode::PrivatePathStaged,
             "ace's own Recently deleted files are staged; unstage them before committing",
-        ));
-    }
-    if request.staged_only && paths.is_none() && state.status.staged.is_empty() {
-        return Err(GitError::new(
-            GitErrorCode::NothingToCommit,
-            "There is nothing staged to commit",
         ));
     }
     if let Some(fingerprint) = &request.draft_fingerprint {
@@ -180,12 +178,22 @@ pub async fn commit_changes(
                 "Something was staged meanwhile. Review and commit again.",
             ));
         }
-        let snapshot = checkout_snapshot(port, root).await?;
-        snapshot.assert_head(request.expected_head.as_deref())?;
-        snapshot.assert_index_unchanged(port, root).await?;
+        observed.assert_head(request.expected_head.as_deref())?;
+        stage_must_wait(port, root, &observed).await?;
         crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
+        // Ace's own bookkeeping is done; what the terminal staged before the add is still
+        // theirs, so the index and HEAD are checked once more as close to the add as possible.
+        observed.assert_head(request.expected_head.as_deref())?;
+        stage_must_wait(port, root, &observed).await?;
         checked(port, add_all(root, listed)).await?;
+        staged = checkout_snapshot(port, root).await?;
     } else if request.staged_only && paths.is_none() {
+        if state.status.staged.is_empty() {
+            return Err(GitError::new(
+                GitErrorCode::NothingToCommit,
+                "There is nothing staged to commit",
+            ));
+        }
     } else {
         let named = paths
             .as_ref()
@@ -208,16 +216,26 @@ pub async fn commit_changes(
         } else {
             named
         };
-        let snapshot = checkout_snapshot(port, root).await?;
-        snapshot.assert_head(request.expected_head.as_deref())?;
+        observed.assert_head(request.expected_head.as_deref())?;
         crate::writes::private::exclude_ace_private(port, root, is_windows).await?;
         if !staging.is_empty() {
-            snapshot.assert_index_unchanged(port, root).await?;
+            stage_must_wait(port, root, &observed).await?;
             checked(port, add_all(root, &staging)).await?;
+            staged = checkout_snapshot(port, root).await?;
         }
     }
-    let snapshot = checkout_snapshot(port, root).await?;
-    snapshot.assert_head(request.expected_head.as_deref())?;
+    // The commit takes the index ace just produced (or the one the caller staged) and HEAD as
+    // it was observed; a stage or commit made meanwhile is a refusal, never something committed
+    // in place of the caller's work.
+    staged.assert_head(request.expected_head.as_deref())?;
+    let now = checkout_snapshot(port, root).await?;
+    now.assert_head(request.expected_head.as_deref())?;
+    if now.index != staged.index {
+        return Err(GitError::new(
+            GitErrorCode::StagedMeanwhile,
+            "Something was staged meanwhile. Review and commit again.",
+        ));
+    }
     let mut args: Vec<String> = vec!["commit".to_owned(), "--file=-".to_owned()];
     if paths.is_some() {
         args.push("--only".to_owned());
@@ -240,6 +258,21 @@ pub async fn commit_changes(
             "The repository has no commits yet",
         )
     })
+}
+
+/// A stage made meanwhile is the caller's, never something ace's add may replace.
+async fn stage_must_wait(
+    port: &dyn CommandPort,
+    root: &str,
+    observed: &crate::writes::bind::CheckoutSnapshot,
+) -> Result<(), GitError> {
+    if observed.assert_index_unchanged(port, root).await.is_err() {
+        return Err(GitError::new(
+            GitErrorCode::StagedMeanwhile,
+            "Something was staged meanwhile. Review and commit again.",
+        ));
+    }
+    Ok(())
 }
 
 fn dedupe(paths: &[String]) -> Vec<String> {
@@ -514,6 +547,123 @@ mod tests {
                 .code,
             GitErrorCode::HeadMoved
         );
+    }
+
+    #[tokio::test]
+    async fn a_hunk_staged_after_the_empty_index_check_is_refused_and_kept() {
+        let fixture = Fixture::new("g4-staged-meanwhile-race");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy().into_owned();
+        std::fs::write(repo.join("listed.txt"), "listed\n").expect("listed");
+        std::fs::write(repo.join("other.txt"), "other\n").expect("other");
+        let mut listed = request("listed");
+        listed.expected_head = crate::reads::info::head(&port, &root).await.expect("head");
+        listed.stage_listed = Some(vec!["listed.txt".to_owned()]);
+        // The terminal stages a partial hunk while ace writes its own exclude entry.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "--git-common-dir",
+            {
+                let repo = repo.clone();
+                move || {
+                    let output = std::process::Command::new("git")
+                        .current_dir(&repo)
+                        .args(["add", "other.txt"])
+                        .output()
+                        .expect("stage");
+                    assert!(output.status.success());
+                }
+            },
+        );
+        assert_eq!(
+            commit_changes(
+                &port,
+                &root,
+                &fixture.root.to_string_lossy(),
+                &listed,
+                false
+            )
+            .await
+            .expect_err("meanwhile")
+            .code,
+            GitErrorCode::StagedMeanwhile
+        );
+        assert!(port.fired());
+        // Their hunk is untouched and no commit was written.
+        let status =
+            crate::reads::status::status(&ProcessCommands { fixture: &fixture }, &root, &[])
+                .await
+                .expect("status");
+        assert_eq!(
+            status
+                .staged
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["other.txt"]
+        );
+        let subject = String::from_utf8_lossy(&fixture.git(&repo, &["log", "-1", "--format=%s"]))
+            .trim_end()
+            .to_owned();
+        assert_eq!(subject, "initial");
+    }
+
+    #[tokio::test]
+    async fn a_head_advanced_after_the_draft_matched_is_refused_before_committing() {
+        let fixture = Fixture::new("g4-draft-head-race");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy().into_owned();
+        std::fs::write(repo.join("file.txt"), "drafted\n").expect("draft");
+        let context = crate::writes::context::writing_context(
+            &port,
+            &root,
+            &fixture.root.to_string_lossy(),
+            &crate::writes::context::SourceControlSelection::Commit {
+                paths: vec!["file.txt".to_owned()],
+            },
+        )
+        .await
+        .expect("context");
+        let mut request = request("drafted");
+        request.expected_head = Some(head(&fixture, &repo));
+        request.paths = Some(vec!["file.txt".to_owned()]);
+        request.draft_fingerprint = Some(context.fingerprint);
+        // The terminal commits between the draft check and ace's own commit.
+        let port = crate::writes::bind::test_support::InterceptingCommands::before_word(
+            ProcessCommands { fixture: &fixture },
+            "--git-common-dir",
+            {
+                let repo = repo.clone();
+                move || {
+                    let output = std::process::Command::new("git")
+                        .current_dir(&repo)
+                        .args(["commit", "--allow-empty", "--quiet", "-m", "moved"])
+                        .output()
+                        .expect("commit");
+                    assert!(output.status.success());
+                }
+            },
+        );
+        assert_eq!(
+            commit_changes(
+                &port,
+                &root,
+                &fixture.root.to_string_lossy(),
+                &request,
+                false
+            )
+            .await
+            .expect_err("moved")
+            .code,
+            GitErrorCode::HeadMoved
+        );
+        assert!(port.fired());
+        let subject = String::from_utf8_lossy(&fixture.git(&repo, &["log", "-1", "--format=%s"]))
+            .trim_end()
+            .to_owned();
+        assert_eq!(subject, "moved");
     }
 
     #[tokio::test]

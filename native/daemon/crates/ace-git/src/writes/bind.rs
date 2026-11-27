@@ -92,10 +92,11 @@ impl CheckoutSnapshot {
     }
 }
 
-/// A Git write that carries the long-write deadline TypeScript sets.
+/// A Git write that carries the long-write deadline TypeScript sets (`timeoutMs`, not the
+/// output budget): a hung hook or a wait for input is stopped and reported as `git_timeout`.
 pub fn long_writing(mut command: Command) -> Command {
     command.write = true;
-    command.stop_after_ms = Some(LONG_WRITE_TIMEOUT_MS);
+    command.timeout_ms = Some(LONG_WRITE_TIMEOUT_MS);
     command
 }
 
@@ -213,6 +214,134 @@ pub async fn assert_stages(
     Ok(())
 }
 
+/// One index entry for a path: its mode, object id and stage (0 when it is resolved).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexEntry {
+    pub mode: String,
+    pub oid: String,
+    pub stage: u32,
+}
+
+/// Every index entry `path` has, at each of its stages.
+pub async fn index_entries(
+    port: &dyn CommandPort,
+    root: &str,
+    path: &str,
+) -> Result<Vec<IndexEntry>, GitError> {
+    let listed = checked(
+        port,
+        Command::new(root, &["ls-files", "--stage", "-z", "--", path])
+            .with_capture_bytes(8 * 1_048_576)
+            .with_env(&[("GIT_LITERAL_PATHSPECS", "1")]),
+    )
+    .await?;
+    let mut entries = Vec::new();
+    for record in nul(&listed.stdout)? {
+        let Some(tab) = record.find('\t') else {
+            continue;
+        };
+        if record[tab + 1..] != *path {
+            continue;
+        }
+        let header: Vec<&str> = record[..tab].split(' ').collect();
+        let [mode, oid, stage] = match header.as_slice() {
+            [mode, oid, stage] => [*mode, *oid, *stage],
+            _ => {
+                return Err(GitError::new(
+                    GitErrorCode::MalformedOutput,
+                    "Unreadable index entry",
+                ));
+            }
+        };
+        let Ok(stage) = stage.parse::<u32>() else {
+            return Err(GitError::new(
+                GitErrorCode::MalformedOutput,
+                "Unreadable index entry",
+            ));
+        };
+        entries.push(IndexEntry {
+            mode: mode.to_owned(),
+            oid: oid.to_owned(),
+            stage,
+        });
+    }
+    Ok(entries)
+}
+
+/// Puts the entries back exactly as they were, so a stage that took someone else's bytes is
+/// not left in their place.
+pub async fn restore_entries(
+    port: &dyn CommandPort,
+    root: &str,
+    path: &str,
+    entries: &[IndexEntry],
+) -> Result<(), GitError> {
+    checked(
+        port,
+        long_writing(
+            Command::new(root, &["update-index", "--force-remove", "--", path])
+                .with_env(&[("GIT_LITERAL_PATHSPECS", "1")]),
+        ),
+    )
+    .await?;
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let mut input = String::new();
+    for entry in entries {
+        input.push_str(&format!(
+            "{} {} {}\t{path}\n",
+            entry.mode, entry.oid, entry.stage
+        ));
+    }
+    checked(
+        port,
+        long_writing(
+            Command::new(root, &["update-index", "--index-info"])
+                .with_input(input.as_bytes())
+                .with_env(&[("GIT_LITERAL_PATHSPECS", "1")]),
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The index must name exactly `expected` for `path` after a stage; anything else staged an
+/// edit made meanwhile, so the recorded stages go back and the caller is refused.
+pub async fn stage_exactly(
+    port: &dyn CommandPort,
+    root: &str,
+    path: &str,
+    expected: &str,
+    before: &[IndexEntry],
+) -> Result<(), GitError> {
+    let entries = index_entries(port, root, path).await?;
+    if entries.len() == 1 && entries[0].stage == 0 && entries[0].oid == expected {
+        return Ok(());
+    }
+    restore_entries(port, root, path, before).await?;
+    Err(head_moved(format!(
+        "{path} changed since it was read; refresh first"
+    )))
+}
+
+/// The blob `git add` writes for `content` at `path`, its filters included.
+pub async fn blob_id(
+    port: &dyn CommandPort,
+    root: &str,
+    path: &str,
+    content: &str,
+) -> Result<String, GitError> {
+    let output = checked(
+        port,
+        Command::new(root, &["hash-object", "--stdin", &format!("--path={path}")])
+            .with_input(content.as_bytes())
+            .with_capture_bytes(4096),
+    )
+    .await?;
+    text_output(&output.stdout)
+}
+
 /// `git add` only when the index stages for `path` still match.
 pub async fn stage_literal(
     port: &dyn CommandPort,
@@ -239,10 +368,12 @@ mod tests {
     use crate::core::deadline::LONG_WRITE_TIMEOUT_MS;
 
     #[test]
-    fn long_writing_carries_the_six_hundred_second_deadline() {
+    fn long_writing_carries_the_six_hundred_second_deadline_not_the_output_budget() {
         let command = long_writing(Command::new("/repo", &["merge", "--abort"]));
         assert!(command.write);
-        assert_eq!(command.stop_after_ms, Some(LONG_WRITE_TIMEOUT_MS));
+        assert_eq!(command.timeout_ms, Some(LONG_WRITE_TIMEOUT_MS));
+        // `stopAfterMs` resolves with partial output; the deadline must fail instead.
+        assert_eq!(command.stop_after_ms, None);
     }
 }
 
@@ -251,12 +382,32 @@ pub(crate) mod test_support {
     use super::*;
     use crate::reads::test_support::ProcessCommands;
 
-    /// Runs a closure after `after` git commands, so intervening edits hit compare-and-swap.
+    /// Runs a closure just before the command whose own arguments name `word`, so an
+    /// intervening edit lands between a write's check and the Git step that acts on it.
     pub struct InterceptingCommands<'a> {
         pub inner: ProcessCommands<'a>,
-        pub after: usize,
+        pub word: &'a str,
         pub hook: Box<dyn Fn() + Send + Sync>,
-        pub seen: std::sync::atomic::AtomicUsize,
+        fired: std::sync::atomic::AtomicBool,
+    }
+
+    impl<'a> InterceptingCommands<'a> {
+        pub fn before_word(
+            inner: ProcessCommands<'a>,
+            word: &'a str,
+            hook: impl Fn() + Send + Sync + 'static,
+        ) -> Self {
+            Self {
+                inner,
+                word,
+                hook: Box::new(hook),
+                fired: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+
+        pub fn fired(&self) -> bool {
+            self.fired.load(std::sync::atomic::Ordering::SeqCst)
+        }
     }
 
     impl CommandPort for InterceptingCommands<'_> {
@@ -265,8 +416,10 @@ pub(crate) mod test_support {
             command: Command,
         ) -> crate::core::spawn::BoxFuture<'_, Result<crate::reads::CommandOutput, GitError>>
         {
-            let count = self.seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if count == self.after {
+            if !self.fired.load(std::sync::atomic::Ordering::SeqCst)
+                && command.args.iter().any(|arg| arg == self.word)
+            {
+                self.fired.store(true, std::sync::atomic::Ordering::SeqCst);
                 (self.hook)();
             }
             self.inner.run(command)
