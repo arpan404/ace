@@ -394,4 +394,31 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn a_negative_safe_integer_cursor_returns_the_epoch_dtstart() {
+        let epoch = schedule("FREQ=DAILY", ScheduleKind::Rrule, 0, "UTC");
+        let recurrence = Recurrence::compile(epoch).expect("compiles");
+        assert_eq!(
+            recurrence.seek(-1, None).expect("evaluates"),
+            Some(Occurrence { at: 0, ordinal: 1 }),
+            "the cursor may be negative"
+        );
+        assert_eq!(
+            recurrence
+                .seek(-9_007_199_254_740_991, None)
+                .expect("evaluates"),
+            Some(Occurrence { at: 0, ordinal: 1 }),
+            "every safe integer is a cursor"
+        );
+        assert!(
+            recurrence.seek(i64::MIN, None).is_err(),
+            "an unsafe integer is refused"
+        );
+        // At the epoch itself DTSTART is consumed, so the next occurrence is the following day.
+        assert_eq!(
+            recurrence.seek(0, None).expect("evaluates").map(|o| o.at),
+            Some(86_400_000)
+        );
+    }
 }

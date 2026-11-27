@@ -232,7 +232,9 @@ impl Recurrence {
 
     /// The next occurrence after `after`, advancing a counted series from `previous` when given.
     pub fn seek(&self, after: i64, previous: Option<Occurrence>) -> Result<Option<Occurrence>> {
-        if after < 0 {
+        // The TypeScript accepts any safe integer as the cursor, negative ones included.
+        const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+        if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&after) {
             return Err(AutomationsError::message("Invalid recurrence cursor"));
         }
         if let Some(until) = self.rule.as_ref().and_then(|rule| rule.until)
