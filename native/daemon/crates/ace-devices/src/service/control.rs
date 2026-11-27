@@ -9,8 +9,8 @@
 //! that comes back to a different revision loses with `busy`.
 
 use super::binding::{
-    Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, fail_bind, finish_bind,
-    holds_reservation,
+    Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, clear_reservation, fail_bind,
+    finish_bind, holds_reservation,
 };
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
@@ -103,8 +103,7 @@ fn abort_stale_bind(session: &mut Session, bind: &Bind) {
     if !holds_reservation(session, *epoch) {
         return;
     }
-    session.changing_binding = false;
-    session.binding_owner = None;
+    clear_reservation(session);
     session.completed = None;
     session.recording_artifact = None;
 }
@@ -422,8 +421,7 @@ fn retire_bind_at_epoch(session: &mut Session, epoch: u64) {
         return;
     }
     session.binding_epoch = session.binding_epoch.saturating_add(1);
-    session.changing_binding = false;
-    session.binding_owner = None;
+    clear_reservation(session);
     session.completed = None;
     session.recording_artifact = None;
 }

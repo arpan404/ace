@@ -64,14 +64,22 @@ impl Bind {
     }
 }
 
+/// Ends the live bind reservation: its guard, its owner and the claim marker that
+/// recorded it. Nothing may leave one behind: a stale marker belongs to a
+/// reservation that no longer exists and could otherwise retire a bind that does.
+pub(crate) fn clear_reservation(session: &mut Session) {
+    session.changing_binding = false;
+    session.binding_owner = None;
+    session.claim_bind_epoch = None;
+}
+
 /// A person's takeover supersedes an agent's bind that is still cleaning up.
 pub fn supersede_inflight_bind(session: &mut Session) {
     if !session.changing_binding {
         return;
     }
     session.binding_epoch = session.binding_epoch.saturating_add(1);
-    session.changing_binding = false;
-    session.binding_owner = None;
+    clear_reservation(session);
     session.thread_id = None;
     session.log_owners.clear();
     session.lease.release(None);
@@ -150,8 +158,7 @@ pub(crate) fn holds_reservation(session: &Session, epoch: u64) -> bool {
 /// clears the reservation and the publication its cleanup never got to clear.
 pub fn fail_bind(session: &mut Session, epoch: u64) -> Bound {
     if holds_reservation(session, epoch) {
-        session.changing_binding = false;
-        session.binding_owner = None;
+        clear_reservation(session);
         session.completed = None;
         session.recording_artifact = None;
     }
@@ -180,8 +187,7 @@ pub fn finish_bind(
     if !holds_reservation(session, epoch) {
         return Err(words::refusal(TURNED_OFF_KEY));
     }
-    session.changing_binding = false;
-    session.binding_owner = None;
+    clear_reservation(session);
     session.completed = None;
     session.recording_artifact = None;
     if !enabled {
@@ -205,8 +211,7 @@ pub fn finish_bind(
 pub fn begin_disable(session: &mut Session) -> u64 {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.thread_id = None;
-    session.changing_binding = false;
-    session.binding_owner = None;
+    clear_reservation(session);
     session.completed = None;
     session.recording_artifact = None;
     // `stopDevice` releases control synchronously, before its cleanup is awaited, so
