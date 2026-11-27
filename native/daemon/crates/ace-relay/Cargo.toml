@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-relay"
+description = "The daemon's relay side (T6): an NK first message's admission and early reads, the relayed channel's socket, the Noise handshakes, the relay routes and the host control session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# thiserror: one typed error enum for the crate, mapped in the shell.
+thiserror = { version = "2" }
+# ace-json: the relay's early hello and confirmation are client JSON, read as JavaScript reads it.
+ace-json = { path = "../ace-json" }
+# ace-auth: an NK first message spends a ticket through the same pool and device records T2 ported.
+ace-auth = { path = "../ace-auth" }
+# sha2: the suppression key is a hex digest of the first message's ephemeral key.
+sha2 = { version = "0.11" }
+# x25519-dalek: the host id is the base32 of the static key's public half, which the daemon
+# derives from a private key it loads; snow never hands that half back before a handshake.
+# `zeroize` is named even though it is a default feature: without it a `StaticSecret` keeps its
+# bytes after drop, and every handshake handle inherits that.
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
+# data-encoding: base32 for the relay host id, the form pairing links and the relay protocol use.
+data-encoding = { version = "2.6" }
+# base64: a relay transfer chunk carries its bytes base64, as `Buffer.from(data, "base64")`.
+base64 = { version = "0.22" }
+# ace-keys: the one base32 host-id and 64-hex fingerprint rule.
+ace-keys = { path = "../ace-keys" }
+# hmac: HKDF-SHA256 derives each handshake key the Noise spec names (extract then expand).
+hmac = { version = "0.13" }
+# zeroize: every private key, chaining key and cipher key the crate owns is wiped on drop; snow
+# keeps its own copies unzeroized, so the handshakes are ace's over these primitives instead.
+zeroize = { version = "1" }
+# chacha20poly1305: the media cipher's ChaCha20-Poly1305 (RustCrypto), the primitive `cipher.ts`
+# builds its ordered states and rekeys on. `zeroize` wipes the cipher's key schedule when the
+# AEAD object is dropped (its default feature set would otherwise leave it).
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+
+[dev-dependencies]
+# tempfile: each test home is a temp directory removed with it.
+tempfile = { version = "3" }
