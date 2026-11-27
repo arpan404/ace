@@ -161,15 +161,18 @@ import Testing
         // A token event from the old machine's activity, delivered late, can't come back.
         port.tokens.received("late", activity: "old")
         #expect(port.tokens.sync(on: true, slot: 5, environment: .sandbox, frequentUpdates: true)?["activityToken"] == nil)
-        #expect(port.tokens.adopt("new-activity", slot: 5))
+        let adoptedNew = port.tokens.adopt("new-activity", slot: 5)
+        #expect(adoptedNew)
     }
 
     @Test func aDuplicateActivityInASlotNeverReplacesTheHoldersToken() {
         var tokens = LiveActivityTokens()
-        #expect(tokens.adopt("local", slot: 0))
+        let adoptedLocal = tokens.adopt("local", slot: 0)
+        #expect(adoptedLocal)
         tokens.received("aa", activity: "local")
         // A push-to-start lands in the same slot: refused, and its token never counts.
-        #expect(!tokens.adopt("pushed", slot: 0))
+        let adoptedPushed = tokens.adopt("pushed", slot: 0)
+        #expect(!adoptedPushed)
         tokens.received("bb", activity: "pushed")
         tokens.retire(activity: "pushed")
         #expect(tokens.activityToken(slot: 0) == "aa")
@@ -177,8 +180,10 @@ import Testing
         tokens.retire(activity: "local")
         tokens.received("late", activity: "local")
         #expect(tokens.activityToken(slot: 0) == nil)
-        #expect(!tokens.adopt("local", slot: 0))
-        #expect(tokens.adopt("next", slot: 0))
+        let readoptedLocal = tokens.adopt("local", slot: 0)
+        #expect(!readoptedLocal)
+        let adoptedNext = tokens.adopt("next", slot: 0)
+        #expect(adoptedNext)
         tokens.received("cc", activity: "next")
         #expect(tokens.activityToken(slot: 0) == "cc")
     }
