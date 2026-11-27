@@ -375,3 +375,64 @@ fn a_settled_delegation_records_its_input_its_summaries_and_the_parents_item() {
         Some(2)
     );
 }
+
+fn settle_result(engine: &crate::Engine, text: &str) -> Result<(), EngineError> {
+    let core = engine.core();
+    core.with_state(|state| {
+        delegation_settled(
+            core,
+            state,
+            1_000.0,
+            &DelegationSettled {
+                parent_id: "parent",
+                parent_agent_id: "agent-root",
+                command_id: "result",
+                results: &[value(r#"{"threadId":"child","outcome":"completed","result":"Done","truncated":false}"#)],
+                delivery: "tool",
+                text: Some(text),
+            },
+        )
+    })?
+}
+
+fn settled_rows(conn: &Arc<ace_store::Connection>) -> (i64, i64, i64) {
+    let row = ace_store::stmt_cache::get_row(
+        conn,
+        "SELECT
+            (SELECT count(*) FROM engine_inputs WHERE thread_id='parent' AND item_key='input:result') AS journal,
+            (SELECT count(*) FROM engine_ace_inputs WHERE thread_id='parent' AND command_id='result') AS attribution,
+            (SELECT count(*) FROM engine_state_records WHERE thread_id='parent' AND section='items' AND key='ace-results:result') AS item",
+        Vec::new(),
+    ).unwrap().unwrap();
+    let count = |key| {
+        row.get(key)
+            .and_then(crate::repository::residency::cell_int)
+            .unwrap()
+    };
+    (count("journal"), count("attribution"), count("item"))
+}
+
+#[test]
+fn a_delegation_result_whose_item_fails_leaves_no_input_or_attribution() {
+    let (conn, engine) = parent();
+    conn.exec(
+        "CREATE TEMP TRIGGER fail_result BEFORE INSERT ON engine_state_records
+           WHEN NEW.key='ace-results:result'
+           BEGIN SELECT RAISE(ABORT, 'result item cannot be stored'); END",
+    )
+    .unwrap();
+    let error = settle_result(&engine, "The child finished").unwrap_err();
+    assert!(error.to_string().contains("result item cannot be stored"));
+    assert_eq!(settled_rows(&conn), (0, 0, 0));
+
+    conn.exec("DROP TRIGGER fail_result").unwrap();
+    settle_result(&engine, "The child finished").unwrap();
+    assert_eq!(settled_rows(&conn), (1, 1, 1));
+}
+
+#[test]
+fn a_delegation_result_with_empty_text_only_records_the_item() {
+    let (conn, engine) = parent();
+    settle_result(&engine, "").unwrap();
+    assert_eq!(settled_rows(&conn), (0, 0, 1));
+}

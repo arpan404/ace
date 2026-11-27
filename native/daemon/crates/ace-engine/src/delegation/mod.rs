@@ -442,62 +442,64 @@ pub fn delegation_settled(
             Value::Object(summary)
         })
         .collect();
-    if let Some(text) = settled.text {
-        let mut origin = Map::new();
-        origin.insert("kind", Value::from("subagent_result"));
-        origin.insert("commandId", Value::from(settled.command_id));
-        origin.insert(
-            "threadIds",
-            Value::Array(
-                settled
-                    .results
-                    .iter()
-                    .filter_map(|result| result.get("threadId").cloned())
-                    .collect(),
-            ),
-        );
-        let parts = vec![{
-            let mut part = Map::new();
-            part.insert("type", Value::from("text"));
-            part.insert("text", Value::from(text));
-            Value::Object(part)
-        }];
-        crate::inputs::journal::register(
-            core.store.conn(),
+    core.store.atomic(|_| {
+        if let Some(text) = settled.text.filter(|text| !text.is_empty()) {
+            let mut origin = Map::new();
+            origin.insert("kind", Value::from("subagent_result"));
+            origin.insert("commandId", Value::from(settled.command_id));
+            origin.insert(
+                "threadIds",
+                Value::Array(
+                    settled
+                        .results
+                        .iter()
+                        .filter_map(|result| result.get("threadId").cloned())
+                        .collect(),
+                ),
+            );
+            let parts = vec![{
+                let mut part = Map::new();
+                part.insert("type", Value::from("text"));
+                part.insert("text", Value::from(text));
+                Value::Object(part)
+            }];
+            crate::inputs::journal::register(
+                core.store.conn(),
+                settled.parent_id,
+                &format!("input:{}", settled.command_id),
+                &parts,
+                &Value::Object(origin),
+            )?;
+            crate::inputs::ace::record(
+                core.store.conn(),
+                settled.parent_id,
+                settled.command_id,
+                &crate::inputs::ace::AceInput {
+                    agent: agent.clone(),
+                    item: item.clone(),
+                    results: Value::Array(summaries.clone().into()),
+                },
+            )?;
+        }
+        let mut draft = Map::new();
+        draft.insert("type", Value::from("delegation.settled"));
+        draft.insert("origin", Value::from("ace"));
+        draft.insert("delivery", Value::from(settled.delivery));
+        draft.insert("results", Value::Array(summaries.into()));
+        draft.insert("complete", Value::Bool(true));
+        let mut fact = Map::new();
+        fact.insert("type", Value::from("item.upsert"));
+        fact.insert("agent", Value::from(agent.as_str()));
+        fact.insert("item", Value::from(item.as_str()));
+        fact.insert("draft", Value::Object(draft));
+        state.apply(
+            &core.store,
             settled.parent_id,
-            &format!("input:{}", settled.command_id),
-            &parts,
-            &Value::Object(origin),
-        )?;
-        crate::inputs::ace::record(
-            core.store.conn(),
-            settled.parent_id,
-            settled.command_id,
-            &crate::inputs::ace::AceInput {
-                agent: agent.clone(),
-                item: item.clone(),
-                results: Value::Array(summaries.clone().into()),
-            },
-        )?;
-    }
-    let mut draft = Map::new();
-    draft.insert("type", Value::from("delegation.settled"));
-    draft.insert("origin", Value::from("ace"));
-    draft.insert("delivery", Value::from(settled.delivery));
-    draft.insert("results", Value::Array(summaries.into()));
-    draft.insert("complete", Value::Bool(true));
-    let mut fact = Map::new();
-    fact.insert("type", Value::from("item.upsert"));
-    fact.insert("agent", Value::from(agent.as_str()));
-    fact.insert("item", Value::from(item.as_str()));
-    fact.insert("draft", Value::Object(draft));
-    state.apply(
-        &core.store,
-        settled.parent_id,
-        &ace_json::to_string(&Value::Array(vec![Value::Object(fact)].into())),
-        at,
-        None,
-    )
+            &ace_json::to_string(&Value::Array(vec![Value::Object(fact)].into())),
+            at,
+            None,
+        )
+    })
 }
 
 #[cfg(test)]
