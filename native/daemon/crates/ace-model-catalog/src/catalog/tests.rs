@@ -525,8 +525,12 @@ fn a_queued_write_for_the_old_login_never_lands_on_the_new_one() {
             None,
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the new login's refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(listed(&catalog).models.len(), 1, "the new login loaded");
     fixture.spawn.drain();
     let mut storage = storage.clone();
@@ -1419,6 +1423,100 @@ fn a_sign_in_method_is_held_to_128_code_points() {
             "case {index}"
         );
     }
+}
+
+fn acp_metadata(model: &str) -> Value {
+    json!({
+        "availableModels": [{ "modelId": model, "name": model }],
+        "currentModelId": model,
+        "configOptions": [{
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": model,
+            "options": [{ "value": model, "name": model }]
+        }]
+    })
+}
+
+#[test]
+fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let fixture = fixture(vec![agent.clone()], storage.clone(), always(Vec::new()));
+    let catalog = fixture.catalog.clone();
+    // A write already holding the queue, and the session's write queued behind it.
+    let hold = futures::executor::block_on(catalog.hold_writes("account"));
+    let metadata = acp_metadata("session-model");
+    let mut queued = Box::pin(catalog.update_from_session(
+        ModelInstance {
+            login_revision: "1".to_owned(),
+            ..agent.clone()
+        },
+        &metadata,
+    ));
+    assert!(poll_once(queued.as_mut()).is_pending(), "the write is queued");
+    // The person signs in to another login while the write waits.
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..agent.clone()
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert!(catalog.has_instance("account"));
+    drop(hold);
+    let written = futures::executor::block_on(queued);
+    assert_eq!(
+        written,
+        Err(CatalogError::SessionGenerationChanged),
+        "the queued write refuses a login it no longer belongs to"
+    );
+    let mut storage = storage.clone();
+    let stored = storage.load().unwrap_or_default();
+    assert!(
+        stored
+            .iter()
+            .all(|entry| entry.login_revision.as_deref() != Some("1")),
+        "login A's session write never lands on login B"
+    );
+}
+
+#[test]
+fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let fixture = fixture(vec![agent.clone()], storage.clone(), always(Vec::new()));
+    let catalog = fixture.catalog.clone();
+    let metadata = acp_metadata("session-model");
+    let _ = futures::executor::block_on(catalog.update_from_session(agent.clone(), &metadata));
+    // Accepted but not started: its place in the queue is already taken.
+    catalog.update_permission_modes(
+        "account",
+        vec![
+            serde_json::json!({ "id": "plan", "label": "Plan", "description": "", "risk": "low" }),
+        ],
+    );
+    // A session write accepted afterwards waits for it, then replaces its entry.
+    let mut session = Box::pin(catalog.update_from_session(agent.clone(), &metadata));
+    assert!(
+        poll_once(session.as_mut()).is_pending(),
+        "the later write waits for the earlier permission write"
+    );
+    fixture.spawn.drain();
+    futures::executor::block_on(session).unwrap_or_else(|error| panic!("{error}"));
+    let mut storage = storage.clone();
+    let stored = storage.load().unwrap_or_default();
+    assert!(
+        stored.iter().all(|entry| entry
+            .permission_modes
+            .as_ref()
+            .is_none_or(|modes| modes.is_empty())),
+        "the later session write leaves its own modes, not the queued ones"
+    );
 }
 
 #[test]
