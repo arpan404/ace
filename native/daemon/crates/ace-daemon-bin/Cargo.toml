@@ -32,6 +32,8 @@ ace-json = { path = "../ace-json" }
 # ace-auth: the daemon token's reader and comparison (T2), so the Rust program and
 # the CLI read a Bun-written home's token the same way.
 ace-auth = { path = "../ace-auth" }
+# ace-engine: the daemon's orchestration engine (ADR 0223, slice 3).
+ace-engine = { path = "../ace-engine" }
 # ace-store: the one SQLite connection owner (ADR 0222); the daemon lock and the
 # event store's open go through it, never a second SQLite library.
 ace-store = { path = "../ace-store" }

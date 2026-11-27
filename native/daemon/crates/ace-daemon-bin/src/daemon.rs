@@ -251,6 +251,26 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         );
         FailedStart::failed(error)
     })?;
+    let maintenance = Arc::new(crate::maintenance::MaintenanceGate::for_store(
+        store.connection(),
+    ));
+    maintenance.keep_user_pause(data_dir.join("paused"), Arc::clone(&log));
+    if config.maintenance {
+        maintenance.enter(crate::maintenance::MaintenanceHold::Update);
+    }
+    let mut engine = crate::engine::EngineHandle::start(
+        store.connection(),
+        Arc::clone(&maintenance),
+        Arc::clone(&log),
+    )
+    .map_err(|error| {
+        log.log(
+            "error",
+            "Daemon startup failed",
+            serde_json::json!({"error": error}),
+        );
+        FailedStart::failed(error)
+    })?;
     let tokens = token::load(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
     let host_id =
         token::load_host_id(&data_dir).map_err(|error| FailedStart::failed(error.to_string()))?;
@@ -278,6 +298,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     let accepted: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let accepted_for_http = Arc::clone(&accepted);
     let log_for_stop = Arc::clone(&log);
+    let maintenance_for_stop = Arc::clone(&maintenance);
     let http = HttpConfig {
         version: config.version.clone(),
         allowed_origins: config.web_origins.clone(),
@@ -286,6 +307,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         pairing: Arc::clone(&pairing_origin),
         on_stop: Arc::new(
             move |admission: Admission, caller: Vec<crate::peer::Member>| {
+                maintenance_for_stop.enter(crate::maintenance::MaintenanceHold::Stop);
                 if !caller.is_empty() {
                     log_for_stop.log(
                         "info",
@@ -355,6 +377,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
                 "Daemon startup failed",
                 serde_json::json!({"error": error.to_string()}),
             );
+            let _ = engine.close(crate::engine::CLOSE_TIMEOUT).await;
             return Err(FailedStart {
                 code: if address_in_use(&error) {
                     ExitCode::AddressInUse
@@ -382,6 +405,20 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
         serde_json::json!({"url": transport.url(), "sinceSpawnMs": began.elapsed().as_millis()}),
     );
     print_started(&transport, &tokens.path, output);
+    if let Err(error) = engine.await_ready(crate::engine::READY_TIMEOUT).await {
+        log.log(
+            "error",
+            "Engine readiness failed",
+            serde_json::json!({"error": error}),
+        );
+        transport.close(Duration::from_secs(1)).await;
+        let _ = engine.close(crate::engine::CLOSE_TIMEOUT).await;
+        store.close();
+        inventory.close();
+        crate::endpoint::retire(Some(&endpoint));
+        lock.release();
+        return Err(FailedStart::failed(error));
+    }
     // A test-only hold lets `cold-start` see the progress frame a client gets
     // while a real daemon's services are still starting.
     if let Some(hold) =
@@ -391,6 +428,7 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     }
     ready.store(true, std::sync::atomic::Ordering::Release);
     let reason = wait_for_stop(&mut stopped, signals).await;
+    maintenance.enter(crate::maintenance::MaintenanceHold::Stop);
     log.log(
         "info",
         "Daemon stopping",
@@ -399,11 +437,14 @@ pub async fn run(config: Config, output: Output) -> Result<ExitCode, FailedStart
     // The shutdown is bounded; what it could not finish is named in its receipt.
     let closing = async {
         transport.close(Duration::from_secs(1)).await;
+        let engine_ok = engine.close(crate::engine::CLOSE_TIMEOUT).await;
         store.close();
+        engine_ok
     };
-    let overran = tokio::time::timeout(SHUTDOWN_DEADLINE, closing)
-        .await
-        .is_err();
+    let overran = match tokio::time::timeout(SHUTDOWN_DEADLINE, closing).await {
+        Ok(engine_ok) => !engine_ok,
+        Err(_) => true,
+    };
     let admission = accepted
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())

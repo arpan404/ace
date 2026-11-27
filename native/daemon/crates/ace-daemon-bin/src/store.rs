@@ -125,21 +125,61 @@ impl Store {
 
     /// The highest event sequence, or 0 before any row exists.
     pub fn head_seq(&self) -> i64 {
-        self.connection
-            .prepare("SELECT coalesce(max(seq), 0) FROM events")
-            .ok()
-            .and_then(|statement| statement.step().ok().flatten())
-            .and_then(|row| match row.first() {
-                Some(ace_store::Value::Integer(seq)) => Some(*seq),
-                _ => None,
-            })
-            .unwrap_or(0)
+        head_seq_of(&self.connection)
     }
 
     /// Close the connection as the daemon stops.
     pub fn close(self) {
         let _ = self.connection.close();
     }
+}
+
+/// The highest event sequence on `connection`, or 0 before any row exists.
+pub fn head_seq_of(connection: &Arc<Connection>) -> i64 {
+    query_i64(connection, "SELECT coalesce(max(seq), 0) FROM events")
+}
+
+/// The store's stable sidebar epoch token (`sidebar_epoch.token`), reported as `databaseId`.
+#[allow(dead_code)]
+pub fn sidebar_token_of(connection: &Arc<Connection>) -> Option<String> {
+    connection
+        .prepare("SELECT token FROM sidebar_epoch WHERE id = 1")
+        .ok()
+        .and_then(|statement| statement.step().ok().flatten())
+        .and_then(|row| match row.into_iter().next() {
+            Some(ace_store::Value::Text(token)) if !token.is_empty() => Some(token),
+            _ => None,
+        })
+}
+
+/// Threads still at work or waiting (`store.ts`'s `updateBlockers`).
+pub fn update_blockers_of(connection: &Arc<Connection>) -> u64 {
+    query_i64(
+        connection,
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')",
+    )
+    .max(0) as u64
+}
+
+/// Of the update blockers, threads waiting on a person (`store.ts`'s `waitingBlockers`).
+pub fn waiting_blockers_of(connection: &Arc<Connection>) -> u64 {
+    query_i64(
+        connection,
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') = 'needs_you'",
+    )
+    .max(0) as u64
+}
+
+fn query_i64(connection: &Arc<Connection>, sql: &str) -> i64 {
+    connection
+        .prepare(sql)
+        .ok()
+        .and_then(|statement| statement.step().ok().flatten())
+        .and_then(|row| match row.first() {
+            Some(ace_store::Value::Integer(n)) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(0)
 }
 
 /// `openWhileBusy`: `open`, tried again after each delay while it fails busy;
