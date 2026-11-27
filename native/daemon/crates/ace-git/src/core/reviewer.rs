@@ -50,26 +50,22 @@ pub(crate) fn ecma_trim(value: &str) -> &str {
 
 pub(crate) fn ecma_trim_start(value: &str) -> &str {
     let mut start = 0usize;
-    let mut chars = value.chars();
-    while let Some(character) = chars.next() {
-        if js_whitespace(character) {
-            start += character.len_utf8();
-        } else {
+    for character in value.chars() {
+        if !js_whitespace(character) {
             break;
         }
+        start += character.len_utf8();
     }
     &value[start..]
 }
 
 pub(crate) fn ecma_trim_end(value: &str) -> &str {
     let mut end = value.len();
-    while end > 0 {
-        let character = value[..end].chars().last().expect("char");
-        if js_whitespace(character) {
-            end -= character.len_utf8();
-        } else {
+    while let Some(character) = value[..end].chars().next_back() {
+        if !js_whitespace(character) {
             break;
         }
+        end -= character.len_utf8();
     }
     &value[..end]
 }

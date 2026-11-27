@@ -606,10 +606,10 @@ mod tests {
         );
         // `line.trim()` strips U+FEFF and U+00A0, which Rust's `trim` leaves.
         for padded in [
-            format!("\u{FEFF}ref: refs/heads/main\tHEAD\u{00A0}\n"),
-            format!("  ref: refs/heads/main\tHEAD  \n"),
+            "\u{FEFF}ref: refs/heads/main\tHEAD\u{00A0}\n",
+            "  ref: refs/heads/main\tHEAD  \n",
         ] {
-            assert_eq!(symref_head(&padded), Some("main".to_owned()), "{padded:?}");
+            assert_eq!(symref_head(padded), Some("main".to_owned()), "{padded:?}");
         }
     }
 

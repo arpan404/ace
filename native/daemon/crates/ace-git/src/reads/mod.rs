@@ -209,10 +209,10 @@ pub(crate) mod test_support {
                             error.to_string(),
                         )
                     })?;
-                if let Some(input) = command.input {
-                    if let Some(stdin) = child.stdin.as_mut() {
-                        let _ = stdin.write_all(&input);
-                    }
+                if let Some(input) = command.input
+                    && let Some(stdin) = child.stdin.as_mut()
+                {
+                    let _ = stdin.write_all(&input);
                 }
                 drop(child.stdin.take());
                 let mut stdout = child.stdout.take().ok_or_else(|| {
