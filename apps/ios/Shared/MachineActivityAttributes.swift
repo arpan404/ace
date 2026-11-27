@@ -29,6 +29,9 @@ struct MachineActivityAttributes: ActivityAttributes {
         var done: Int
         /// Local updates only; a push never carries rows.
         var rows: [LockRow]? = nil
+        /// True when the app counted these from its own inbox, before the daemon drove the
+        /// activity (#2760). A push never carries it: nil means the counts are the daemon's.
+        var localCounts: Bool? = nil
 
         var settled: Bool { phase == "settled" }
         var computedAt: Date { Date(timeIntervalSince1970: TimeInterval(at)) }

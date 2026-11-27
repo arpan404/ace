@@ -36,12 +36,23 @@ enum MachineActivityPlan {
     static func quietSince(_ summary: LockSummary, previous: Date?, now: Date) -> Date? {
         summary.busy || !summary.current ? nil : previous ?? now
     }
-    /// The machine's state as the app writes it locally, with its rows, at `seq`. The counts are
-    /// the app's own reading of the machine's inbox until the daemon sends its state (#2760).
+    /// The machine's state as the app writes it locally, with its rows, at `seq`: the app's own
+    /// count of the machine's inbox, only while the daemon doesn't drive the activity.
     static func local(_ summary: LockSummary, seq: Int, at: Date) -> State {
         State(seq: seq, at: Int(at.timeIntervalSince1970), phase: summary.busy ? "busy" : "settled",
               needsYou: summary.needsYou, working: summary.working, failed: summary.failed, waiting: summary.waiting,
-              limited: summary.limited, background: summary.background, done: 0, rows: summary.rows)
+              limited: summary.limited, background: summary.background, done: 0, rows: summary.rows, localCounts: true)
+    }
+    /// The daemon's content is showing: its counts, phase and times stand, and only it ends the
+    /// activity. Nothing showing, or the app's own count, leaves the app to write its own.
+    static func daemonDriven(_ shown: State?) -> Bool { shown != nil && shown?.localCounts != true }
+    /// The daemon's state with the machine's rows added, once the socket confirmed the rows go
+    /// with that `seq`; nil while it hasn't, so the rows of an older state never sit beside it.
+    static func withRows(_ shown: State, rows: [LockRow], confirmedSeq: Int?) -> State? {
+        guard confirmedSeq == shown.seq else { return nil }
+        var next = shown
+        next.rows = rows
+        return next
     }
     /// The `seq` a local write uses: never below what the activity shows or the app last wrote.
     static func localSeq(shown: State?, written: Int?) -> Int { max(shown?.seq ?? 0, written ?? 0) }

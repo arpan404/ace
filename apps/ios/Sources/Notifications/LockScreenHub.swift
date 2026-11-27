@@ -172,6 +172,9 @@ import WidgetKit
         }
         let summary = LockScreenBuilder.summary([machine], requests: requests, now: at)
         let shown = activity.shown(slot)
+        if let shown, MachineActivityPlan.daemonDriven(shown) {
+            return follow(machine, slot: slot, shown: shown, summary: summary, permitted: permitted, at: at)
+        }
         quietSince[slot] = MachineActivityPlan.quietSince(summary, previous: quietSince[slot], now: at)
         var step = MachineActivityPlan.step(summary, running: shown != nil, allowed: permitted,
                                             foreground: foreground, quietSince: quietSince[slot], now: at)
@@ -199,6 +202,26 @@ import WidgetKit
             let dismiss = at.addingTimeInterval(MachineActivityPlan.lingerAfterEnd)
             enqueue { await activity.end(slot, state, dismissAt: dismiss) }
         }
+    }
+    /// The daemon drives this activity: its counts, phase and times stay, and only it ends it
+    /// (unless Live Activities are turned off here). Rows join only beside the `seq` the socket
+    /// confirmed; until then the snapshot holds nothing for it, so the widget shows counts alone.
+    private func follow(_ machine: LockScreenBuilder.Machine, slot: Int, shown: MachineActivityAttributes.ContentState,
+                        summary: LockSummary, permitted: Bool, at: Date) {
+        quietSince[slot] = nil
+        guard permitted else { return forget(slot: slot) }
+        let content = summary.limited(3)
+        guard let next = MachineActivityPlan.withRows(shown, rows: content.rows, confirmedSeq: machine.daemonSeq) else {
+            entries.removeValue(forKey: slot)
+            return
+        }
+        entries[slot] = MachineLockEntry(slot: slot, name: machine.name, seq: shown.seq, rows: content.rows,
+                                         request: summary.current ? content.request : nil, confirmed: summary.current)
+        guard next != shown else { return }
+        let activity = edges.activity
+        let stale = at.addingTimeInterval(MachineActivityPlan.staleAfter)
+        sent[slot] = (next, at)
+        enqueue { await activity.update(slot, next, staleDate: stale) }
     }
     private func enqueue(_ work: @escaping @MainActor () async -> Void) {
         let previous = commits

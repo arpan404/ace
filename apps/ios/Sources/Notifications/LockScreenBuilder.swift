@@ -14,6 +14,9 @@ enum LockScreenBuilder {
         var slot: Int? = nil
         /// The person's name for it, for its activity.
         var name = ""
+        /// The `seq` of the daemon's state these rows go with, as its socket confirmed it; nil
+        /// until daemons send it (#2760).
+        var daemonSeq: Int? = nil
     }
 
     /// Rows past this never reach any surface.

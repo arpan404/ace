@@ -69,19 +69,35 @@ import Testing
         #expect(MachineActivityPlan.localSeq(shown: state(seq: 3), written: 7) == 7)
     }
 
-    @Test func whileOpenTheAppWritesAPushedActivityAtItsSeqWithRows() async throws {
+    @Test func anInboxThatLagsBehindAPushedApprovalNeverWritesOverItsCounts() async throws {
         let port = FakeMachineActivity()
-        port.showing[2] = state(seq: 42, needsYou: 1)
+        // The daemon pushed "1 needs you" at 42; this phone's socket still lists the thread working.
+        let pushed = state(seq: 42, needsYou: 1)
+        port.showing[2] = pushed
         var written: [MachineLockEntry] = []
+        var daemonSeq: Int?
         let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, writeMachines: { written = $0 }, reloadWidgets: {}),
-                                now: { self.t0 }, sleep: { _ in })
-        hub.read = { ([.init(hostId: "studio", rows: [try! LockRows.row("a", level: "needs-you", icon: "approve")], online: true, slot: 2, name: "Studio")], [:]) }
+                                now: { self.t0.addingTimeInterval(5) }, sleep: { _ in })
+        hub.read = { ([.init(hostId: "studio", rows: [try! LockRows.row("a", level: "active", icon: "working", since: 0)], online: true,
+                             slot: 2, name: "Studio", daemonSeq: daemonSeq)], [:]) }
         hub.rebuild()
         await hub.settle()
-        let local = try #require(port.updated.last)
-        #expect(local.slot == 2 && local.state.seq == 42)
-        #expect(local.state.rows?.map(\.id) == ["a"])
-        #expect(written == [MachineLockEntry(slot: 2, name: "Studio", seq: 42, rows: local.state.rows ?? [], confirmed: true)])
+        #expect(port.updated.isEmpty && port.ended.isEmpty)
+        #expect(port.showing[2] == pushed)
+        // No snapshot entry goes with 42, so the widget shows the pushed counts alone.
+        #expect(written.isEmpty)
+        // The socket confirms its rows go with 42: they join, and the daemon's counts and times stay.
+        daemonSeq = 42
+        hub.rebuild()
+        await hub.settle()
+        let joined = try #require(port.updated.last?.state)
+        #expect(joined.needsYou == 1 && joined.working == 0 && joined.at == pushed.at && joined.seq == 42)
+        #expect(joined.rows?.map(\.id) == ["a"] && joined.localCounts == nil)
+        #expect(written.map(\.seq) == [42])
+        // Rows added locally don't make the counts the app's own: the next inbox change keeps them.
+        hub.rebuild()
+        await hub.settle()
+        #expect(port.showing[2]?.needsYou == 1 && port.ended.isEmpty)
     }
 
     @Test func workStillSyncingNeverReadsAsQuietEvenBesideAMatchingSnapshot() throws {
