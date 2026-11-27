@@ -165,6 +165,12 @@ pub fn start_bind_for_agent(
 ) -> Result<Bind, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
     agent_takeover_allowed(session, actor, now, true)?;
+    // `claimForAgent` asks `assertEnabled` before its bind (`service.ts:453`), so a
+    // claim that lands while another bind cleans up answers `devicesDisabled`, not
+    // the `bindingBusy` its own bind would report.
+    if session.changing_binding {
+        return Err(words::refusal(DISABLED_KEY));
+    }
     let bind = begin_bind(session, thread_id, &actor.owner)?;
     // The claim is not a takeover: no assignment records the bind it started, so
     // record the epoch here. If the agent is dropped mid-cleanup, its own

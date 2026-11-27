@@ -276,6 +276,26 @@ fn an_agents_drop_leaves_a_newer_bind_by_someone_else_alone() {
 }
 
 #[test]
+fn a_second_agents_claim_is_refused_disabled_while_another_agents_bind_cleans_up() {
+    let mut session = Session::new("ios:AAAA");
+    start_bind_for_agent(&mut session, &agent(), NOW).expect("the first agent's bind");
+    let other = Actor::agent("agent-2", "t2", "a2");
+
+    // `claimForAgent` asks `assertEnabled` before it binds (`service.ts:453`), so a
+    // claim that lands while another agent's cleanup is out is refused
+    // `devicesDisabled`, not `bindingBusy`.
+    let refused =
+        start_bind_for_agent(&mut session, &other, NOW).expect_err("another bind is running");
+    assert_eq!(refused, words::refusal("devicesDisabled"));
+    assert_eq!(refused.code(), DeviceErrorCode::PermissionDenied);
+    assert!(
+        session.changing_binding,
+        "the running bind keeps its guard and epoch"
+    );
+    assert_eq!(session.binding_owner.as_deref(), Some("agent-1"));
+}
+
+#[test]
 fn a_threadless_takeover_during_a_disable_finds_no_recording_from_the_old_thread() {
     let mut session = Session::new("ios:AAAA");
     // The prior thread left a recording that ended on its own, waiting for its
