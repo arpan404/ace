@@ -10,6 +10,10 @@ enum LockScreenBuilder {
         let rows: [ThreadRow]
         /// Connected and caught up; an offline machine's rows are only the last known.
         let online: Bool
+        /// Its Live Activity's slot (`MachineSlots`); none: no activity of its own.
+        var slot: Int? = nil
+        /// The person's name for it, for its activity.
+        var name = ""
     }
 
     /// Rows past this never reach any surface.

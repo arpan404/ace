@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// The lock screen across machines: what the summary counts and shows, when the one Live
-/// Activity starts and ends, and that nothing reads as quiet or done while any machine's state
+/// The lock screen across machines: what the summary counts and shows, when a machine's Live
+/// Activity starts and ends, and that nothing reads as quiet or done while a machine's state
 /// can't be confirmed.
 @Suite @MainActor struct LockScreenTests {
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
@@ -51,13 +51,13 @@ import Testing
         #expect(movedOn.request == nil)
     }
 
-    @Test func theActivityStartsWithWorkAndEndsOnlyAfterEverythingIsConfirmedQuietForAWhile() async throws {
-        let port = FakeActivity()
+    @Test func theActivityStartsWithWorkAndEndsOnlyAfterItsMachineIsConfirmedQuietForAWhile() async throws {
+        let port = FakeMachineActivity()
         var clock = t0
         var rows = [try row("a", level: "active", icon: "working", since: 0)]
         var online = true
         let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { clock }, sleep: { _ in })
-        hub.read = { ([.init(hostId: "studio", rows: rows, online: online)], [:]) }
+        hub.read = { ([.init(hostId: "studio", rows: rows, online: online, slot: 0)], [:]) }
         hub.rebuild()
         #expect(port.started.count == 1)
         // It finishes: the activity stays, showing the result, through the quiet grace.
@@ -65,31 +65,33 @@ import Testing
         clock = t0.addingTimeInterval(10)
         hub.rebuild()
         await hub.settle()
-        #expect(port.running && port.ended.isEmpty)
-        #expect(port.updated.last?.rows.first?.icon == "done")
-        // The machine drops before the grace passes: unknown counts as busy, so nothing ends.
+        #expect(port.running == [0] && port.ended.isEmpty)
+        #expect(port.updated.last?.state.rows?.first?.icon == "done")
+        // The machine drops before the grace passes: nothing new is known, so the activity
+        // keeps what it shows (its daemon may push newer) and nothing ends.
+        let updates = port.updated.count
         online = false
-        clock = t0.addingTimeInterval(10 + AgentsActivityPlan.quietGrace)
+        clock = t0.addingTimeInterval(10 + MachineActivityPlan.quietGrace)
         hub.rebuild()
         await hub.settle()
-        #expect(port.running && port.ended.isEmpty)
-        #expect(port.updated.last?.current == false)
+        #expect(port.running == [0] && port.ended.isEmpty)
+        #expect(port.updated.count == updates)
         // Back, still quiet: the grace starts again and only then the activity ends.
         online = true
         clock = clock.addingTimeInterval(1)
         hub.rebuild()
-        clock = clock.addingTimeInterval(AgentsActivityPlan.quietGrace)
+        clock = clock.addingTimeInterval(MachineActivityPlan.quietGrace)
         hub.rebuild()
         await hub.settle()
         #expect(port.ended.count == 1)
-        #expect(port.ended.first?.headline == "Nothing needs you")
+        #expect(port.ended.first?.state?.settled == true)
     }
 
     @Test func workThatStartsWhileTheAppIsAwayWaitsForItToOpenAndTurningItOffEndsIt() async throws {
-        let port = FakeActivity()
+        let port = FakeMachineActivity()
         let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { self.t0 }, sleep: { _ in })
         let working = try row("a", level: "active", icon: "working", since: 0)
-        hub.read = { ([.init(hostId: "studio", rows: [working], online: true)], [:]) }
+        hub.read = { ([.init(hostId: "studio", rows: [working], online: true, slot: 0)], [:]) }
         hub.foreground = false
         hub.rebuild()
         #expect(port.started.isEmpty)
@@ -99,14 +101,14 @@ import Testing
         hub.allowed = false
         hub.rebuild()
         await hub.settle()
-        #expect(port.ended.count == 1 && !port.running)
+        #expect(port.ended.count == 1 && port.running.isEmpty)
     }
 
     @Test func aColdWakeKeepsTheLastWidgetCountsUntilAMachineConfirms() throws {
         let working = try row("a", level: "active", icon: "working", since: 0)
         let saved = LockScreenBuilder.summary([.init(hostId: "studio", rows: [working], online: true)], requests: [:], now: t0)
         var writes: [LockSummary] = []
-        let hub = LockScreenHub(edges: .init(activity: FakeActivity(), writeSnapshot: { writes.append($0) },
+        let hub = LockScreenHub(edges: .init(activity: FakeMachineActivity(), writeSnapshot: { writes.append($0) },
                                              reloadWidgets: {}, readSnapshot: { saved }),
                                 now: { self.t0.addingTimeInterval(60) }, sleep: { _ in })
         hub.foreground = false
@@ -124,7 +126,7 @@ import Testing
         var writes: [LockSummary] = []
         var reloads = 0
         var clock = t0
-        let hub = LockScreenHub(edges: .init(activity: FakeActivity(), writeSnapshot: { writes.append($0) }, reloadWidgets: { reloads += 1 }),
+        let hub = LockScreenHub(edges: .init(activity: FakeMachineActivity(), writeSnapshot: { writes.append($0) }, reloadWidgets: { reloads += 1 }),
                                 now: { clock }, sleep: { _ in })
         let working = try row("a", level: "active", icon: "working", since: 0)
         hub.read = { ([.init(hostId: "studio", rows: [working], online: true)], [:]) }
@@ -208,46 +210,27 @@ import Testing
         #expect(summary.asOf(stale: true))
     }
 
-    @Test func whenNoMachineAnswersTheLastConfirmedCountsStayAsOfTheirTime() async throws {
-        let port = FakeActivity()
+    @Test func whenNoMachineAnswersTheWidgetsKeepTheLastConfirmedCountsAsOfTheirTime() throws {
         var clock = t0
         var online = true
-        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { clock }, sleep: { _ in })
+        var writes: [LockSummary] = []
+        let hub = LockScreenHub(edges: .init(activity: FakeMachineActivity(), writeSnapshot: { writes.append($0) }, reloadWidgets: {}),
+                                now: { clock }, sleep: { _ in })
         let working = try row("a", level: "active", icon: "working", since: 0)
-        hub.read = { ([.init(hostId: "studio", rows: online ? [working] : [], online: online)], [:]) }
+        hub.read = { ([.init(hostId: "studio", rows: online ? [working] : [], online: online, slot: 0)], [:]) }
         hub.rebuild()
         online = false
         clock = t0.addingTimeInterval(30)
         hub.rebuild()
-        await hub.settle()
-        let shown = try #require(port.updated.last)
+        let shown = try #require(writes.last)
         #expect(shown.headline == "1 working")
         #expect(!shown.live && shown.asOf(stale: false))
         #expect(shown.updatedAt == t0)
-        #expect(port.ended.isEmpty)
     }
 
     // MARK: Support
 
-    /// The bridge's state for each mark, as `rowStatusState` gives it.
-    private static let states = ["working": "working", "agents": "working", "waiting": "waiting", "limited": "limited",
-                                 "background": "background", "approve": "needs-you", "question": "needs-you",
-                                 "failed": "failed", "done": "finished", "none": "idle"]
     private func row(_ id: String, level: String, icon: String, since: Double? = nil, confirmed: Bool = true) throws -> ThreadRow {
-        let state = Self.states[icon] ?? "idle"
-        let look = #"{"level":"\#(level)","state":"\#(state)","tone":"idle","muted":false,"settled":false,"subagents":0,"icon":"\#(icon)","iconTone":"working","mode":"\#(since == nil ? "icon" : "elapsed")","meaning":"Working"\#(since.map { #","since":\#($0)"# } ?? "")}"#
-        let json = #"{"id":"\#(id)","title":"Thread \#(id)","state":"working","project":"ace","branch":"main","machine":"mbp","provider":"claude","model":"opus","agents":1,"updatedAt":0,"canSteer":true,"status":{"label":"Working","token":"working"},"confirmed":\#(confirmed),"generation":0,"look":\#(look)}"#
-        return try JSONDecoder().decode(ThreadRow.self, from: Data(json.utf8))
+        try LockRows.row(id, level: level, icon: icon, since: since, confirmed: confirmed)
     }
-}
-
-@MainActor private final class FakeActivity: AgentsActivityPort {
-    var systemAllowed = true
-    var running = false
-    var started: [LockSummary] = []
-    var updated: [LockSummary] = []
-    var ended: [LockSummary] = []
-    func start(_ summary: LockSummary, staleDate: Date) throws { started.append(summary); running = true }
-    func update(_ summary: LockSummary, staleDate: Date) async { updated.append(summary) }
-    func end(_ summary: LockSummary, dismissAt: Date) async { ended.append(summary); running = false }
 }
