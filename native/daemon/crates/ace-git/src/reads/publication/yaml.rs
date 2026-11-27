@@ -46,15 +46,14 @@ fn allowed_tag(tag: Option<&Tag>) -> bool {
 /// tagged `!!null`) resolves to nothing, and `""` is no value either. Quoted, `"null"` is the
 /// text `null`, so it is a value like any other and blocks publication.
 fn is_empty_value(text: &str, style: TScalarStyle, tag: Option<&Tag>) -> bool {
-    if text.is_empty() {
-        return true;
+    if let Some(tag) = tag {
+        if tag.suffix == "null" && matches!(tag.handle.as_str(), "!!" | "tag:yaml.org,2002:") {
+            return true;
+        }
+        return text.is_empty();
     }
-    if tag.is_some_and(|tag| {
-        tag.suffix == "null" && matches!(tag.handle.as_str(), "!!" | "tag:yaml.org,2002:")
-    }) {
-        return true;
-    }
-    style == TScalarStyle::Plain && matches!(text, "~" | "null" | "Null" | "NULL")
+    text.is_empty()
+        || (style == TScalarStyle::Plain && matches!(text, "~" | "null" | "Null" | "NULL"))
 }
 
 #[derive(Debug)]
@@ -286,12 +285,19 @@ mod tests {
             "password: Null\n",
             "password: NULL\n",
             "password: !!null ''\n",
+            "password: !!null \"null\"\n",
             "users:\n- user:\n    'token':\n",
         ] {
             assert!(assert_publication_yaml(yaml.as_bytes()).is_ok(), "{yaml:?}");
         }
-        // Quoted, the same bytes are a string and populated, so the field-specific message wins.
-        for yaml in ["password: \"null\"\n", "password: '~'\n", "password: ' '\n"] {
+        // Quoted or explicitly tagged `!!str`, the same bytes are a string and populated, so the
+        // field-specific message wins.
+        for yaml in [
+            "password: \"null\"\n",
+            "password: '~'\n",
+            "password: ' '\n",
+            "password: !!str null\n",
+        ] {
             let error = assert_publication_yaml(yaml.as_bytes()).expect_err(yaml);
             assert_eq!(error.message, "Sensitive YAML credential field", "{yaml:?}");
         }

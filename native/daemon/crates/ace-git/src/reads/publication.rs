@@ -959,4 +959,116 @@ mod scan_order_tests {
         // Not the tree entry's name: the blob's content is what the live pass reaches.
         assert_eq!(error.message, "Sensitive publication content");
     }
+
+    struct OrderedFailures {
+        order: [&'static str; 2],
+    }
+
+    impl OrderedFailures {
+        fn bad_tree() -> Vec<u8> {
+            let mut tree = b"100644 .env\0".to_vec();
+            tree.extend(TreeThenBlob::hex(BLOB));
+            tree
+        }
+    }
+
+    impl CommandPort for OrderedFailures {
+        fn run_streaming<'a>(
+            &'a self,
+            command: Command,
+            consume: &'a (dyn Fn(&[u8]) + Send + Sync),
+        ) -> BoxFuture<'a, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = self.run(command).await?;
+                consume(&output.stdout);
+                Ok(output)
+            })
+        }
+
+        fn run(&self, command: Command) -> BoxFuture<'_, Result<CommandOutput, GitError>> {
+            Box::pin(async move {
+                let output = |stdout: Vec<u8>| CommandOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: 0,
+                    truncated: false,
+                    stopped: None,
+                };
+                let first = command.args.first().map(String::as_str).unwrap_or_default();
+                let bad_tree = Self::bad_tree();
+                match (first, command.args.get(1).map(String::as_str)) {
+                    ("rev-parse", _) => Ok(output(b"false\n".to_vec())),
+                    ("ls-tree", _) => Ok(output(Vec::new())),
+                    ("rev-list", _) => Ok(output(
+                        format!("{}\n{}\n", self.order[0], self.order[1]).into_bytes(),
+                    )),
+                    ("cat-file", Some("--batch-check")) => {
+                        let input =
+                            String::from_utf8_lossy(command.input.as_deref().unwrap_or(b""))
+                                .into_owned();
+                        let mut body = String::new();
+                        for line in input.lines() {
+                            if line == TREE {
+                                body.push_str(&format!("{TREE} tree {}\n", bad_tree.len()));
+                            } else if line == BLOB {
+                                body.push_str(&format!("{BLOB} blob {}\n", SECRET.len()));
+                            }
+                        }
+                        Ok(output(body.into_bytes()))
+                    }
+                    ("cat-file", Some("--batch")) => {
+                        let input =
+                            String::from_utf8_lossy(command.input.as_deref().unwrap_or(b""))
+                                .into_owned();
+                        let mut body = Vec::new();
+                        for line in input.lines() {
+                            if line == TREE {
+                                body.extend(
+                                    format!("{TREE} tree {}\n", bad_tree.len()).into_bytes(),
+                                );
+                                body.extend(&bad_tree);
+                                body.push(b'\n');
+                            } else if line == BLOB {
+                                body.extend(format!("{BLOB} blob {}\n", SECRET.len()).into_bytes());
+                                body.extend(SECRET);
+                                body.push(b'\n');
+                            }
+                        }
+                        Ok(output(body))
+                    }
+                    _ => Err(GitError::new(
+                        GitErrorCode::GitFailed,
+                        "unexpected scan command",
+                    )),
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn distinct_object_failures_surface_in_rev_list_input_order() {
+        let tree_first = scan_publication(
+            &OrderedFailures {
+                order: [TREE, BLOB],
+            },
+            "/repo",
+            "HEAD",
+        )
+        .await
+        .expect_err("tree failure first");
+        assert_eq!(tree_first.code, GitErrorCode::SensitivePublication);
+        assert_eq!(tree_first.message, "Sensitive publication path");
+
+        let blob_first = scan_publication(
+            &OrderedFailures {
+                order: [BLOB, TREE],
+            },
+            "/repo",
+            "HEAD",
+        )
+        .await
+        .expect_err("blob failure first");
+        assert_eq!(blob_first.code, GitErrorCode::SensitivePublication);
+        assert_eq!(blob_first.message, "Sensitive publication content");
+    }
 }
