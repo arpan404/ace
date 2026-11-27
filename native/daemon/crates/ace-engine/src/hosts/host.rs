@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn a_host_thread_is_created_once_and_leaves_one_ended_turn() {
-        let engine = engine("host");
+        let engine = engine("other");
         let input = HostThreadInput {
             id: "host".to_owned(),
             workspace_id: "workspace".to_owned(),
@@ -305,6 +305,11 @@ mod tests {
         with(&engine, |state, store| {
             let root = HostThreads.create(state, store, &input, |state, store| {
                 created += 1;
+                let header = header("host").replace('\'', "''");
+                store.conn().exec(&format!(
+                    "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('host','workspace','Spade','claude','{{\"state\":\"new\"}}',0,0);
+                     INSERT INTO thread_state VALUES ('host','{header}',0);"
+                ))?;
                 state.permission_ensure(store, "host")?;
                 Ok(())
             })?;
@@ -312,6 +317,12 @@ mod tests {
                 root.is_some(),
                 "the root agent is announced by the empty turn"
             );
+            // A second create returns the existing root agent without running creation again.
+            let again = HostThreads.create(state, store, &input, |_, _| {
+                created += 1;
+                Ok(())
+            })?;
+            assert_eq!(again, root);
             let snapshot = state.repo.require_state(store, "host")?;
             let borrowed = snapshot.borrow();
             assert_eq!(borrowed.state.agents.len(), 1);

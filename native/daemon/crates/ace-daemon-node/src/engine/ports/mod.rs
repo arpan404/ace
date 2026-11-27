@@ -80,6 +80,9 @@ pub struct JsPorts {
     admits: FunctionRef<(), bool>,
     reset_at: Option<FunctionRef<String, ResetAtJs>>,
     select_instance: Option<SelectInstance>,
+    models_resolve: Option<FunctionRef<String, String>>,
+    models_list: Option<FunctionRef<String, String>>,
+    models_update_permission_modes: Option<FunctionRef<FnArgs<(String, String)>, ()>>,
     timers: RefCell<HashMap<u64, ArmedTimer>>,
     /// The Rust port of `timeOrderedIds` (`time-ordered-id.ts:11`), used when no `ids` port
     /// was given: the same UUIDv7 layout, the clock and random bytes from the OS.
@@ -136,6 +139,9 @@ impl JsPorts {
         admits: FunctionRef<(), bool>,
         reset_at: Option<FunctionRef<String, ResetAtJs>>,
         select_instance: Option<SelectInstance>,
+        models_resolve: Option<FunctionRef<String, String>>,
+        models_list: Option<FunctionRef<String, String>>,
+        models_update_permission_modes: Option<FunctionRef<FnArgs<(String, String)>, ()>>,
     ) -> napi::Result<JsPorts> {
         Ok(JsPorts {
             env: Cell::new(Some(env)),
@@ -174,6 +180,9 @@ impl JsPorts {
             admits,
             reset_at,
             select_instance,
+            models_resolve,
+            models_list,
+            models_update_permission_modes,
             timers: RefCell::new(HashMap::new()),
             ids: RefCell::new(UuidV7::default()),
             promises: RefCell::new(HashMap::new()),
@@ -207,6 +216,15 @@ impl JsPorts {
     /// The writes the receipt held back, in call order, and the end of the deferral.
     pub fn take_deferred_events(&self) -> Vec<(String, String, f64)> {
         self.deferred_events.borrow_mut().take().unwrap_or_default()
+    }
+
+    /// The writes held back so far, leaving the deferral on for the rest of the receipt.
+    pub fn drain_deferred_events(&self) -> Vec<(String, String, f64)> {
+        self.deferred_events
+            .borrow_mut()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
     }
 
     /// Any function-reference port call, for the modules that hold their own function refs.

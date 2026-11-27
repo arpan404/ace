@@ -129,6 +129,22 @@ impl Ports for JsPorts {
         )
     }
 
+    /// A create's `thread.created` projects the parent `threads` row the engine's own
+    /// `thread_state` and session inserts reference. The engine flushes that one batch before
+    /// them (`repository/save.rs`); the write still runs here, and every later batch keeps
+    /// waiting for the receipt to end.
+    fn flush_deferred_events(&self) -> Result<(), PortError> {
+        for (thread, payloads, at) in self.drain_deferred_events() {
+            self.call(
+                &self.write_events,
+                FnArgs {
+                    data: (thread, payloads, at),
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     fn head_seq(&self) -> Result<f64, PortError> {
         self.call(&self.head_seq, ())
     }
@@ -214,6 +230,36 @@ impl Ports for JsPorts {
 
     fn has_move_target(&self) -> bool {
         self.has_move_target
+    }
+
+    fn has_models(&self) -> bool {
+        self.models_resolve.is_some() && self.models_list.is_some()
+    }
+
+    fn models_resolve(&self, json: &str) -> Result<String, PortError> {
+        let Some(function) = self.models_resolve.as_ref() else {
+            return Err(PortError::Unbound("models.resolve"));
+        };
+        self.call(function, json.to_owned())
+    }
+
+    fn models_list(&self, json: &str) -> Result<String, PortError> {
+        let Some(function) = self.models_list.as_ref() else {
+            return Err(PortError::Unbound("models.list"));
+        };
+        self.call(function, json.to_owned())
+    }
+
+    fn models_update_permission_modes(&self, instance: &str, json: &str) -> Result<(), PortError> {
+        let Some(function) = self.models_update_permission_modes.as_ref() else {
+            return Err(PortError::Unbound("models.updatePermissionModes"));
+        };
+        self.call(
+            function,
+            FnArgs {
+                data: (instance.to_owned(), json.to_owned()),
+            },
+        )
     }
 
     fn admits(&self) -> Result<bool, PortError> {

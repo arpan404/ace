@@ -98,6 +98,12 @@ pub trait Ports {
     /// The shell's `append`: the batch joins the open context's event list exactly once.
     fn append_events(&self, json: &str) -> Result<(), PortError>;
 
+    /// Writes event batches the shell held back, in call order, and clears them. A shell that
+    /// never defers answers `Ok`.
+    fn flush_deferred_events(&self) -> Result<(), PortError> {
+        Ok(())
+    }
+
     // ---- The terminal cleanup (E5.1 step 4) ----
     /// One facade promise for a batch the actor starts; `None` before the shell registers any.
     fn frame_call(&self) -> Option<u64> {
@@ -176,6 +182,27 @@ pub trait Ports {
     /// `options.models` (E5.6).
     fn models(&self) -> Result<PortObject, PortError> {
         Err(PortError::Unbound("models"))
+    }
+    /// Whether `options.models` was given: a catalog is always constructed when it is
+    /// (`index.ts:193`), and without one `select` is the default sentinel rule (E5.4e).
+    fn has_models(&self) -> bool {
+        false
+    }
+    /// `options.models.resolve(spec)`: JSON in, JSON out (`models.ts:84`-`:104`).
+    fn models_resolve(&self, _json: &str) -> Result<String, PortError> {
+        Err(PortError::Unbound("models.resolve"))
+    }
+    /// `options.models.list(options)`.
+    fn models_list(&self, _json: &str) -> Result<String, PortError> {
+        Err(PortError::Unbound("models.list"))
+    }
+    /// `options.models.updatePermissionModes(instance, modes)`.
+    fn models_update_permission_modes(
+        &self,
+        _instance: &str,
+        _json: &str,
+    ) -> Result<(), PortError> {
+        Err(PortError::Unbound("models.updatePermissionModes"))
     }
     /// `options.mcp` (E5.6).
     fn mcp(&self, _thread: &str, _agent: &str, _json: &str) -> Result<PortObject, PortError> {

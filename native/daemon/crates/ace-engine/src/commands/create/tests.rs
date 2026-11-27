@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The cases the TypeScript's own tests pin, moved beside the code they cover.
+
+use super::*;
+use crate::repository::testsupport::{Shell, header, home};
+
+fn value(text: &str) -> Value {
+    ace_json::parse(text).expect("json")
+}
+
+#[test]
+fn a_create_is_named_from_its_first_words_and_a_prepare_without_one_is_new() {
+    let create = value(
+        r#"{"payload":{"type":"thread.create","input":[{"type":"text","text":"Fix the queue hold"}]}}"#,
+    );
+    assert_eq!(title(payload(&create)), "Fix the queue hold");
+    assert_eq!(title_source(payload(&create)), "provisional");
+    let named = value(
+        r#"{"payload":{"type":"thread.create","title":"Mine","input":[{"type":"text","text":"x"}]}}"#,
+    );
+    assert_eq!(title(payload(&named)), "Mine");
+    assert_eq!(title_source(payload(&named)), "person");
+    let prepare = value(r#"{"payload":{"type":"thread.prepare","input":[]}}"#);
+    assert_eq!(title(payload(&prepare)), "New thread");
+    let agent = value(r#"{"payload":{"type":"thread.prepare","titleSource":"agent"}}"#);
+    assert_eq!(title_source(payload(&agent)), "agent");
+}
+
+#[test]
+fn the_stored_thread_keeps_the_schemas_key_order() {
+    let selection = value(r#"{"provider":"codex","model":"gpt-5","options":{}}"#);
+    let new = NewThread {
+        id: "t",
+        access: None,
+        workspace_id: "w",
+        title: "Title".into(),
+        title_source: "provisional",
+        selection,
+        cwd: "/tmp",
+        workspace_ready: false,
+        at: 5.0,
+        silence_ms: 1_000.0,
+        backend: Some("sdk"),
+        capabilities: None,
+        acp_identity: None,
+        handoff: None,
+        details: value(r#"{"mode":"local"}"#),
+        live: value(r#"{"provider":"codex"}"#),
+        unprepared: false,
+    };
+    let thread = thread_json(&new, &value(r#"{"pending":false}"#));
+    let keys: Vec<String> = thread
+        .as_object()
+        .map(|map| map.keys().map(|key| key.as_str().to_owned()).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        keys,
+        [
+            "hasSentMessage",
+            "details",
+            "live",
+            "id",
+            "workspaceId",
+            "title",
+            "titleSource",
+            "provider",
+            "backend",
+            "permission",
+            "status",
+            "createdAt",
+            "updatedAt",
+            "execution"
+        ]
+    );
+    assert_eq!(
+        thread
+            .get("status")
+            .and_then(|s| s.get("state"))
+            .and_then(Value::as_str),
+        Some("new")
+    );
+    assert_eq!(thread.get("createdAt").and_then(Value::as_f64), Some(5.0));
+}
+
+#[test]
+fn a_local_thread_keeps_its_checkout_and_a_worktree_waits_for_one() {
+    let conn = home("t", &header("t"));
+    let store = Shell::store(&conn);
+    let local = value(r#"{"type":"thread.create","workspaceId":"w","mode":"local"}"#);
+    let local_details = details(&store, &local, "/tmp/work", None).expect("details");
+    assert_eq!(
+        local_details.get("mode").and_then(Value::as_str),
+        Some("local")
+    );
+    assert_eq!(
+        local_details.get("worktree").and_then(Value::as_str),
+        Some("/tmp/work")
+    );
+    let worktree = value(r#"{"type":"thread.create","workspaceId":"w","mode":"worktree"}"#);
+    let worktree_details = details(&store, &worktree, "/tmp/work", None).expect("details");
+    assert_eq!(worktree_details.get("worktree"), None);
+    let base = value(
+        r#"{"type":"thread.create","workspaceId":"w","base":{"ref":"main","remote":"origin"}}"#,
+    );
+    assert_eq!(
+        details(&store, &base, "/tmp/work", None)
+            .expect("details")
+            .get("baseBranch")
+            .and_then(Value::as_str),
+        Some("origin/main")
+    );
+}

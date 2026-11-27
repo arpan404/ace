@@ -375,7 +375,7 @@ mod tests {
         .unwrap();
         let (store, shell) = Shell::store_with_controls(&conn);
         migrate_permissions_step(&store, None, PERMISSION_FILL_BATCH).expect("fill");
-        let events = shell.events();
+        let events = shell.written_batches();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].0, "pub");
         assert!(

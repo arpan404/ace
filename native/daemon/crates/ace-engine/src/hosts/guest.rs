@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn a_guest_thread_is_created_through_the_injected_creation_step() {
-        let engine = engine("guest");
+        let engine = engine("other");
         let input = GuestThreadInput {
             id: "guest".to_owned(),
             workspace_id: "workspace".to_owned(),
@@ -343,7 +343,15 @@ mod tests {
         with(&engine, |state, store| {
             GuestThreads::default().create(state, store, &input, |state, store| {
                 created += 1;
+                store.conn().exec(
+                    "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES ('guest','workspace','Linux box','codex','{\"state\":\"new\"}',0,0)",
+                )?;
                 state.permission_ensure(store, "guest")?;
+                Ok(())
+            })?;
+            // A second create sees the stored thread row and does not run the creation step again.
+            GuestThreads::default().create(state, store, &input, |_, _| {
+                created += 1;
                 Ok(())
             })?;
             assert!(state.permission_state(store, "guest").is_ok());

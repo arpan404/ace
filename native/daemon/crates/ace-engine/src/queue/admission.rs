@@ -3,6 +3,7 @@
 //! the follow-up behaviour, the input budget, a dropped restated selection and the loop guard.
 
 use crate::repository::residency::cell_text;
+use crate::rules::MAX_MESSAGE_BYTES;
 use crate::{Core, EngineError, State};
 use ace_json::Value;
 
@@ -11,8 +12,6 @@ pub const DEFAULT_PREFERENCES: &str = r#"{"followUpBehavior":"queue","limitPolic
 
 /// The most inputs one thread may have in flight (`recovery.ts:135`).
 pub const MAX_INPUTS: i64 = 256;
-/// The largest command a send may carry (`maxMessageBytes`).
-const MAX_MESSAGE_BYTES: usize = 256 * 1024;
 const PREFERENCES: &str = "SELECT preferences FROM engine_queue WHERE thread_id=?";
 const CLEAR_STREAK: &str = "DELETE FROM engine_restart_resumes WHERE thread_id=?";
 

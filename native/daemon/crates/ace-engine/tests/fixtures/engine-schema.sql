@@ -762,3 +762,9 @@ CREATE TABLE engine_transition_blockers (
 CREATE TABLE thread_ownership (
   thread_id TEXT PRIMARY KEY, state TEXT NOT NULL, transfer_id TEXT NOT NULL,
   peer TEXT NOT NULL, epoch INTEGER NOT NULL, prior TEXT, at INTEGER NOT NULL);
+CREATE TABLE engine_steer_aims (
+        intent_id INTEGER PRIMARY KEY, run TEXT);
+CREATE TABLE engine_restart_resumes (
+        thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+        streak INTEGER NOT NULL
+      );

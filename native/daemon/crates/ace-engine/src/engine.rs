@@ -48,6 +48,8 @@ impl Engine {
             limits,
             ..State::default()
         };
+        // `maxActiveThreads` decides how many threads keep a resident slot (`index.ts:191`).
+        state.repo = crate::repository::Repo::open(limits.max_active_threads as usize);
         state.registry.set_entries(registry_json)?;
         // The restart ledgers' DDL is open-time work and belongs to `ace-engine::open`, in the
         // TypeScript opener's order (E5.4 decision 8 as amended 2026-11-26): never here.
