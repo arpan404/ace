@@ -271,15 +271,12 @@ fn the_how_to_spreads_over_an_object_array_or_null_as_typescript_does() {
         "{\"guide\":\"Driving ios:AAAA.\"}"
     );
 
-    // Without a first start the spread still happens; only the guide is left out.
-    assert_eq!(
-        with_guidance(json!(["a"]), false, guide),
-        json!({ "0": "a" })
-    );
+    // Without a first start nothing is spread: the ternary answers `started` as it came.
+    assert_eq!(with_guidance(json!(["a"]), false, guide), json!(["a"]));
     assert_eq!(
         with_guidance(Value::Null, false, guide),
-        json!({}),
-        "`{{...null}}` is an empty object"
+        Value::Null,
+        "a repeat start leaves null as the service answered it"
     );
     // A value that is not an object is returned as it is, with or without one.
     for raw in [json!("raw"), json!(3), json!(true)] {
@@ -300,6 +297,22 @@ fn the_how_to_rides_on_the_first_start_only() {
         started
     );
     assert_eq!(with_guidance(json!("raw"), true, "x"), json!("raw"));
+}
+
+#[test]
+fn a_repeat_start_answers_with_an_array_or_null_exactly_as_the_service_did() {
+    // `firstStart(...) && typeof started === "object" ? { ...started, guide } : started`:
+    // the spread is on the first start alone, so a repeat start hands back an array or
+    // null untouched instead of an object of its index keys or an empty object.
+    let guide = "Driving ios:AAAA.";
+    assert_eq!(
+        ace_json::to_string(&with_guidance(json!([1, "two"]), false, guide)),
+        "[1,\"two\"]"
+    );
+    assert_eq!(
+        ace_json::to_string(&with_guidance(Value::Null, false, guide)),
+        "null"
+    );
 }
 
 #[test]

@@ -176,10 +176,14 @@ pub fn without_video(sim_id: &str, message: &JsString, hint: &JsString) -> Value
     Value::Object(out)
 }
 
-/// The how-to rides on an agent's first start of a device only (`sim-tools.ts:99`).
-/// TypeScript spreads it over `started` when `typeof started === "object"`: an array
-/// becomes an object of its index keys, and `null` becomes one holding the guide.
+/// The how-to rides on an agent's first start of a device only (`sim-tools.ts:99`):
+/// `firstStart(...) && typeof started === "object" ? { ...started, guide } : started`.
+/// So a first start spreads an array into an object of its index keys and `null` into one
+/// holding the guide, while a repeat start answers `started` itself, array and null included.
 pub fn with_guidance(started: Value, first_start: bool, guidance: &str) -> Value {
+    if !first_start {
+        return started;
+    }
     let mut object = match started {
         Value::Object(object) => object,
         Value::Array(items) => {
@@ -192,9 +196,7 @@ pub fn with_guidance(started: Value, first_start: bool, guidance: &str) -> Value
         Value::Null => Map::new(),
         other => return other,
     };
-    if first_start {
-        object.insert("guide", Value::String(JsString::from(guidance)));
-    }
+    object.insert("guide", Value::String(JsString::from(guidance)));
     Value::Object(object)
 }
 
