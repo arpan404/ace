@@ -224,9 +224,18 @@ struct ShownActivity: Equatable, Sendable {
         Activity<MachineActivityAttributes>.activities.first { $0.id == id && ($0.activityState == .active || $0.activityState == .stale) }
     }
 
+    /// Asks for a push token first. A build signed without `aps-environment` (Debug, CI, a free
+    /// team: `ACE_PUSH: NO`) can't have one and ActivityKit refuses the request, so the activity
+    /// starts local-only, as before push, and simply never reports a token.
     func start(_ slot: Int, _ state: State, staleDate: Date) throws {
-        let activity = try Activity.request(attributes: MachineActivityAttributes(slot: slot),
-                                            content: ActivityContent(state: state, staleDate: staleDate), pushType: .token)
+        let attributes = MachineActivityAttributes(slot: slot)
+        let content = ActivityContent(state: state, staleDate: staleDate)
+        let activity: Activity<MachineActivityAttributes>
+        do {
+            activity = try Activity.request(attributes: attributes, content: content, pushType: .token)
+        } catch {
+            activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
+        }
         watch(activity)
     }
     func update(_ id: String, _ state: State, staleDate: Date) async {
