@@ -2,7 +2,7 @@
 //! Bounded storage workers with actor-owned ordering per instance.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 
@@ -16,19 +16,49 @@ const QUEUE_LIMIT: usize = 2048;
 
 /// Whether the work a job belongs to was superseded, aborted or timed out.
 #[derive(Clone, Default)]
-pub(crate) struct Cancel(Arc<AtomicBool>);
+pub(crate) struct Cancel {
+    state: Arc<AtomicU8>,
+    deadline: Option<(Arc<dyn crate::catalog::Clock>, f64)>,
+}
 
 impl Cancel {
     pub(crate) fn new() -> Self {
         Self::default()
     }
 
+    pub(crate) fn until(clock: Arc<dyn crate::catalog::Clock>, at: f64) -> Self {
+        Self {
+            deadline: Some((clock, at)),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        let _ = self
+            .state
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+    }
+
+    pub(crate) fn expire(&self) -> bool {
+        self.state
+            .compare_exchange(0, 2, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    pub(crate) fn expired(&self) -> bool {
+        self.state.load(Ordering::SeqCst) == 2
     }
 
     pub(crate) fn cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.state.load(Ordering::SeqCst) != 0
+    }
+
+    fn is_current(&self) -> bool {
+        !self.cancelled()
+            && self
+                .deadline
+                .as_ref()
+                .is_none_or(|(clock, at)| clock.now() < *at)
     }
 }
 
@@ -48,6 +78,7 @@ pub(crate) enum Job {
 }
 
 /// What one job did.
+#[derive(Clone)]
 pub(crate) enum Outcome {
     Done,
     Failed(CacheError),
@@ -182,7 +213,10 @@ fn run(receiver: &Mutex<mpsc::Receiver<Message>>, storage: &SharedStorage, repor
             .unwrap_or_else(|error| error.into_inner())
             .recv();
         let Ok(message) = message else { break };
-        let outcome = execute(storage, message.job);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            execute(storage, message.job)
+        }))
+        .unwrap_or(Outcome::Failed(CacheError::Malformed));
         reporter.report(Command::StorageDone {
             key: message.key,
             outcome,
@@ -193,11 +227,11 @@ fn run(receiver: &Mutex<mpsc::Receiver<Message>>, storage: &SharedStorage, repor
 fn execute(storage: &SharedStorage, job: Job) -> Outcome {
     match job {
         Job::Replace { entry, cancel } => {
-            if cancel.cancelled() {
+            if !cancel.is_current() {
                 return Outcome::Cancelled;
             }
-            let result = crate::catalog::storage::replace(storage, &entry, &|| !cancel.cancelled());
-            if cancel.cancelled() {
+            let result = crate::catalog::storage::replace(storage, &entry, &|| cancel.is_current());
+            if !cancel.is_current() {
                 return Outcome::Cancelled;
             }
             match result {

@@ -752,7 +752,7 @@ fn a_deletion_that_panics_before_it_runs_keeps_its_retry_marker() {
             .unwrap_or_else(|error| panic!("{error}"));
         fixture.spawn.drain();
         settle(catalog.quiesce(), &fixture.spawn, "the failed deletion");
-        let mut inspected = storage.clone();
+        let inspected = storage.clone();
         assert!(
             !inspected.load().unwrap_or_default().is_empty(),
             "the panic left the row in storage"
@@ -760,7 +760,7 @@ fn a_deletion_that_panics_before_it_runs_keeps_its_retry_marker() {
         // Close retries the pending deletion; the marker was reserved before the panic.
         settle(catalog.close(), &fixture.spawn, "the close")
             .unwrap_or_else(|error| panic!("{error}"));
-        let mut inspected = storage.clone();
+        let inspected = storage.clone();
         assert!(
             inspected.load().unwrap_or_default().is_empty(),
             "the failed deletion stayed pending and its retry ran before storage closed"

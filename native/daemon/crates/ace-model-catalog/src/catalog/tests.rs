@@ -21,6 +21,7 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 
 mod actor;
+mod durable_edges;
 mod probes;
 mod queries;
 mod shutdown;
@@ -821,7 +822,7 @@ fn persisted_models_are_available_before_discovery_after_restart() {
         identity_revision: Some(super::identity_revision(&codex)),
         connection_revision: None,
     };
-    let mut writer = storage.clone();
+    let writer = storage.clone();
     writer
         .replace(&entry)
         .unwrap_or_else(|error| panic!("{error}"));

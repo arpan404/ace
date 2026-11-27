@@ -18,15 +18,30 @@ use crate::failures::discovery_error;
 
 /// What one admitted storage job will do when its reply arrives.
 pub(crate) enum StorageWait {
-    CommitDelete(Box<CommitPlan>),
     CommitReplace(Box<CommitPlan>),
-    SessionDelete(Box<SessionWritePlan>),
     SessionReplace(Box<SessionWritePlan>),
     PermissionReplace(Box<crate::catalog::writes::PermissionWrite>),
-    Invalidation { id: String, token: u64, place: u64 },
-    Removal { id: String, token: u64 },
     Deletion { id: String },
     Close,
+}
+
+pub(crate) enum DeleteWait {
+    Commit(Box<CommitPlan>),
+    Session(Box<SessionWritePlan>),
+    Invalidation { token: u64, place: u64 },
+    Removal { token: u64 },
+}
+
+/// One attempt owns the marker and every continuation waiting on it.
+pub(crate) struct Deletion {
+    pub(crate) key: u64,
+    pub(crate) waiters: Vec<DeleteWait>,
+}
+
+pub(crate) struct ReplaceOwner {
+    generation: u64,
+    revision: String,
+    cancel: Cancel,
 }
 
 /// One discovery commit, computed before its durable write and resumed after it.
@@ -64,12 +79,55 @@ impl Actor {
         self.pump(id);
     }
 
-    pub(crate) fn dispatch_storage(&mut self, wait: StorageWait, job: Job) {
+    fn dispatch_storage(&mut self, wait: StorageWait, job: Job) -> u64 {
         self.next_storage += 1;
         let key = self.next_storage;
         self.storage_waits.insert(key, wait);
         self.pending_storage += 1;
         self.lane.dispatch(key, job);
+        key
+    }
+
+    pub(crate) fn replace_storage(
+        &mut self,
+        wait: StorageWait,
+        entry: crate::cache::CacheEntry,
+        generation: u64,
+        cancel: Cancel,
+    ) {
+        self.replace_owners.insert(
+            entry.instance.clone(),
+            ReplaceOwner {
+                revision: entry.revision.clone(),
+                generation,
+                cancel: cancel.clone(),
+            },
+        );
+        self.dispatch_storage(wait, Job::Replace { entry, cancel });
+    }
+
+    pub(crate) fn cancel_replace(&mut self, id: &str) -> bool {
+        if let Some(owner) = self.replace_owners.get(id) {
+            owner.cancel.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn cancel_stale_replace(&self, id: &str) {
+        let Some(owner) = self.replace_owners.get(id) else {
+            return;
+        };
+        if !self.write_current(id, owner.generation, &owner.revision) {
+            owner.cancel.cancel();
+        }
+    }
+
+    pub(crate) fn write_current(&self, id: &str, generation: u64, revision: &str) -> bool {
+        self.inner.states.get(id).is_some_and(|state| {
+            state.generation == generation && self.revision(&state.config) == revision
+        })
     }
 
     pub(crate) fn storage_done(&mut self, key: u64, outcome: Outcome) {
@@ -80,38 +138,84 @@ impl Actor {
             return;
         };
         match wait {
-            StorageWait::CommitDelete(plan) => self.commit_deleted(*plan, outcome),
-            StorageWait::CommitReplace(plan) => self.commit_replaced(*plan, outcome),
-            StorageWait::SessionDelete(plan) => self.session_deleted(*plan, outcome),
-            StorageWait::SessionReplace(plan) => self.session_replaced(*plan, outcome),
-            StorageWait::PermissionReplace(write) => self.permission_replaced(*write, outcome),
-            StorageWait::Invalidation { id, token, place } => {
-                self.invalidation_removed(&id, token, place, outcome)
+            StorageWait::CommitReplace(plan) => {
+                self.replace_owners.remove(&plan.id);
+                self.commit_replaced(*plan, outcome);
             }
-            StorageWait::Removal { id, token } => self.removal_done(&id, token, outcome),
-            StorageWait::Deletion { id } => self.deletion_done(&id, outcome),
+            StorageWait::SessionReplace(plan) => {
+                self.replace_owners.remove(&plan.write.input.id);
+                self.session_replaced(*plan, outcome);
+            }
+            StorageWait::PermissionReplace(write) => {
+                self.replace_owners.remove(&write.instance);
+                self.permission_replaced(*write, outcome);
+            }
+            StorageWait::Deletion { id } => self.deletion_done(&id, key, outcome),
             StorageWait::Close => self.close_stored(outcome),
         }
         self.release_quiesce_waiters();
         self.after_event();
     }
 
-    /// Adds one row's marker before its removal is dispatched, and starts the removal.
-    pub(crate) fn begin_delete(&mut self, id: &str) {
+    pub(crate) fn begin_delete(&mut self, id: &str) -> bool {
         if !self.inner.deletions.reserve(id) {
-            return;
+            return false;
         }
-        self.dispatch_storage(
-            StorageWait::Deletion { id: id.to_owned() },
-            Job::Remove {
-                instance: id.to_owned(),
-            },
-        );
+        if !self.deletion_jobs.contains_key(id) {
+            let key = self.dispatch_storage(
+                StorageWait::Deletion { id: id.to_owned() },
+                Job::Remove {
+                    instance: id.to_owned(),
+                },
+            );
+            self.deletion_jobs.insert(
+                id.to_owned(),
+                Deletion {
+                    key,
+                    waiters: Vec::new(),
+                },
+            );
+        }
+        true
     }
 
-    pub(crate) fn deletion_done(&mut self, id: &str, outcome: Outcome) {
+    pub(crate) fn await_delete(&mut self, id: &str, waiter: DeleteWait) {
+        if self.begin_delete(id)
+            && let Some(job) = self.deletion_jobs.get_mut(id)
+        {
+            job.waiters.push(waiter);
+        } else {
+            self.resume_delete(
+                id,
+                waiter,
+                Outcome::Failed(crate::cache::CacheError::InstanceLimit),
+            );
+        }
+    }
+
+    fn deletion_done(&mut self, id: &str, key: u64, outcome: Outcome) {
+        if self.deletion_jobs.get(id).is_none_or(|job| job.key != key) {
+            return;
+        }
+        let Some(job) = self.deletion_jobs.remove(id) else {
+            return;
+        };
         if matches!(outcome, Outcome::Done) {
             self.inner.deletions.forget(id);
+        }
+        for waiter in job.waiters {
+            self.resume_delete(id, waiter, outcome.clone());
+        }
+    }
+
+    fn resume_delete(&mut self, id: &str, waiter: DeleteWait, outcome: Outcome) {
+        match waiter {
+            DeleteWait::Commit(plan) => self.commit_deleted(*plan, outcome),
+            DeleteWait::Session(plan) => self.session_deleted(*plan, outcome),
+            DeleteWait::Invalidation { token, place } => {
+                self.invalidation_removed(id, token, place, outcome)
+            }
+            DeleteWait::Removal { token } => self.removal_done(id, token, outcome),
         }
     }
 
@@ -132,11 +236,11 @@ impl Actor {
             revision: Some(&revision),
             token: Some(token),
         };
-        let fired = self.timed_out_flights.contains(&token);
+        if self.flight_expired(token) {
+            self.deadline(&id, token);
+            return true;
+        }
         if !self.flight_current(&id, token, generation, &revision) {
-            if fired {
-                self.fail(&id, None, FailureCode::Timeout, &report);
-            }
             self.commit_tokens.remove(&token);
             self.settle_flight(&id, token);
             return true;
@@ -217,10 +321,7 @@ impl Actor {
             previous_no_models,
         };
         if self.inner.deletions.has(&id) {
-            self.dispatch_storage(
-                StorageWait::CommitDelete(Box::new(plan)),
-                Job::Remove { instance: id },
-            );
+            self.await_delete(&id, DeleteWait::Commit(Box::new(plan)));
         } else {
             self.dispatch_commit_replace(plan);
         }
@@ -229,29 +330,38 @@ impl Actor {
 
     /// Starts the durable write, with the token that may cancel it before it lands.
     pub(crate) fn dispatch_commit_replace(&mut self, plan: CommitPlan) {
-        let cancel = Cancel::new();
-        self.commit_cancels.insert(plan.token, cancel.clone());
+        let Some(cancel) = self.flight_permits.get(&plan.token).cloned() else {
+            self.settle_place(&plan.id, plan.place);
+            return;
+        };
         let entry = plan.entry.clone();
-        self.dispatch_storage(
+        let generation = plan.generation;
+        self.replace_storage(
             StorageWait::CommitReplace(Box::new(plan)),
-            Job::Replace { entry, cancel },
+            entry,
+            generation,
+            cancel,
         );
     }
 
     pub(crate) fn commit_deleted(&mut self, plan: CommitPlan, outcome: Outcome) {
-        if !matches!(outcome, Outcome::Done) {
+        if !matches!(outcome, Outcome::Done) || self.flight_expired(plan.token) {
             let report = Self::plan_report_owned(&plan);
             self.commit_cancelled(&plan, &report);
             return;
         }
-        self.inner.deletions.forget(&plan.id);
+        if !self.flight_current(&plan.id, plan.token, plan.generation, &plan.revision) {
+            self.commit_tokens.remove(&plan.token);
+            self.settle_flight(&plan.id, plan.token);
+            self.settle_place(&plan.id, plan.place);
+            return;
+        }
         self.dispatch_commit_replace(plan);
     }
 
     pub(crate) fn commit_replaced(&mut self, plan: CommitPlan, outcome: Outcome) {
-        self.commit_cancels.remove(&plan.token);
         let report = Self::plan_report_owned(&plan);
-        if !matches!(outcome, Outcome::Done) {
+        if !matches!(outcome, Outcome::Done) || self.flight_expired(plan.token) {
             self.commit_cancelled(&plan, &report);
             return;
         }
@@ -260,9 +370,6 @@ impl Actor {
         // installed over state that no longer owns it.
         if !self.flight_current(&plan.id, plan.token, plan.generation, &plan.revision) {
             self.commit_tokens.remove(&plan.token);
-            if self.timed_out_flights.contains(&plan.token) {
-                self.fail(&plan.id, None, FailureCode::Timeout, &report);
-            }
             self.settle_flight(&plan.id, plan.token);
             self.settle_place(&plan.id, plan.place);
             return;
@@ -376,9 +483,9 @@ impl Actor {
 
     pub(crate) fn commit_cancelled(&mut self, plan: &CommitPlan, report: &FailureReport<'_>) {
         self.commit_tokens.remove(&plan.token);
-        if self.timed_out_flights.contains(&plan.token) {
-            self.fail(&plan.id, None, FailureCode::Timeout, report);
-        } else {
+        if self.flight_expired(plan.token) {
+            self.deadline(&plan.id, plan.token);
+        } else if self.flight_current(&plan.id, plan.token, plan.generation, &plan.revision) {
             self.commit_failed(&plan.id, report, plan.generation);
         }
         self.settle_flight(&plan.id, plan.token);

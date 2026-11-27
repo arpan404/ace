@@ -333,6 +333,7 @@ pub(crate) struct State {
 /// that asked for the same id sees.
 pub(crate) struct Removal {
     pub(crate) token: u64,
+    pub(crate) started: bool,
     pub(crate) waiters: Vec<Reply<Result<(), CatalogError>>>,
 }
 
@@ -1427,12 +1428,4 @@ pub(crate) fn flights_connection_revision(
     sha256_json(&Value::Array(
         values.into_iter().map(Value::String).collect(),
     ))
-}
-
-/// Whether `token` still owns row `id`: a re-registration bumps the generation.
-pub(crate) fn owns(inner: &Inner, id: &str, token: u64) -> bool {
-    inner
-        .states
-        .get(id)
-        .is_some_and(|state| state.generation == token)
 }

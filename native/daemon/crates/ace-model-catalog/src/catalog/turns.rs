@@ -116,20 +116,16 @@ impl Turns {
         }
     }
 
-    /// Takes every queued discovery commit out of the queue without running it. Close uses
-    /// this so a result that has not taken its place yet can never write after shutdown.
-    pub(crate) fn discard_flight_commits(&mut self) -> Vec<(String, u64)> {
-        let mut discarded = Vec::new();
-        for place in &mut self.places {
-            if !matches!(place.op, Some(PendingOp::FlightCommit(_))) {
-                continue;
-            }
-            if let Some(PendingOp::FlightCommit(commit)) = place.op.take() {
-                place.settled = true;
-                discarded.push((commit.id.clone(), commit.token));
-            }
+    /// Removes a discovery commit that has not started storage.
+    pub(crate) fn discard_commit(&mut self, token: u64) -> bool {
+        if let Some(place) = self.places.iter_mut().find(|place| {
+            matches!(&place.op, Some(PendingOp::FlightCommit(commit)) if commit.token == token)
+        }) {
+            place.op = None;
+            place.settled = true;
+            return true;
         }
-        discarded
+        false
     }
 
     pub(crate) fn is_empty(&self) -> bool {

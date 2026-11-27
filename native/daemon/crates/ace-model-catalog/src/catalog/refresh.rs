@@ -66,7 +66,7 @@ impl Actor {
         if !self.enabled(&state.config) || now < state.retry_at {
             return FlightStart::Skipped;
         }
-        if self.inner.active_flights >= 64 {
+        if self.inner.active_flights >= 64 || self.flight_tasks >= 64 {
             self.fail(
                 id,
                 None,
@@ -94,6 +94,7 @@ impl Actor {
         self.inner.flight_token += 1;
         let token = self.inner.flight_token;
         self.inner.active_flights += 1;
+        self.flight_tasks += 1;
         let flight = Flight {
             done: Gate::new(),
             token,
@@ -571,15 +572,12 @@ impl Actor {
             .get(id)
             .and_then(|state| state.probe.as_ref())
             .is_some_and(|probe| probe.token == token);
-        let counted = self.probe_rows.remove(&token).is_some();
-        if !owns_row && !counted {
+        self.probe_rows.remove(&token);
+        if !owns_row {
             return;
         }
         if owns_row && let Some(state) = self.inner.states.get_mut(id) {
             state.probe = None;
-        }
-        if counted {
-            self.inner.probes = self.inner.probes.saturating_sub(1);
         }
         if let Some(cancel) = self.probe_cancels.remove(&token) {
             cancel();
@@ -713,9 +711,7 @@ impl Actor {
         if owns_row && let Some(state) = self.inner.states.get_mut(id) {
             state.probe = None;
         }
-        if self.probe_rows.remove(&token).is_some() {
-            self.inner.probes = self.inner.probes.saturating_sub(1);
-        }
+        self.probe_rows.remove(&token);
         if let Some(cancel) = self.probe_cancels.remove(&token) {
             cancel();
         }

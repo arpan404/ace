@@ -78,7 +78,7 @@ pub(crate) struct Shared {
 }
 mod durable;
 use durable::CloseStage;
-pub(crate) use durable::{SessionWritePlan, StorageWait};
+pub(crate) use durable::{DeleteWait, SessionWritePlan, StorageWait};
 
 pub(crate) struct Actor {
     pub(crate) inner: Inner,
@@ -106,13 +106,16 @@ pub(crate) struct Actor {
     pub(crate) probe_rows: BTreeMap<u64, String>,
     pub(crate) probe_signals: BTreeMap<u64, Signal>,
     storage_waits: BTreeMap<u64, StorageWait>,
+    deletion_jobs: BTreeMap<String, durable::Deletion>,
+    replace_owners: BTreeMap<String, durable::ReplaceOwner>,
     next_storage: u64,
     pending_storage: usize,
-    commit_cancels: BTreeMap<u64, Cancel>,
+    flight_permits: BTreeMap<u64, Cancel>,
     close_stage: CloseStage,
     pub(crate) probe_cancels: BTreeMap<u64, crate::catalog::Cancel>,
     flight_cancels: BTreeMap<u64, crate::catalog::Cancel>,
-    timed_out_flights: BTreeSet<u64>,
+    flight_deadlines: BTreeMap<u64, f64>,
+    pub(crate) flight_tasks: usize,
     pub(crate) timed_out_probes: BTreeSet<u64>,
     pub(crate) next_probe: u64,
     next_listener: u64,
@@ -180,13 +183,16 @@ impl Actor {
             probe_rows: BTreeMap::new(),
             probe_signals: BTreeMap::new(),
             storage_waits: BTreeMap::new(),
+            deletion_jobs: BTreeMap::new(),
+            replace_owners: BTreeMap::new(),
             next_storage: 0,
             pending_storage: 0,
-            commit_cancels: BTreeMap::new(),
+            flight_permits: BTreeMap::new(),
             close_stage: CloseStage::Idle,
             probe_cancels: BTreeMap::new(),
             flight_cancels: BTreeMap::new(),
-            timed_out_flights: BTreeSet::new(),
+            flight_deadlines: BTreeMap::new(),
+            flight_tasks: 0,
             timed_out_probes: BTreeSet::new(),
             next_probe: 0,
             next_listener: 0,
@@ -572,19 +578,25 @@ impl Actor {
         };
         match kind {
             TaskKind::Flight { id, token } => {
+                self.flight_tasks -= 1;
                 // A discovery that already reported is waiting for its turn; its task
                 // ending is not the flight ending.
                 if !self.commit_tokens.contains(&token) {
                     self.abort_flight(&id, token);
                 }
             }
-            TaskKind::Probe { id, token } => self.abort_probe(&id, token),
+            TaskKind::Probe { id, token } => {
+                self.inner.probes -= 1;
+                self.abort_probe(&id, token);
+            }
             TaskKind::Removal { id, token } => {
                 // A removal that reached the storage lane settles from its reply; the
                 // task ending right after reporting that is not a failure.
-                let awaiting = self.storage_waits.values().any(|wait| {
-                    matches!(wait, StorageWait::Removal { token: known, .. } if *known == token)
-                });
+                let awaiting = self
+                    .inner
+                    .removals
+                    .get(&id)
+                    .is_some_and(|removal| removal.token == token && removal.started);
                 if !awaiting {
                     self.removal_done(
                         &id,
@@ -689,28 +701,54 @@ impl Actor {
         }
     }
 
+    fn flight_expired(&self, token: u64) -> bool {
+        self.flight_permits.get(&token).is_some_and(Cancel::expired)
+            || self
+                .flight_deadlines
+                .get(&token)
+                .is_some_and(|deadline| self.now() >= *deadline)
+    }
+
     fn deadline(&mut self, id: &str, token: u64) {
-        let matches = self
-            .inner
-            .states
-            .get(id)
-            .and_then(|state| state.flight.as_ref())
-            .is_some_and(|flight| flight.token == token);
-        if !matches {
+        let Some(state) = self.inner.states.get(id) else {
+            return;
+        };
+        if state.flight_token != Some(token) {
             return;
         }
-        self.timed_out_flights.insert(token);
-        if let Some(cancel) = self.commit_cancels.get(&token) {
-            cancel.cancel();
-        }
-        if let Some(abort) = self
+        let revision = state.probe_revision.clone();
+        let started_at = self
+            .flight_deadlines
+            .get(&token)
+            .copied()
+            .unwrap_or(self.now())
+            - self.options.timeout_ms;
+        self.fail(
+            id,
+            None,
+            FailureCode::Timeout,
+            &FailureReport {
+                started_at,
+                diagnostics: &DiscoveryDiagnostics::default(),
+                revision: revision.as_deref(),
+                token: Some(token),
+            },
+        );
+        self.cancel_commit(id, token);
+    }
+
+    pub(crate) fn cancel_commit(&mut self, id: &str, token: u64) {
+        if self
             .inner
-            .states
-            .get(id)
-            .and_then(|state| state.abort.clone())
+            .turns
+            .get_mut(id)
+            .is_some_and(|turns| turns.discard_commit(token))
         {
-            abort.abort();
+            self.pending_commits -= 1;
         }
+        self.commit_tokens.remove(&token);
+        self.settle_flight(id, token);
+        self.pump(id);
     }
 
     pub(crate) fn fail(
@@ -899,7 +937,7 @@ impl Actor {
             return;
         }
         // A write still queued on the lane must not land for a flight that is over.
-        if let Some(cancel) = self.commit_cancels.remove(&token) {
+        if let Some(cancel) = self.flight_permits.remove(&token) {
             cancel.cancel();
         }
         // The gate belongs to the flight, not to whichever row replaced it: an
@@ -933,7 +971,7 @@ impl Actor {
         if let Some(cancel) = self.flight_cancels.remove(&token) {
             cancel();
         }
-        self.timed_out_flights.remove(&token);
+        self.flight_deadlines.remove(&token);
         if let Some(gate) = &gate {
             gate.open();
         }
@@ -968,17 +1006,10 @@ impl Actor {
                 .get(id)
                 .is_some_and(|state| state.flight_token == Some(token))
             || self.flight_cancels.contains_key(&token)
-            || self.commit_cancels.contains_key(&token)
+            || self.flight_permits.contains_key(&token)
             || self.flight_waiters.contains_key(&token)
             || self.refresh_ok_waiters.contains_key(&token)
             || self.commit_tokens.contains(&token)
-            || self.storage_waits.values().any(|wait| {
-                matches!(
-                    wait,
-                    StorageWait::CommitReplace(plan) | StorageWait::CommitDelete(plan)
-                        if plan.token == token
-                )
-            })
     }
 
     /// Whether a flight token still owns a running row flight.
@@ -1090,11 +1121,18 @@ impl Actor {
         if self.flight_cancels.contains_key(&token) {
             return;
         }
+        let deadline_at = self.now() + self.options.timeout_ms;
+        self.flight_deadlines.insert(token, deadline_at);
+        let permit = Cancel::until(self.options.clock.clone(), deadline_at);
+        self.flight_permits.insert(token, permit.clone());
         let reporter = self.reporter.clone();
         let deadline_id = id.to_owned();
         let cancel = self.options.deadline.arm(
             self.options.timeout_ms,
             Box::new(move || {
+                if !permit.expire() {
+                    return;
+                }
                 reporter.report(Command::Deadline {
                     id: deadline_id.clone(),
                     token,
@@ -1127,7 +1165,10 @@ impl Actor {
         }) else {
             return;
         };
-        let fired = self.timed_out_flights.contains(&token);
+        if self.flight_expired(token) {
+            self.deadline(id, token);
+            return;
+        }
         let report = FailureReport {
             started_at,
             diagnostics: &diagnostics,
@@ -1135,9 +1176,6 @@ impl Actor {
             token: Some(token),
         };
         if aborted || matches!(&outcome, FlightOutcome::None) {
-            if fired {
-                self.fail(id, None, FailureCode::Timeout, &report);
-            }
             self.settle_flight(id, token);
             return;
         }
@@ -1235,6 +1273,10 @@ impl Actor {
             || state.generation != generation
             || state.flight_token != Some(token)
             || state.abort.as_ref().is_some_and(Signal::is_aborted)
+            || self
+                .flight_permits
+                .get(&token)
+                .is_some_and(Cancel::cancelled)
         {
             return false;
         }
@@ -1257,6 +1299,11 @@ impl Actor {
                 .close_result
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        }
+        self.close_waiters.retain(|waiter| !waiter.is_canceled());
+        if self.close_waiters.len() >= crate::catalog::WAITER_LIMIT {
+            let _ = reply.send(Err(CatalogError::Busy));
+            return;
         }
         self.close_waiters.push(reply);
         if self.closing {
@@ -1281,21 +1328,22 @@ impl Actor {
         for abort in aborts {
             abort.abort();
         }
-        // A discovery result that has not taken its place yet never writes after close.
-        let ids = self.all_turn_ids();
-        for id in ids {
-            let discarded = self
-                .inner
-                .turns
-                .get_mut(&id)
-                .map(turns::Turns::discard_flight_commits)
-                .unwrap_or_default();
-            for (commit_id, token) in discarded {
-                self.pending_commits = self.pending_commits.saturating_sub(1);
-                self.commit_tokens.remove(&token);
-                self.settle_flight(&commit_id, token);
-            }
-            self.pump(&id);
+        for id in self.all_turn_ids() {
+            self.cancel_replace(&id);
+        }
+        let queued: Vec<_> = self
+            .inner
+            .row_flights
+            .iter()
+            .flat_map(|(id, flights)| {
+                flights
+                    .iter()
+                    .filter(|flight| self.commit_tokens.contains(&flight.token))
+                    .map(|flight| (id.clone(), flight.token))
+            })
+            .collect();
+        for (id, token) in queued {
+            self.cancel_commit(&id, token);
         }
         self.closing = true;
         self.finish_close_if_ready();

@@ -12,12 +12,12 @@ use ace_models::instance::ModelInstance;
 use serde_json::Value;
 
 use crate::cache::CacheEntry;
-use crate::catalog::actor::{Actor, SessionWritePlan, StorageWait};
+use crate::catalog::actor::{Actor, DeleteWait, SessionWritePlan, StorageWait};
 use crate::catalog::commands::{Command, Reply};
-use crate::catalog::storage_lane::{Cancel, Job, Outcome};
+use crate::catalog::storage_lane::{Cancel, Outcome};
 use crate::catalog::writes;
 use crate::catalog::{
-    CatalogError, PendingOp, RegistrationToken, identity_revision, owns, validate_instance,
+    CatalogError, PendingOp, RegistrationToken, identity_revision, validate_instance,
 };
 
 /// One accepted session write, waiting for its place.
@@ -36,7 +36,8 @@ pub(crate) struct SessionWrite {
 pub(crate) struct PermissionWrite {
     pub(crate) instance: String,
     pub(crate) modes: Vec<Value>,
-    pub(crate) generation: Option<u64>,
+    pub(crate) generation: u64,
+    pub(crate) revision: String,
     /// The queue place this write runs from.
     pub(crate) place: u64,
 }
@@ -198,19 +199,13 @@ impl Actor {
             return;
         }
         // Modes written under a replaced registration belong to the row that saw them.
-        if self
-            .inner
-            .states
-            .get(instance)
-            .is_none_or(|state| state.generation != token.0)
-        {
+        let Some(state) = self.inner.states.get(instance) else {
+            return;
+        };
+        if state.generation != token.0 {
             return;
         }
-        let generation = self
-            .inner
-            .states
-            .get(instance)
-            .map(|state| state.generation);
+        let revision = self.revision(&state.config);
         let needs_write = self.inner.states.get_mut(instance).is_some_and(|state| {
             state.permission_modes = Some(modes.clone());
             self.inner.turns.contains_key(instance) || state.entry.is_some()
@@ -232,7 +227,8 @@ impl Actor {
             .accept_when_ready(PendingOp::PermissionWrite(Box::new(PermissionWrite {
                 instance: id.clone(),
                 modes,
-                generation,
+                generation: token.0,
+                revision,
                 place: 0,
             })));
         // The write runs from its place, once its task reports; a task dropped before it
@@ -287,10 +283,7 @@ impl Actor {
             entry,
         };
         if self.inner.deletions.has(&id) {
-            self.dispatch_storage(
-                StorageWait::SessionDelete(Box::new(plan)),
-                Job::Remove { instance: id },
-            );
+            self.await_delete(&id, DeleteWait::Session(Box::new(plan)));
             return false;
         }
         self.dispatch_session_replace(plan);
@@ -300,28 +293,25 @@ impl Actor {
     /// Starts the write against storage; the turn settles only when the lane answers.
     fn dispatch_session_replace(&mut self, plan: SessionWritePlan) {
         let entry = plan.entry.clone();
-        self.dispatch_storage(
+        let generation = plan.write.generation;
+        self.replace_storage(
             StorageWait::SessionReplace(Box::new(plan)),
-            Job::Replace {
-                entry,
-                cancel: Cancel::new(),
-            },
+            entry,
+            generation,
+            Cancel::new(),
         );
     }
 
     pub(crate) fn session_deleted(&mut self, plan: SessionWritePlan, outcome: Outcome) {
-        if !matches!(outcome, Outcome::Done) {
-            self.finish_session(plan.write, Err(CatalogError::SessionGenerationChanged));
-            return;
-        }
-        self.inner.deletions.forget(&plan.write.input.id);
-        if !self.still_current(&plan.write.input, plan.write.generation)
-            || self.revision(&plan.write.input) != plan.write.revision
+        let id = plan.write.input.id.clone();
+        if matches!(outcome, Outcome::Done)
+            && self.write_current(&id, plan.write.generation, &plan.write.revision)
         {
+            self.dispatch_session_replace(plan);
+        } else {
             self.finish_session(plan.write, Err(CatalogError::SessionGenerationChanged));
-            return;
+            self.settle_place(&id, plan.place);
         }
-        self.dispatch_session_replace(plan);
     }
 
     pub(crate) fn session_replaced(&mut self, plan: SessionWritePlan, outcome: Outcome) {
@@ -332,7 +322,7 @@ impl Actor {
         } = plan;
         let id = write.input.id.clone();
         let result = if !matches!(outcome, Outcome::Done)
-            || !self.still_current(&write.input, write.generation)
+            || !self.write_current(&id, write.generation, &write.revision)
         {
             Err(CatalogError::SessionGenerationChanged)
         } else {
@@ -366,11 +356,9 @@ impl Actor {
         place: u64,
     ) -> bool {
         write.place = place;
-        let Some(generation) = write.generation else {
-            self.finish_permission(&write);
-            return true;
-        };
-        if !owns(&self.inner, &write.instance, generation) {
+        if !self.write_current(&write.instance, write.generation, &write.revision)
+            || self.inner.deletions.has(&write.instance)
+        {
             self.finish_permission(&write);
             return true;
         }
@@ -383,23 +371,26 @@ impl Actor {
             self.finish_permission(&write);
             return true;
         };
-        if current.permission_modes.as_deref() == Some(write.modes.as_slice()) {
+        if current.revision != write.revision
+            || current.permission_modes.as_deref() == Some(write.modes.as_slice())
+        {
             self.finish_permission(&write);
             return true;
         }
         let entry = permission_entry(&write, &current);
-        self.dispatch_storage(
+        let generation = write.generation;
+        self.replace_storage(
             StorageWait::PermissionReplace(Box::new(write)),
-            Job::Replace {
-                entry,
-                cancel: Cancel::new(),
-            },
+            entry,
+            generation,
+            Cancel::new(),
         );
         false
     }
 
     pub(crate) fn permission_replaced(&mut self, write: PermissionWrite, outcome: Outcome) {
         if matches!(outcome, Outcome::Done)
+            && self.write_current(&write.instance, write.generation, &write.revision)
             && let Some(current) = self
                 .inner
                 .states

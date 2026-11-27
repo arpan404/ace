@@ -4,7 +4,7 @@
 
 use super::*;
 
-fn acp_metadata(model: &str) -> Value {
+pub(super) fn acp_metadata(model: &str) -> Value {
     json!({
         "availableModels": [{ "modelId": model, "name": model }],
         "currentModelId": model,

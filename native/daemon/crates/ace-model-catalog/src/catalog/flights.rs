@@ -57,6 +57,36 @@ pub(crate) async fn run(
         diagnostics: DiscoveryDiagnostics::default(),
         outcome,
     };
+    // A failed home/identity guard revokes cached choices and never launches the provider.
+    if let Some(admit) = admit {
+        match futures::future::select(Box::pin(admit()), Box::pin(signal.wait())).await {
+            futures::future::Either::Left((Ok(()), _)) => {}
+            futures::future::Either::Left((Err(error), _)) => {
+                send_with(
+                    &reporter,
+                    empty(FlightOutcome::Admission(error), options.clock.now()),
+                );
+                return;
+            }
+            futures::future::Either::Right(((), _)) => {
+                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+                return;
+            }
+        }
+        if signal.is_aborted() {
+            send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+            return;
+        }
+    }
+    if let Some(pending) = pending {
+        match futures::future::select(Box::pin(pending.wait()), Box::pin(signal.wait())).await {
+            futures::future::Either::Left(((), _)) => {}
+            futures::future::Either::Right(((), _)) => {
+                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+                return;
+            }
+        }
+    }
     // A slot in the discovery concurrency bound, abandoned the moment the row is revoked.
     let permit =
         match futures::future::select(Box::pin(limiter.acquire()), Box::pin(signal.wait())).await {
@@ -70,40 +100,6 @@ pub(crate) async fn run(
         drop(permit);
         send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
         return;
-    }
-    // A failed home/identity guard revokes cached choices and never launches the provider.
-    if let Some(admit) = admit {
-        match futures::future::select(Box::pin(admit()), Box::pin(signal.wait())).await {
-            futures::future::Either::Left((Ok(()), _)) => {}
-            futures::future::Either::Left((Err(error), _)) => {
-                drop(permit);
-                send_with(
-                    &reporter,
-                    empty(FlightOutcome::Admission(error), options.clock.now()),
-                );
-                return;
-            }
-            futures::future::Either::Right(((), _)) => {
-                drop(permit);
-                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
-                return;
-            }
-        }
-        if signal.is_aborted() {
-            drop(permit);
-            send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
-            return;
-        }
-    }
-    if let Some(pending) = pending {
-        match futures::future::select(Box::pin(pending.wait()), Box::pin(signal.wait())).await {
-            futures::future::Either::Left(((), _)) => {}
-            futures::future::Either::Right(((), _)) => {
-                drop(permit);
-                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
-                return;
-            }
-        }
     }
     // The actor arms the deadline and re-checks ownership and revision before launching.
     let (reply, decision) = futures::channel::oneshot::channel();
