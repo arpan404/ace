@@ -75,6 +75,14 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
      mode, owner, size) move into `cargo test`.
 7. **Never start a real `gh` against GitHub.** The (a) files use fake `gh` processes; keep it so.
 
+## Intended differences from the TypeScript
+
+- A GitHub body whose 8,192-unit slice ends inside a surrogate pair keeps U+FFFD for the lone
+  half here; the TypeScript's string carries the lone surrogate. Every well-formed body slices
+  identically.
+- The webhook provenance note names a place only when rendering would substitute it, so an
+  invalid key such as `{{body.}}` is not named; the TypeScript's regex would name it.
+
 ## Files per item
 
 The owner's 2026-11-26 decision (ADR 0226's amendment) removed the per-item bindings, switches
