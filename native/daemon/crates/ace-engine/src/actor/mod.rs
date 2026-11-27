@@ -31,6 +31,7 @@ pub use probe::run_op_opened;
 pub use promotion::restore_promotion;
 pub use state::{ActorInstance, ActorRef, Actors, FrameRef, Pending};
 pub use task::spawn_mailbox;
+pub(crate) use task::yield_once;
 pub use timer::keeps_timer;
 
 use crate::executor::TaskId;
