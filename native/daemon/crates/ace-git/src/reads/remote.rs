@@ -597,12 +597,20 @@ mod tests {
     }
 
     #[test]
-    fn a_symref_head_branch_may_contain_ecmascript_non_separator_characters() {
-        let branch = format!("br\u{0085}anch");
+    fn a_symref_head_line_is_trimmed_and_matched_with_the_runtime_s_whitespace() {
+        // `\S+` is "not ECMAScript whitespace": U+0085 is a branch character, a space is not.
+        let branch = "br\u{0085}anch";
         assert_eq!(
             symref_head(&format!("ref: refs/heads/{branch}\tHEAD\n")),
-            Some(branch)
+            Some(branch.to_owned())
         );
+        // `line.trim()` strips U+FEFF and U+00A0, which Rust's `trim` leaves.
+        for padded in [
+            format!("\u{FEFF}ref: refs/heads/main\tHEAD\u{00A0}\n"),
+            format!("  ref: refs/heads/main\tHEAD  \n"),
+        ] {
+            assert_eq!(symref_head(&padded), Some("main".to_owned()), "{padded:?}");
+        }
     }
 
     #[test]

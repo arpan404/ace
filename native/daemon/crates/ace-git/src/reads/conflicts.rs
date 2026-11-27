@@ -488,6 +488,21 @@ mod tests {
     }
 
     #[test]
+    fn the_separator_ignores_only_ecmascript_whitespace_after_its_seven_equals() {
+        // `line.slice(7).trim()` in the TypeScript: a space, tab or NBSP after the seven `=`
+        // leaves nothing, U+0085 (Rust's whitespace, not the runtime's) leaves text.
+        for (separator, hunks) in [
+            ("=======\n", true),
+            ("======= \t\n", true),
+            ("======= \u{00A0}\n", true),
+            ("======= \u{0085}\n", false),
+        ] {
+            let text = format!("<<<<<<< a\nx\n{separator}y\n>>>>>>> b");
+            assert_eq!(has_conflict_hunks(&text), hunks, "{separator:?}");
+        }
+    }
+
+    #[test]
     fn marker_like_lines_that_open_no_complete_hunk_stay_text() {
         let markdown = "Title\n=======\n<<<<<<< not closed\nstill text\n";
         assert_eq!(
