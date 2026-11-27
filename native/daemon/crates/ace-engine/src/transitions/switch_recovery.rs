@@ -144,6 +144,26 @@ mod tests {
         .expect("a state")
     }
 
+    // `switch-recovery.ts:44`: the note is cut at 16,384 UTF-16 units, so an astral character
+    // that straddles the cut costs two units, not one code point.
+    #[test]
+    fn the_work_context_is_cut_at_utf16_units_across_an_astral_boundary() {
+        let header = "Execution recovery after switching providers:\nA provider switch was requested. Source native work may have been interrupted and must be checked before restarting; no completion is implied.\n";
+        let before = ace_json::JsString::from(header).len_utf16();
+        // The emoji starts at unit 16,383, so its low half falls past the 16,384-unit cut.
+        let native = format!("{}\u{1f600}", "a".repeat(16_383 - before));
+        let context = switch_work_context(&state(), &[native]).expect("a context");
+        assert_eq!(
+            ace_json::JsString::from(context.as_str()).len_utf16(),
+            16_384,
+            "the cut counts UTF-16 units, not code points"
+        );
+        assert!(
+            context.ends_with('\u{fffd}'),
+            "the half character the cut leaves is shown as the replacement, never a whole emoji"
+        );
+    }
+
     fn agent(limited: bool, status: &str) -> serde_json::Value {
         let mut record = serde_json::json!({
             "agent": {
