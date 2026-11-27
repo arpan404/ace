@@ -11,7 +11,8 @@ use std::sync::OnceLock;
 use ace_json::{Array, JsString, Map, Number, Value};
 use regex::Regex;
 
-use crate::error::{DeviceErrorCode, DeviceFailure};
+use super::args::{ArgumentError, SimTool};
+use crate::error::{DeviceErrorCode, DeviceFailure, DevicePermission};
 
 /// The hint an Android device with no live video gives its agent.
 pub const STILL_WORKS: [&str; 3] = ["sim_act input", "sim_screenshot", "sim_ui"];
@@ -218,9 +219,53 @@ pub fn public_failure(failure: &DeviceFailure, own: bool) -> PublicFailure {
             .find(|candidate| **candidate == code)
             .copied()
             .unwrap_or("command_failed"),
-        permission: failure.permission,
+        // `PublicToolError` keeps a permission only on a permission refusal.
+        permission: (failure.code == DeviceErrorCode::PermissionDenied)
+            .then_some(failure.permission)
+            .flatten(),
         message: own.then(|| failure.message.clone()),
     }
+}
+
+/// The hint `PublicToolError` gives a permission refusal, over the catalog's.
+fn permission_hint(permission: DevicePermission) -> &'static str {
+    match permission {
+        DevicePermission::ScreenRecording => {
+            "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper."
+        }
+        DevicePermission::Accessibility => {
+            "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper."
+        }
+    }
+}
+
+/// `PublicToolError`'s cleanup of ace's own detail: control characters become spaces,
+/// a 64-character hex run is redacted, and the text is cut at 256 UTF-16 units.
+fn detail_text(message: &JsString) -> JsString {
+    static HEX: OnceLock<Option<Regex>> = OnceLock::new();
+    let sanitized: Vec<u16> = message
+        .units()
+        .map(|unit| {
+            if unit < 0x20 || unit == 0x7f {
+                0x20
+            } else {
+                unit
+            }
+        })
+        .collect();
+    let text = JsString::from_units(&sanitized);
+    let redacted = HEX
+        .get_or_init(|| Regex::new(r"(?i)[a-f0-9]{64}").ok())
+        .as_ref()
+        .map_or_else(
+            || text.as_str().to_owned(),
+            |pattern| {
+                pattern
+                    .replace_all(text.as_str(), "[redacted]")
+                    .into_owned()
+            },
+        );
+    JsString::from_units(&redacted.encode_utf16().take(256).collect::<Vec<_>>())
 }
 
 /// `simFailure`: the JSON body an agent's tool call reports, exactly as
@@ -235,12 +280,64 @@ pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
         Some(words) => (JsString::from(words.message), JsString::from(words.hint)),
         None => (failure.message.clone(), failure.hint.clone()),
     };
+    let hint = public.permission.map_or(hint, |permission| {
+        JsString::from(permission_hint(permission))
+    });
     let mut out = Map::new();
     out.insert("code", Value::String(JsString::from(public.code)));
     out.insert("message", Value::String(message));
     out.insert("hint", Value::String(hint));
     if let Some(detail) = public.message {
-        out.insert("detail", Value::String(detail));
+        out.insert("detail", Value::String(detail_text(&detail)));
+    }
+    if let Some(permission) = public.permission {
+        out.insert(
+            "permission",
+            Value::String(JsString::from(permission.as_str())),
+        );
+    }
+    Value::Object(out)
+}
+
+/// `parseToolArguments` + `toolFailure` for a decoding failure: the public
+/// `invalid_arguments` code, its catalog words, the field issues in order, and —
+/// only when a field or variant does not exist — where to find the schema.
+pub fn arguments_body(tool: SimTool, error: &ArgumentError) -> Value {
+    let words = ace_mcp::catalog::catalog()
+        .ok()
+        .and_then(|catalog| catalog.errors.get("invalid_arguments").cloned());
+    let (message, hint) = match words {
+        Some(words) => (JsString::from(words.message), JsString::from(words.hint)),
+        None => (
+            JsString::from("Invalid tool arguments"),
+            JsString::from(
+                "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
+            ),
+        ),
+    };
+    let mut out = Map::new();
+    out.insert("code", Value::String(JsString::from("invalid_arguments")));
+    out.insert("message", Value::String(message));
+    out.insert("hint", Value::String(hint));
+    let mut issues = Array::new();
+    for issue in &error.issues {
+        let mut entry = Map::new();
+        entry.insert("path", Value::String(JsString::from(issue.path.as_str())));
+        entry.insert(
+            "expected",
+            Value::String(JsString::from(issue.expected.as_str())),
+        );
+        issues.push(Value::Object(entry));
+    }
+    out.insert("issues", Value::Array(issues));
+    if error.shape {
+        out.insert(
+            "detail",
+            Value::String(JsString::from(format!(
+                "tools_find {} returns its schema.",
+                tool.as_str()
+            ))),
+        );
     }
     Value::Object(out)
 }

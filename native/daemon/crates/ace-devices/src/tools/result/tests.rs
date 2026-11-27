@@ -6,8 +6,8 @@
 //! decisions the shell renders.
 
 use super::{
-    android_without_video, failure_body, public_failure, screenshot_note, summary, with_guidance,
-    without_video,
+    android_without_video, arguments_body, failure_body, public_failure, screenshot_note, summary,
+    with_guidance, without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
 use ace_json::{JsString, Number, Value, json};
@@ -349,4 +349,100 @@ fn an_ios_id_of_non_ascii_digits_is_not_a_device() {
         "controller": "none"
     });
     assert_eq!(summary(&raw), raw);
+}
+
+#[test]
+fn an_argument_error_is_the_invalid_arguments_body() {
+    let error = crate::tools::args::decode(
+        crate::tools::args::SimTool::Act,
+        &json!({ "simId": IOS, "action": "tap", "x": 1 }),
+    )
+    .expect_err("half a point");
+    let body = arguments_body(crate::tools::args::SimTool::Act, &error);
+    assert_eq!(
+        body,
+        json!({
+            "code": "invalid_arguments",
+            "message": "Invalid tool arguments",
+            "hint": "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
+            "issues": [
+                { "path": "ref", "expected": "tap needs either ref or both x and y" }
+            ]
+        })
+    );
+
+    // A field or variant that does not exist also points at the tool's schema.
+    let error = crate::tools::args::decode(
+        crate::tools::args::SimTool::Stop,
+        &json!({ "simId": IOS, "machine": "m" }),
+    )
+    .expect_err("an unknown field");
+    let body = arguments_body(crate::tools::args::SimTool::Stop, &error);
+    assert_eq!(
+        body,
+        json!({
+            "code": "invalid_arguments",
+            "message": "Invalid tool arguments",
+            "hint": "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
+            "issues": [
+                { "path": "machine", "expected": "no such field; fields here: simId" }
+            ],
+            "detail": "tools_find sim_stop returns its schema."
+        })
+    );
+}
+
+#[test]
+fn a_permission_refusal_names_its_permission_and_the_settings_hint() {
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::PermissionDenied,
+        message: JsString::from("the helper lacks screen recording"),
+        hint: JsString::from(crate::service::words::tool_hint("personBusyHint")),
+        permission: Some(crate::error::DevicePermission::ScreenRecording),
+        platform: None,
+    };
+    let body = failure_body(&failure, true);
+    assert_eq!(
+        body,
+        json!({
+            "code": "permission_denied",
+            "message": "Device or screen permission denied",
+            "hint": "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper.",
+            "detail": "the helper lacks screen recording",
+            "permission": "screenRecording"
+        })
+    );
+
+    // A permission on any other code is not the failure's to name.
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::CommandFailed,
+        message: JsString::from("no"),
+        hint: JsString::from("no"),
+        permission: Some(crate::error::DevicePermission::Accessibility),
+        platform: None,
+    };
+    assert!(failure_body(&failure, true).get("permission").is_none());
+}
+
+#[test]
+fn a_detail_keeps_ace_s_words_but_not_control_characters_or_long_hex() {
+    let secret = "0123456789abcdef".repeat(4);
+    let message = format!("element\u{0007} named {secret} {}end", "x".repeat(300));
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::StaleRef,
+        message: JsString::from(message),
+        hint: JsString::from("hint"),
+        permission: None,
+        platform: None,
+    };
+    let body = failure_body(&failure, true);
+    let detail = body
+        .get("detail")
+        .and_then(ace_json::Value::as_str)
+        .expect("a detail");
+    assert!(!detail.contains('\u{0007}'));
+    assert!(!detail.contains(&secret));
+    assert!(detail.contains("[redacted]"));
+    // The sanitized detail is cut at 256 UTF-16 units, as `PublicToolError` slices it.
+    assert_eq!(detail.encode_utf16().count(), 256);
 }

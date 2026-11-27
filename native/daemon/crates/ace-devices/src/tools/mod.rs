@@ -13,4 +13,4 @@ pub mod result;
 
 pub use args::{Args, ArgumentError, Issue, SimTool, decode};
 pub use describe::{Descriptor, descriptor};
-pub use result::{PublicFailure, SimResult, failure_body, public_failure};
+pub use result::{PublicFailure, SimResult, arguments_body, failure_body, public_failure};
