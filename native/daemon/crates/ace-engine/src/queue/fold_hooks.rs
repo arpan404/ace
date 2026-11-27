@@ -9,7 +9,7 @@
 use ace_json::Value;
 use std::rc::Rc;
 
-use crate::repository::collaborators::{InputFacts, PendingInfo, ProbeGate, QueueInfo};
+use crate::repository::collaborators::{InputFacts, PendingInfo, QueueInfo};
 use crate::{Core, EngineError, State};
 
 impl State {
@@ -188,13 +188,37 @@ impl InputFacts for State {
         self.bind_started_run_with(thread, run, generation)
     }
 
-    /// E5.5's `root-run-start.ts`.
+    /// E5.5's `root-run-start.ts`: the handed-over intent's own kind and trigger come from its
+    /// stored row, since `PendingInfo` carries only what the fold needs elsewhere.
     fn root_run_start(
         &mut self,
         trigger: &str,
-        _handed: Option<&PendingInfo>,
+        handed: Option<&PendingInfo>,
     ) -> Result<(String, bool), EngineError> {
-        self.not_ported("a root run start", "E5.5", (trigger.to_owned(), true))
+        let handed = match (handed, self.engine()?) {
+            (Some(handed), Some(core)) => {
+                const SQL: &str = "SELECT kind, trigger FROM intents WHERE id=?";
+                let row = ace_store::stmt_cache::get_row(
+                    core.store.conn(),
+                    SQL,
+                    vec![ace_store::Value::Integer(handed.id)],
+                )?;
+                row.map(|row| crate::delivery::root_run_start::HandedOver {
+                    kind: row
+                        .get("kind")
+                        .and_then(crate::repository::residency::cell_text)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    trigger: row
+                        .get("trigger")
+                        .and_then(crate::repository::residency::cell_text)
+                        .map(str::to_owned),
+                })
+            }
+            _ => None,
+        };
+        let answer = crate::delivery::root_run_start::root_run_start(trigger, handed.as_ref());
+        Ok((answer.trigger, answer.takes_input))
     }
 
     /// `goalChange` (`goal-change.ts:14`).
@@ -208,5 +232,153 @@ impl InputFacts for State {
             crate::rules::GoalChange::Clear => Some(Value::Null),
             crate::rules::GoalChange::Set(goal) => Some(goal),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::executor::{Notified, Notifier};
+    use crate::repository::testsupport::{Shell, home};
+    use ace_json::Value;
+
+    struct Pump;
+
+    impl Notifier for Pump {
+        fn notify(&self) -> Notified {
+            Notified::Posted
+        }
+    }
+
+    fn value(text: &str) -> Value {
+        ace_json::parse(text).expect("json")
+    }
+
+    /// A stored home whose root agent is `agent-root`, written the way the TypeScript engine
+    /// leaves one: the header, and the index section that names the agent's key.
+    fn home_with_root() -> std::sync::Arc<ace_store::Connection> {
+        let header = r#"{"engineSnapshot":9,"threadId":"t","config":{"provider":"codex","silenceMs":1000},"rootKey":"root","agents":{"root":{"agent":{"id":"agent-root","threadId":"t","parentId":null,"origin":"person","native":{"provider":"codex","nativeId":"native-root"},"status":{"state":"idle"},"fidelity":"full","cwd":"/tmp","background":false,"createdAt":1},"activity":"idle","lastSignalAt":1}},"runs":{},"items":{},"interactions":{},"tasks":{},"interactionHistory":{},"taskHistory":{},"indexes":{"liveTools":{},"pendingInteractions":{},"runningTasks":{},"agentKeysById":{},"childrenByParent":{},"pendingSpawnLinks":{},"pendingItemLinks":{}},"outcomeOrder":0,"pendingNotices":[],"itemLinks":{},"queueCount":0,"queueSources":{"engine":0,"provider":0},"hasRun":false,"status":{"state":"new"}}"#;
+        let conn = home("t", header);
+        conn.exec(
+            "INSERT INTO engine_state_records VALUES ('t', 'agentKeysById', 'agent-root', '\"root\"')",
+        )
+        .unwrap();
+        conn.exec("INSERT INTO engine_queue (thread_id) VALUES ('t')")
+            .unwrap();
+        conn
+    }
+
+    /// A send the engine handed the provider, with the trigger it was admitted under.
+    fn handed_over(conn: &std::sync::Arc<ace_store::Connection>, trigger: Option<&str>) {
+        let trigger = trigger
+            .map(|trigger| format!("'{trigger}'"))
+            .unwrap_or_else(|| "NULL".to_owned());
+        conn.exec(&format!(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,attempts,awaiting,ack_target,delivery,trigger,submitted_generation) \
+             VALUES ('send','t','thread.send','{{\"id\":\"send\",\"deviceId\":\"device\",\"payload\":{{\"type\":\"thread.send\",\"threadId\":\"t\",\"input\":[{{\"type\":\"text\",\"text\":\"hello\"}}]}}}}','running',0,1,1,'queue',{trigger},1)"
+        ))
+        .unwrap();
+    }
+
+    fn engine_on(conn: &std::sync::Arc<ace_store::Connection>) -> crate::Engine {
+        let (_, shell) = Shell::store_with_controls(conn);
+        crate::Engine::new(
+            shell.clone(),
+            shell,
+            crate::Inputs::default(),
+            "[]",
+            Box::new(Pump),
+            conn,
+            std::rc::Rc::new(crate::actor::ActorDeps::production(
+                std::rc::Rc::new(crate::frames::live::UnportedLive),
+                0.0,
+            )),
+        )
+        .expect("engine")
+    }
+
+    /// Applies one `turn.started` fact and returns the engine.
+    fn start_run(conn: &std::sync::Arc<ace_store::Connection>, trigger: &str) -> crate::Engine {
+        let engine = engine_on(conn);
+        let core = engine.core();
+        core.with_state(|state| state.repo.probe_passthrough = true)
+            .unwrap();
+        let facts = format!(
+            r#"[{{"type":"turn.started","agent":"root","trigger":"{trigger}","nativeTurnId":"turn-1"}}]"#
+        );
+        core.with_state(|state| state.apply(&core.store, "t", &facts, 1_000.0, Some(1.0)))
+            .unwrap()
+            .unwrap();
+        engine
+    }
+
+    fn run_trigger(engine: &crate::Engine) -> Option<String> {
+        let core = engine.core();
+        let snapshot = core
+            .with_state(|state| state.repo.require_state(&core.store, "t"))
+            .unwrap()
+            .unwrap();
+        snapshot
+            .borrow()
+            .state
+            .runs
+            .values()
+            .next()
+            .map(|run| run.trigger.clone())
+    }
+
+    fn intent(conn: &std::sync::Arc<ace_store::Connection>) -> (bool, bool) {
+        let row = ace_store::stmt_cache::get_row(
+            conn,
+            "SELECT awaiting, acknowledged FROM intents WHERE command_id='send'",
+            Vec::new(),
+        )
+        .unwrap()
+        .expect("the intent");
+        let int = |key: &str| {
+            row.get(key)
+                .and_then(crate::repository::residency::cell_int)
+                == Some(1)
+        };
+        (int("awaiting"), int("acknowledged"))
+    }
+
+    #[test]
+    fn a_given_input_run_takes_the_handed_over_notice_and_carries_its_trigger() {
+        let conn = home_with_root();
+        handed_over(&conn, Some("background_completion"));
+        let engine = start_run(&conn, "user");
+        // The root run records the notice's own trigger, not the provider's "user".
+        assert_eq!(
+            run_trigger(&engine).as_deref(),
+            Some("background_completion")
+        );
+        // And its start takes the input: the provider has it.
+        let (awaiting, acknowledged) = intent(&conn);
+        assert!(!awaiting, "the input is no longer awaiting");
+        assert!(acknowledged, "the input is acknowledged");
+    }
+
+    #[test]
+    fn a_providers_own_wake_takes_nothing_and_the_input_stays_handed_over() {
+        let conn = home_with_root();
+        handed_over(&conn, Some("background_completion"));
+        let engine = start_run(&conn, "subagent_result");
+        // The provider woke for its own reason: the trigger is kept as it reported it.
+        assert_eq!(run_trigger(&engine).as_deref(), Some("subagent_result"));
+        let (awaiting, acknowledged) = intent(&conn);
+        assert!(awaiting, "the input still waits for its run");
+        assert!(!acknowledged);
+    }
+
+    #[test]
+    fn a_persons_message_with_no_trigger_of_its_own_keeps_the_runs_trigger() {
+        let conn = home_with_root();
+        handed_over(&conn, None);
+        let engine = start_run(&conn, "user");
+        assert_eq!(run_trigger(&engine).as_deref(), Some("user"));
+        let (awaiting, acknowledged) = intent(&conn);
+        assert!(!awaiting);
+        assert!(acknowledged);
+        let _ = value("{}");
     }
 }
