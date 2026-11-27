@@ -741,6 +741,32 @@ fn a_permission_refusal_names_its_permission_and_the_settings_hint() {
 }
 
 #[test]
+fn a_long_hex_run_is_redacted_at_the_offsets_a_global_replace_leaves() {
+    // `String.prototype.replace(/[a-f0-9]{64}/gi)` resumes after each match: 100,000 hex
+    // units are 1,562 redactions and a 32-unit tail, whatever the scan does underneath.
+    let units = |text: &str| -> Vec<u16> { text.encode_utf16().collect() };
+    let hex = "0123456789abcdef".repeat(6_250);
+    assert_eq!(hex.len(), 100_000);
+    let mut expected = units(&"[redacted]".repeat(1_562));
+    expected.extend(units(&"0123456789abcdef".repeat(2)));
+    assert_eq!(super::redact_hex(&units(&hex)), expected);
+
+    // Either side of one match: 63 units stay, 64 go, 129 leave one unit behind.
+    assert_eq!(
+        super::redact_hex(&units(&"a".repeat(63))),
+        units(&"a".repeat(63))
+    );
+    assert_eq!(
+        super::redact_hex(&units(&"a".repeat(64))),
+        units("[redacted]")
+    );
+    assert_eq!(
+        super::redact_hex(&units(&"a".repeat(129))),
+        units("[redacted][redacted]a")
+    );
+}
+
+#[test]
 fn a_detail_keeps_ace_s_words_but_not_control_characters_or_long_hex() {
     let secret = "0123456789abcdef".repeat(4);
     let message = format!("element\u{0007} named {secret} {}end", "x".repeat(300));

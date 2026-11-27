@@ -286,6 +286,10 @@ pub fn public_words(code: &str) -> ErrorWords {
 /// `/[a-f0-9]{64}/gi`, over UTF-16 units: a lone surrogate in the text is neither
 /// matched nor rewritten, as `String.prototype.replace` leaves it. A run longer than
 /// 64 keeps its tail, because JavaScript resumes after the match it replaced.
+///
+/// The lookahead stops at one match's worth of units: 64 hex units mean a match here,
+/// fewer mean none, so the pass stays linear on a long run instead of rescanning the
+/// rest of it before every step.
 fn redact_hex(units: &[u16]) -> Vec<u16> {
     const RUN: usize = 64;
     /// `[a-f0-9]`, as a code unit: a surrogate or any other character never matches.
@@ -295,8 +299,12 @@ fn redact_hex(units: &[u16]) -> Vec<u16> {
     let mut out = Vec::with_capacity(units.len());
     let mut at = 0;
     while at < units.len() {
-        let run = units[at..].iter().take_while(|unit| is_hex(**unit)).count();
-        if run >= RUN {
+        let run = units[at..]
+            .iter()
+            .take(RUN)
+            .take_while(|unit| is_hex(**unit))
+            .count();
+        if run == RUN {
             out.extend("[redacted]".encode_utf16());
             at += RUN;
         } else {
