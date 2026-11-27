@@ -1590,6 +1590,124 @@ fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
 }
 
 #[test]
+fn a_discovery_that_reports_success_after_its_timeout_never_commits() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let discover = FakeDiscover::new(|request, signal| {
+        Box::pin(async move {
+            signal.wait().await;
+            Ok(models(&request.instance, &["late-success"]))
+        })
+    });
+    let fixture = fixture(
+        vec![codex],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let catalog = fixture.catalog.clone();
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(
+        poll_once(flight.as_mut()).is_pending(),
+        "the discovery waits"
+    );
+    // The deadline fires, and the discovery answers success on the same poll anyway.
+    fixture.deadlines.fire(1_000.0 + 1_000.0);
+    let status = futures::executor::block_on(flight);
+    assert_eq!(status.error, Some(StatusError::Timeout));
+    assert_eq!(fixture.discover.calls(), 1);
+    let listed = catalog
+        .list(ModelFilter::default(), 0, 100)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert!(
+        listed
+            .models
+            .iter()
+            .all(|model| model.id.0 != "late-success"),
+        "an aborted discovery's rows never reach the picker"
+    );
+}
+
+#[test]
+fn a_deadline_fired_before_the_discovery_arms_one_leaves_it_whole() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let admit: super::Admit = std::sync::Arc::new(move || {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(())
+        })
+    });
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let catalog = fixture.catalog.clone();
+    catalog
+        .register_instance(codex, Some(admit))
+        .unwrap_or_else(|error| panic!("{error}"));
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(
+        poll_once(flight.as_mut()).is_pending(),
+        "admission is pending"
+    );
+    // No timer is armed while admission runs, so this one belongs to no discovery.
+    fixture.deadlines.fire(1_000.0 + 1_000.0);
+    gate.open();
+    let status = futures::executor::block_on(flight);
+    assert_eq!(status.error, None, "the admission's own discovery is whole");
+    assert_eq!(fixture.discover.calls(), 1);
+    assert_eq!(listed(&catalog).models.len(), 1);
+}
+
+#[test]
+fn a_revocation_during_admission_launches_no_discovery() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let admit: super::Admit = std::sync::Arc::new(move || {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(())
+        })
+    });
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(
+        vec![codex.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        discover.clone(),
+    );
+    let catalog = fixture.catalog.clone();
+    catalog
+        .register_instance(codex.clone(), Some(admit))
+        .unwrap_or_else(|error| panic!("{error}"));
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(
+        poll_once(flight.as_mut()).is_pending(),
+        "admission is pending"
+    );
+    catalog
+        .register_instance(
+            ModelInstance {
+                login_revision: "2".to_owned(),
+                ..codex
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    gate.open();
+    let _ = futures::executor::block_on(flight);
+    assert_eq!(
+        fixture.discover.calls(),
+        0,
+        "the revoked admission never launches discovery"
+    );
+}
+
+#[test]
 fn a_live_accounts_connection_probe_settles_the_catalog() {
     for succeeds in [true, false] {
         let (fingerprint, reported_error, listed, closed) =

@@ -142,9 +142,12 @@ impl Catalog {
                     id,
                     None,
                     FailureCode::DiscoveryFailed,
-                    now,
-                    &DiscoveryDiagnostics::default(),
-                    "",
+                    &FailureReport {
+                        started_at: now,
+                        diagnostics: &DiscoveryDiagnostics::default(),
+                        revision: "",
+                        token: None,
+                    },
                 );
                 return FlightStart::Skipped;
             }
@@ -237,22 +240,9 @@ impl Catalog {
                 merge_diagnostics(&mut current, metadata);
             })
         };
-        let mut timed_out = false;
-        let expire: Box<dyn Fn() + Send + Sync> = {
-            let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let flag = timed_out.clone();
-            let signal = signal.clone();
-            Box::new(move || {
-                flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                signal.abort();
-            })
-        };
-        let cancel = self.options.deadline.arm(self.options.timeout_ms, expire);
-        let timed_out_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let _ = &timed_out_flag;
-        // The deadline's own flag is private to the closure; a second signal-only race
-        // tells an abort from a timeout by asking whether the deadline fired.
-        let abort_signal = signal.clone();
+        // A deadline that fired while admission was pending revokes the whole flight; the
+        // timer is armed only around the discovery itself.
+        let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
         // A failed home/identity guard revokes cached choices and never launches the
         // provider; a CLI below ace's minimum is refused before it is probed.
         let admit =
@@ -280,10 +270,22 @@ impl Catalog {
                 id,
                 Some(DiscoveryFailure::new(&error)),
                 FailureCode::DiscoveryFailed,
-                started_at,
-                &DiscoveryDiagnostics::default(),
-                &revision,
+                &FailureReport {
+                    started_at,
+                    diagnostics: &DiscoveryDiagnostics::default(),
+                    revision: &revision,
+                    token: Some(flight.token),
+                },
             );
+            return;
+        }
+        // Admission can outlive a deadline or a revocation; either way nothing launches.
+        let fence = FlightFence {
+            flight: &flight,
+            signal: &signal,
+            revision: &revision,
+        };
+        if !self.flight_current(id, &fence) {
             return;
         }
         if let Some(cli) = crate::cli::provider_cli(&config.provider.to_string())
@@ -298,12 +300,24 @@ impl Catalog {
                     ..DiscoveryFailure::default()
                 }),
                 FailureCode::CliTooOld,
-                started_at,
-                &DiscoveryDiagnostics::default(),
-                &revision,
+                &FailureReport {
+                    started_at,
+                    diagnostics: &DiscoveryDiagnostics::default(),
+                    revision: &revision,
+                    token: Some(flight.token),
+                },
             );
             return;
         }
+        // The deadline covers the discovery alone: an early refusal leaves no timer armed.
+        let cancel = self.options.deadline.arm(self.options.timeout_ms, {
+            let flag = timed_out.clone();
+            let signal = signal.clone();
+            Box::new(move || {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                signal.abort();
+            })
+        });
         let inflight = self.options.discover.discover(
             DiscoveryRequest {
                 instance: with_binary_path(
@@ -314,38 +328,46 @@ impl Catalog {
             signal.clone(),
             sink,
         );
-        let outcome = futures::future::select(inflight, abort_signal.wait()).await;
-        let result = match outcome {
-            futures::future::Either::Left((result, _)) => {
-                cancel();
-                Some(result)
-            }
-            futures::future::Either::Right(((), _)) => {
-                // The deadline's abort and a caller's abort look the same here; a timed-out
-                // discovery is the one the deadline armed, so treat it as a timeout.
-                cancel();
-                timed_out = true;
-                None
+        let outcome = futures::future::select(inflight, Box::pin(signal.wait())).await;
+        cancel();
+        let aborted = signal.is_aborted();
+        let fired = timed_out.load(std::sync::atomic::Ordering::SeqCst);
+        // A discovery that reports success after its abort, or one the deadline caught
+        // on the same poll, still writes nothing.
+        let result = if aborted {
+            None
+        } else {
+            match outcome {
+                futures::future::Either::Left((result, _)) => Some(result),
+                futures::future::Either::Right(((), _)) => None,
             }
         };
+        let aborted = aborted || signal.is_aborted();
+        if aborted && !fired {
+            // A removal, login change or settings change revoked the flight, not a timer.
+            return;
+        }
         let diagnostics = diagnostics
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
+        let failure_report = FailureReport {
+            started_at,
+            diagnostics: &diagnostics,
+            revision: &revision,
+            token: Some(flight.token),
+        };
         match result {
             None => {
-                let _ = timed_out;
                 self.fail(
                     id,
                     None,
-                    if timed_out {
+                    if fired {
                         FailureCode::Timeout
                     } else {
                         FailureCode::DiscoveryFailed
                     },
-                    started_at,
-                    &diagnostics,
-                    &revision,
+                    &failure_report,
                 );
             }
             Some(Err(failure)) => {
@@ -359,26 +381,23 @@ impl Catalog {
                             .find(|known| known.as_str() == code)
                     })
                     .unwrap_or(FailureCode::DiscoveryFailed);
-                self.fail(id, Some(failure), code, started_at, &diagnostics, &revision);
+                self.fail(id, Some(failure), code, &failure_report);
             }
             Some(Ok(outcome)) => {
-                self.commit(
-                    id,
-                    outcome,
-                    started_at,
-                    &diagnostics,
-                    &revision,
-                    &flight,
-                    &signal,
-                )
-                .await;
+                self.commit(id, outcome, started_at, &diagnostics, &fence)
+                    .await;
             }
         }
     }
 
     /// Whether a flight may still write: it owns its row and token, was not aborted, and
     /// the row's effective revision is still the one it started under.
-    fn flight_current(&self, id: &str, flight: &Flight, signal: &Signal, revision: &str) -> bool {
+    fn flight_current(&self, id: &str, fence: &FlightFence<'_>) -> bool {
+        let FlightFence {
+            flight,
+            signal,
+            revision,
+        } = *fence;
         if signal.is_aborted() {
             return false;
         }
@@ -404,10 +423,14 @@ impl Catalog {
         id: &str,
         failure: Option<DiscoveryFailure>,
         fallback: FailureCode,
-        started_at: f64,
-        diagnostics: &DiscoveryDiagnostics,
-        revision: &str,
+        facts: &FailureReport<'_>,
     ) {
+        let FailureReport {
+            started_at,
+            diagnostics,
+            revision,
+            token,
+        } = *facts;
         let Some((config, sources)) = self.with_inner(|inner| {
             let state = inner.states.get(id)?;
             let sources = state
@@ -482,6 +505,11 @@ impl Catalog {
                 return false;
             };
             if state.probe_revision.as_deref() != Some(revision) {
+                return false;
+            }
+            if let Some(token) = token
+                && state.flight_token != Some(token)
+            {
                 return false;
             }
             state.error_detail = Some(detail.clone());
@@ -582,32 +610,37 @@ impl Catalog {
         outcome: crate::catalog::DiscoveryOutcome,
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
-        revision: &str,
-        flight: &Flight,
-        signal: &Signal,
+        fence: &FlightFence<'_>,
     ) {
+        let FlightFence {
+            flight, revision, ..
+        } = *fence;
         let Some(config) = self.registered(id) else {
             return;
+        };
+        let failure_report = FailureReport {
+            started_at,
+            diagnostics,
+            revision,
+            token: Some(flight.token),
         };
         if outcome.models.is_empty() && outcome.sources.is_none() {
             self.fail(
                 id,
                 Some(DiscoveryFailure::new("The CLI returned no model choices")),
                 FailureCode::DiscoveryFailed,
-                started_at,
-                diagnostics,
-                revision,
+                &failure_report,
             );
             return;
         }
-        if !self.flight_current(id, flight, signal, revision) {
+        if !self.flight_current(id, fence) {
             return;
         }
         let release = self.hold_writes(id).await;
         // A login change's deletion for this row finishes before the row is written again,
         // and the row must still be this flight's after the wait.
         self.await_deletion(id).await;
-        if !self.flight_current(id, flight, signal, revision) {
+        if !self.flight_current(id, fence) {
             drop(release);
             return;
         }
@@ -619,7 +652,7 @@ impl Catalog {
                 .map(|entry| Arc::new((**entry).clone()))
         });
         if self.finish_deletion(id).is_err() {
-            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
+            self.commit_failed(id, started_at, diagnostics, fence);
             drop(release);
             return;
         }
@@ -669,14 +702,14 @@ impl Catalog {
             .any(|row| ace_models::row::validate_row(row).is_err())
             || crate::cache::validate_entry(&entry).is_err();
         if row_error {
-            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
+            self.commit_failed(id, started_at, diagnostics, fence);
             drop(release);
             return;
         }
         let mut storage = self.storage.clone();
         let stored = storage.replace(&entry);
         if stored.is_err() {
-            self.commit_failed(id, flight, signal, started_at, diagnostics, revision);
+            self.commit_failed(id, started_at, diagnostics, fence);
             drop(release);
             return;
         }
@@ -791,16 +824,17 @@ impl Catalog {
     fn commit_failed(
         &self,
         id: &str,
-        flight: &Flight,
-        signal: &Signal,
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
-        revision: &str,
+        fence: &FlightFence<'_>,
     ) {
+        let FlightFence {
+            flight, revision, ..
+        } = *fence;
         let Some(config) = self.registered(id) else {
             return;
         };
-        if !self.flight_current(id, flight, signal, revision) {
+        if !self.flight_current(id, fence) {
             return;
         }
         let mutated = self.with_inner(|inner| {
@@ -819,13 +853,33 @@ impl Catalog {
                 id,
                 None,
                 FailureCode::PersistenceFailed,
-                started_at,
-                diagnostics,
-                revision,
+                &FailureReport {
+                    started_at,
+                    diagnostics,
+                    revision,
+                    token: Some(flight.token),
+                },
             );
             self.notify_config(&config);
         }
     }
+}
+
+/// What one flight still has to be for its result to count: its own token and generation,
+/// no abort, and the effective revision it started under.
+struct FlightFence<'a> {
+    flight: &'a Flight,
+    signal: &'a Signal,
+    revision: &'a str,
+}
+
+/// One flight's local report of a failure: when it started, what its port learned, the
+/// revision it ran under and the token that still has to own the row.
+struct FailureReport<'a> {
+    started_at: f64,
+    diagnostics: &'a DiscoveryDiagnostics,
+    revision: &'a str,
+    token: Option<u64>,
 }
 
 enum FlightStart {
