@@ -420,6 +420,101 @@ fn a_window_reads_every_chat_whatever_arrived() {
     assert!(scopes.iter().all(|scope| scope.with_chats));
 }
 
+/// Paging asks the store for one page of the initial `scope.limit`, never the grown window limit,
+/// while a live resend re-reads the full grown window (`sidebar-subscription.ts:88, :237`).
+#[test]
+fn paging_keeps_the_initial_page_size_while_live_resends_cover_the_grown_window() {
+    struct PagedStore {
+        pages: RefCell<std::collections::VecDeque<SidebarPage>>,
+        scopes: RefCell<Vec<SidebarWindow>>,
+    }
+    impl SidebarStore for PagedStore {
+        fn sidebar_page(
+            &self,
+            scope: &SidebarWindow,
+            _before: Option<&ThreadListCursor>,
+            _reuse: Option<PageReuse<'_>>,
+        ) -> SidebarPage {
+            self.scopes.borrow_mut().push(scope.clone());
+            self.pages
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or_else(|| SidebarPage {
+                    threads: Vec::new(),
+                    window: parse(r#"{"revision":1,"before":null,"hasMore":false}"#),
+                })
+        }
+        fn sidebar_row_revision(&self, _entry: &Value) -> Option<u64> {
+            None
+        }
+        fn head_seq(&self) -> u64 {
+            10
+        }
+    }
+
+    let store = PagedStore {
+        pages: RefCell::new(std::collections::VecDeque::from([
+            SidebarPage {
+                threads: vec![entry("a", "w", false), entry("b", "w", false)],
+                window: parse(r#"{"revision":1,"before":{"at":2,"id":"b"},"hasMore":true}"#),
+            },
+            SidebarPage {
+                threads: vec![entry("c", "w", false), entry("d", "w", false)],
+                window: parse(r#"{"revision":1,"before":{"at":1,"id":"d"},"hasMore":true}"#),
+            },
+            SidebarPage {
+                threads: vec![entry("e", "w", false)],
+                window: parse(r#"{"revision":1,"before":null,"hasMore":false}"#),
+            },
+            SidebarPage {
+                threads: vec![
+                    entry("a", "w", false),
+                    entry("b", "w", false),
+                    entry("c", "w", false),
+                    entry("d", "w", false),
+                    entry("e", "w", false),
+                ],
+                window: parse(r#"{"revision":2,"before":null,"hasMore":false}"#),
+            },
+        ])),
+        scopes: RefCell::new(Vec::new()),
+    };
+    let placement = Places::new(
+        "token:activity:0",
+        places(&["a", "b", "c", "d", "e"], "inbox"),
+    );
+    let mut sidebar = SidebarSubscription::new(JsString::from("s"), window(2), false);
+    sidebar.start(&store, &placement, None);
+    sidebar
+        .page(
+            &ThreadListCursor {
+                at: 2,
+                id: "b".to_owned(),
+            },
+            "p1",
+            &store,
+            &placement,
+            None,
+        )
+        .unwrap();
+    sidebar
+        .page(
+            &ThreadListCursor {
+                at: 1,
+                id: "d".to_owned(),
+            },
+            "p2",
+            &store,
+            &placement,
+            None,
+        )
+        .unwrap();
+    sidebar.chat_membership_changed("w", &store, &placement, None);
+
+    let limits: Vec<usize> = store.scopes.borrow().iter().map(|s| s.limit).collect();
+    assert_eq!(limits, vec![2, 2, 2, 5]);
+}
+
 fn frame_type(frame: &Value) -> &str {
     match frame.get("type") {
         Some(Value::String(seen)) => seen.as_str(),

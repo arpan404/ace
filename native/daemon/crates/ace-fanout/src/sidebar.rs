@@ -208,7 +208,20 @@ impl SidebarSubscription {
         self.stopped = true;
     }
 
-    /// The read's scope: the client's page size, filters, and every chat (ADR 0099).
+    /// The read's scope for a single page (`scope` in `sidebar-subscription.ts:55`): the initial
+    /// page size, filters, and every chat (ADR 0099).
+    fn page_scope(&self) -> SidebarWindow {
+        SidebarWindow {
+            limit: self.scope.limit,
+            project: self.scope.project.clone(),
+            archived: self.scope.archived,
+            with_chats: self.scope.with_chats,
+            resume: None,
+        }
+    }
+
+    /// The read's scope for a live re-read (`{ ...scope, limit }` in `sidebar-subscription.ts:88`):
+    /// covers every row paged in so far.
     fn read_scope(&self) -> SidebarWindow {
         SidebarWindow {
             limit: self.limit,
@@ -226,7 +239,7 @@ impl SidebarSubscription {
         placement: &dyn Placement,
         reads: Option<&dyn DeviceReads>,
     ) -> Vec<Value> {
-        let initial = store.sidebar_page(&self.read_scope(), None, None);
+        let initial = store.sidebar_page(&self.page_scope(), None, None);
         self.before = initial.before();
         let revision = initial.revision();
         let resume = self.scope.resume.clone();
@@ -436,7 +449,7 @@ impl SidebarSubscription {
         if stale {
             return Err(SidebarError::StalePageCursor);
         }
-        let next = store.sidebar_page(&self.read_scope(), Some(cursor), None);
+        let next = store.sidebar_page(&self.page_scope(), Some(cursor), None);
         let mut threads = Map::new();
         for entry in &next.threads {
             let Some(id) = entry_id(entry) else {
