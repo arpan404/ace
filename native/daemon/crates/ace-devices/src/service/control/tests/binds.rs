@@ -194,6 +194,35 @@ fn a_replayed_successful_bind_completion_leaves_the_live_recording_alone() {
 }
 
 #[test]
+fn a_replayed_successful_finish_bind_leaves_the_published_recording_alone() {
+    use crate::service::binding::finish_bind;
+
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    let epoch = bind.cleanup_epoch().expect("a cleanup to wait for");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    // The newly bound thread publishes a recording of its own.
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    // The same bind's success is delivered again, straight to `finish_bind`: the
+    // reservation it consumed is the only thing that may refuse it.
+    let refused = finish_bind(&mut session, "t1", epoch, false, true)
+        .expect_err("the reservation was already consumed");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "a consumed reservation does not clear the live recording"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+}
+
+#[test]
 fn a_replayed_failed_bind_completion_leaves_the_live_recording_alone() {
     let mut session = Session::new("ios:AAAA");
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
