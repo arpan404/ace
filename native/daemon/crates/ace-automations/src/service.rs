@@ -161,6 +161,9 @@ pub struct Service<'a> {
     timer: Option<TimerArm>,
     /// Interrupt hand-offs that failed and when they are tried again, per run.
     retries: HashMap<String, Retry>,
+    /// How many interrupt attempts each run has had, kept across a hand-off so the backoff never
+    /// starts over.
+    interrupt_attempts: HashMap<String, u32>,
     /// Settled runs whose terminal write was refused: the outcome and ownership are kept until
     /// SQLite accepts them, and the timer tries again.
     finishes: HashMap<String, Finish>,
@@ -176,7 +179,6 @@ struct TimerArm {
 
 #[derive(Debug, Clone, Copy)]
 struct Retry {
-    attempt: u32,
     due: i64,
 }
 
@@ -207,6 +209,7 @@ impl<'a> Service<'a> {
             generation: 0,
             timer: None,
             retries: HashMap::new(),
+            interrupt_attempts: HashMap::new(),
             finishes: HashMap::new(),
             held: HashMap::new(),
             errors: Vec::new(),
@@ -362,6 +365,7 @@ impl<'a> Service<'a> {
         self.pending.clear();
         self.actions.clear();
         self.retries.clear();
+        self.interrupt_attempts.clear();
         self.finishes.clear();
         self.held.clear();
         self.cancel_timer();
@@ -975,15 +979,22 @@ impl<'a> Service<'a> {
                 return self.settle_finish(&target);
             }
             self.retries.remove(&target);
-            if let Ok(cancelling) = self.store.cancelling()
-                && let Some((_, input)) = cancelling
-                    .into_iter()
-                    .find(|(run, _)| run_id(run).as_deref() == Some(target.as_str()))
-            {
-                self.actions.push(Action::Interrupt {
-                    run_id: target,
-                    input,
-                });
+            match self.store.cancelling() {
+                Ok(cancelling) => {
+                    if let Some((_, input)) = cancelling
+                        .into_iter()
+                        .find(|(run, _)| run_id(run).as_deref() == Some(target.as_str()))
+                    {
+                        self.actions.push(Action::Interrupt {
+                            run_id: target,
+                            input,
+                        });
+                    } else {
+                        self.interrupt_attempts.remove(&target);
+                    }
+                }
+                // A transient lookup failure keeps the retry and its place in the backoff.
+                Err(_) => self.schedule_interrupt_retry(&target),
             }
             self.arm();
             return Ok(None);
@@ -1009,6 +1020,7 @@ impl<'a> Service<'a> {
                 self.pending.remove(run_id);
                 self.finishes.remove(run_id);
                 self.retries.remove(run_id);
+                self.interrupt_attempts.remove(run_id);
                 if let Some(run) = &finished {
                     self.publish(run);
                 }
@@ -1035,19 +1047,26 @@ impl<'a> Service<'a> {
         if !self.lives.live() || self.store.cancellation(run_id).ok().flatten().is_none() {
             return;
         }
-        let attempt = self.retries.get(run_id).map_or(0, |retry| retry.attempt);
+        self.schedule_interrupt_retry(run_id);
+        self.push_error(message);
+        self.arm();
+    }
+
+    /// The TypeScript's backoff (`cancellations.ts:47`), capped at a minute, counted over every
+    /// attempt rather than restarting at each hand-off.
+    fn schedule_interrupt_retry(&mut self, run_id: &str) {
+        let attempt = self.interrupt_attempts.get(run_id).copied().unwrap_or(0);
         let delay = 1000i64
             .saturating_mul(2i64.saturating_pow(attempt.min(6)))
             .min(60_000);
+        self.interrupt_attempts
+            .insert(run_id.to_owned(), attempt.saturating_add(1));
         self.retries.insert(
             run_id.to_owned(),
             Retry {
-                attempt: attempt + 1,
                 due: self.now() + delay,
             },
         );
-        self.push_error(message);
-        self.arm();
     }
 
     /// The delay this service last armed, for a host that asks before firing.
@@ -1183,6 +1202,7 @@ impl<'a> Service<'a> {
                 self.pending.remove(run_id);
                 self.finishes.remove(run_id);
                 self.retries.remove(run_id);
+                self.interrupt_attempts.remove(run_id);
                 if let Some(run) = &finished {
                     self.publish(run);
                 }

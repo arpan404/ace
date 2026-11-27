@@ -542,3 +542,62 @@ fn a_deduplicated_due_schedule_advances_without_another_run_or_notification() {
         "the cursor still advances to the next occurrence"
     );
 }
+
+#[test]
+fn consecutive_interrupt_failures_back_off_to_the_cap_across_hand_offs_and_lookup_errors() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let run = service
+        .trigger("triage", "first", variables("first"), "manual", None)
+        .expect("run");
+    let run_id = run_id(&run);
+    service.take_actions();
+    service.set_enabled("triage", false, None).expect("pause");
+    service.take_actions();
+
+    for delay in [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000] {
+        service.interrupt_failed(&run_id, "Executor unavailable");
+        assert_eq!(service.armed_delay(), Some(delay));
+        service.take_errors();
+    }
+
+    // The hand-off does not reset the count: the next failure still waits the capped minute.
+    h.clock.0.set(h.clock.0.get() + 60_000);
+    service.timer_fired().expect("timer");
+    assert_eq!(interrupts(&service.take_actions()), vec![run_id.clone()]);
+    service.interrupt_failed(&run_id, "Executor unavailable");
+    assert_eq!(service.armed_delay(), Some(60_000));
+    service.take_errors();
+
+    // A transient cancellation lookup error keeps the retry instead of dropping it.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_cancellations RENAME TO automation_cancellations_broken")
+        .expect("break");
+    raw.close().expect("close");
+    h.clock.0.set(h.clock.0.get() + 60_000);
+    service.timer_fired().expect("timer");
+    assert_eq!(service.armed_delay(), Some(60_000));
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_cancellations_broken RENAME TO automation_cancellations")
+        .expect("restore");
+    raw.close().expect("close");
+    h.clock.0.set(h.clock.0.get() + 60_000);
+    service.timer_fired().expect("timer");
+    assert_eq!(interrupts(&service.take_actions()), vec![run_id.clone()]);
+}
