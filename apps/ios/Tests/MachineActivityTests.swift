@@ -73,7 +73,7 @@ import Testing
         let port = FakeMachineActivity()
         // The daemon pushed "1 needs you" at 42; this phone's socket still lists the thread working.
         let pushed = state(seq: 42, needsYou: 1)
-        port.showing[2] = pushed
+        port.show(2, pushed)
         var written: [MachineLockEntry] = []
         var daemonSeq: Int?
         let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, writeMachines: { written = $0 }, reloadWidgets: {}),
@@ -83,7 +83,7 @@ import Testing
         hub.rebuild()
         await hub.settle()
         #expect(port.updated.isEmpty && port.ended.isEmpty)
-        #expect(port.showing[2] == pushed)
+        #expect(port.state(2) == pushed)
         // No snapshot entry goes with 42, so the widget shows the pushed counts alone.
         #expect(written.isEmpty)
         // The socket confirms its rows go with 42: they join, and the daemon's counts and times stay.
@@ -97,7 +97,7 @@ import Testing
         // Rows added locally don't make the counts the app's own: the next inbox change keeps them.
         hub.rebuild()
         await hub.settle()
-        #expect(port.showing[2]?.needsYou == 1 && port.ended.isEmpty)
+        #expect(port.state(2)?.needsYou == 1 && port.ended.isEmpty)
     }
 
     @Test func workStillSyncingNeverReadsAsQuietEvenBesideAMatchingSnapshot() throws {
@@ -129,8 +129,8 @@ import Testing
         ], [:]) }
         hub.rebuild()
         #expect(port.started.map(\.slot) == [0, 1])
-        #expect(port.showing[0]?.working == 1 && port.showing[0]?.needsYou == 0)
-        #expect(port.showing[1]?.needsYou == 1)
+        #expect(port.state(0)?.working == 1 && port.state(0)?.needsYou == 0)
+        #expect(port.state(1)?.needsYou == 1)
     }
 
     @Test func eachMachineKeepsItsSlotAndANewOneTakesTheLowestFree() {
@@ -180,22 +180,41 @@ import Testing
 
 private final class FixtureToken {}
 
-/// The ActivityKit edge as tests see it: what each slot shows, and every write to it.
+/// The ActivityKit edge as tests see it: what each slot shows, and every write to it. It applies
+/// whatever it is told to the named activity, so the hub's own checks are what tests observe.
 @MainActor final class FakeMachineActivity: MachineActivityPort {
     typealias State = MachineActivityAttributes.ContentState
     var systemAllowed = true
     var frequentUpdates = true
     var tokens = LiveActivityTokens()
     var onChange: (@MainActor () -> Void)?
-    var showing: [Int: State] = [:]
+    var showing: [Int: ShownActivity] = [:]
     var started: [(slot: Int, state: State)] = []
-    var updated: [(slot: Int, state: State)] = []
-    var ended: [(slot: Int, state: State?)] = []
+    var updated: [(id: String, state: State)] = []
+    var ended: [(id: String, state: State?)] = []
+    private var made = 0
     var running: Set<Int> { Set(showing.keys) }
-    func shown(_ slot: Int) -> State? { showing[slot] }
-    func start(_ slot: Int, _ state: State, staleDate: Date) throws { started.append((slot, state)); showing[slot] = state }
-    func update(_ slot: Int, _ state: State, staleDate: Date) async { updated.append((slot, state)); showing[slot] = state }
-    func end(_ slot: Int, _ state: State?, dismissAt: Date) async { ended.append((slot, state)); showing.removeValue(forKey: slot) }
+    func shown(_ slot: Int) -> ShownActivity? { showing[slot] }
+    func state(_ slot: Int) -> State? { showing[slot]?.state }
+    /// What the slot's activity shows after a push (or a push-to-start, with a new `id`).
+    func show(_ slot: Int, _ state: State, id: String? = nil) {
+        showing[slot] = ShownActivity(id: id ?? showing[slot]?.id ?? "pushed-\(slot)", state: state)
+    }
+    func start(_ slot: Int, _ state: State, staleDate: Date) throws {
+        made += 1
+        started.append((slot, state))
+        showing[slot] = ShownActivity(id: "local-\(made)", state: state)
+    }
+    func update(_ id: String, _ state: State, staleDate: Date) async {
+        guard let slot = showing.first(where: { $0.value.id == id })?.key else { return }
+        updated.append((id, state))
+        showing[slot] = ShownActivity(id: id, state: state)
+    }
+    func end(_ id: String, _ state: State?, dismissAt: Date) async {
+        guard let slot = showing.first(where: { $0.value.id == id })?.key else { return }
+        ended.append((id, state))
+        showing.removeValue(forKey: slot)
+    }
 }
 
 /// Inbox rows as the bridge sends them, for the lock-screen suites.

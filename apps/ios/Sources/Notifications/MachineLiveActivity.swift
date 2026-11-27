@@ -114,6 +114,13 @@ struct LiveActivityTokens: Equatable, Sendable {
     }
 }
 
+/// One activity on the Lock Screen and what it shows. Writes name the activity, never just its
+/// slot, so a queued write can't land on a replacement started in the same slot.
+struct ShownActivity: Equatable, Sendable {
+    let id: String
+    let state: MachineActivityAttributes.ContentState
+}
+
 /// The ActivityKit edge, substituted in tests.
 @MainActor protocol MachineActivityPort: AnyObject {
     /// Live Activities are allowed in iOS Settings.
@@ -123,13 +130,16 @@ struct LiveActivityTokens: Equatable, Sendable {
     var tokens: LiveActivityTokens { get }
     /// Tokens, or whether activities are allowed, changed: every machine's sync goes again.
     var onChange: (@MainActor () -> Void)? { get set }
-    /// What the slot's activity shows now (pushed or written here); nil when none is up.
-    func shown(_ slot: Int) -> MachineActivityAttributes.ContentState?
+    /// The slot's activity and what it shows now (pushed or written here); nil when none is up.
+    func shown(_ slot: Int) -> ShownActivity?
     /// Slots whose activity is on the Lock Screen.
     var running: Set<Int> { get }
     func start(_ slot: Int, _ state: MachineActivityAttributes.ContentState, staleDate: Date) throws
-    func update(_ slot: Int, _ state: MachineActivityAttributes.ContentState, staleDate: Date) async
-    func end(_ slot: Int, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async
+    /// Writes `state` to that one activity, unless it now shows a later `seq`.
+    func update(_ id: String, _ state: MachineActivityAttributes.ContentState, staleDate: Date) async
+    /// Ends that one activity: with `state` as its last word, unless it now shows a later `seq`
+    /// (then it stays up); with none, at once.
+    func end(_ id: String, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async
 }
 
 /// The real ActivityKit activities, requested with push tokens so each machine's daemon can
@@ -173,29 +183,30 @@ struct LiveActivityTokens: Equatable, Sendable {
     var running: Set<Int> {
         Set(Activity<MachineActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }.map(\.attributes.slot))
     }
-    func shown(_ slot: Int) -> State? { live(slot).first?.content.state }
+    func shown(_ slot: Int) -> ShownActivity? { live(slot).first.map { ShownActivity(id: $0.id, state: $0.content.state) } }
+    private func activity(_ id: String) -> Activity<MachineActivityAttributes>? {
+        Activity<MachineActivityAttributes>.activities.first { $0.id == id && ($0.activityState == .active || $0.activityState == .stale) }
+    }
 
     func start(_ slot: Int, _ state: State, staleDate: Date) throws {
         let activity = try Activity.request(attributes: MachineActivityAttributes(slot: slot),
                                             content: ActivityContent(state: state, staleDate: staleDate), pushType: .token)
         watch(activity)
     }
-    func update(_ slot: Int, _ state: State, staleDate: Date) async {
-        // One activity per slot: extras (a push-to-start racing the app's own start) end.
-        for (index, activity) in live(slot).enumerated() {
-            nonisolated(unsafe) let target = activity
-            if index > 0 { await target.end(nil, dismissalPolicy: .immediate); continue }
-            // Checked again at the edge: a push may have landed since the hub read it.
-            guard MachineActivityPlan.accepts(state, over: target.content.state) else { continue }
-            await target.update(ActivityContent(state: state, staleDate: staleDate))
-        }
+    func update(_ id: String, _ state: State, staleDate: Date) async {
+        guard let found = activity(id) else { return }
+        nonisolated(unsafe) let target = found
+        // Checked again at the edge: a push may have landed since the hub read it.
+        guard MachineActivityPlan.accepts(state, over: target.content.state) else { return }
+        await target.update(ActivityContent(state: state, staleDate: staleDate))
     }
-    func end(_ slot: Int, _ state: State?, dismissAt: Date) async {
-        for activity in live(slot) {
-            nonisolated(unsafe) let target = activity
-            let content = state.flatMap { MachineActivityPlan.accepts($0, over: target.content.state) ? ActivityContent(state: $0, staleDate: nil) : nil }
-            await target.end(content, dismissalPolicy: state == nil ? .immediate : .after(dismissAt))
-        }
+    func end(_ id: String, _ state: State?, dismissAt: Date) async {
+        guard let found = activity(id) else { return }
+        nonisolated(unsafe) let target = found
+        guard let state else { return await target.end(nil, dismissalPolicy: .immediate) }
+        // Newer work was pushed since the end was decided: the activity stays.
+        guard MachineActivityPlan.accepts(state, over: target.content.state) else { return }
+        await target.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .after(dismissAt))
     }
 
     /// Follows one activity's update token, and drops it once the activity ends or is dismissed.

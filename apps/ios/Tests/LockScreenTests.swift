@@ -80,11 +80,60 @@ import Testing
         online = true
         clock = clock.addingTimeInterval(1)
         hub.rebuild()
+        await hub.settle()
+        // The time out of reach doesn't count toward the grace: it is still up right after.
+        #expect(port.running == [0] && port.ended.isEmpty)
         clock = clock.addingTimeInterval(MachineActivityPlan.quietGrace)
         hub.rebuild()
         await hub.settle()
         #expect(port.ended.count == 1)
         #expect(port.ended.first?.state?.settled == true)
+    }
+
+    @Test func aBusyPushThatLandsBeforeAQueuedEndKeepsTheActivityUp() async throws {
+        let port = FakeMachineActivity()
+        var clock = t0
+        var rows = [try row("a", level: "active", icon: "working", since: 0)]
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { clock }, sleep: { _ in })
+        hub.read = { ([.init(hostId: "studio", rows: rows, online: true, slot: 0)], [:]) }
+        hub.rebuild()
+        rows = [try row("a", level: "done-unread", icon: "done")]
+        clock = t0.addingTimeInterval(1)
+        hub.rebuild()
+        await hub.settle()
+        let local = try #require(port.state(0))
+        // Quiet for the whole grace: the end is queued at the app's seq ...
+        clock = clock.addingTimeInterval(MachineActivityPlan.quietGrace)
+        hub.rebuild()
+        // ... and before it runs the daemon pushes new work at a later seq.
+        var busy = local
+        busy.seq += 1
+        busy.working = 1
+        busy.rows = nil
+        busy.localCounts = nil
+        port.show(0, busy)
+        await hub.settle()
+        #expect(port.ended.isEmpty && port.state(0) == busy)
+    }
+
+    @Test func aQueuedEndNeverEndsTheActivityThatReplacedItsOwn() async throws {
+        let port = FakeMachineActivity()
+        var clock = t0
+        var rows = [try row("a", level: "active", icon: "working", since: 0)]
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { clock }, sleep: { _ in })
+        hub.read = { ([.init(hostId: "studio", rows: rows, online: true, slot: 0)], [:]) }
+        hub.rebuild()
+        rows = [try row("a", level: "done-unread", icon: "done")]
+        clock = t0.addingTimeInterval(1)
+        hub.rebuild()
+        await hub.settle()
+        let local = try #require(port.state(0))
+        clock = clock.addingTimeInterval(MachineActivityPlan.quietGrace)
+        hub.rebuild()
+        // The activity went and another took its slot (a push-to-start) before the end ran.
+        port.show(0, local, id: "replacement")
+        await hub.settle()
+        #expect(port.ended.isEmpty && port.shown(0)?.id == "replacement")
     }
 
     @Test func workThatStartsWhileTheAppIsAwayWaitsForItToOpenAndTurningItOffEndsIt() async throws {

@@ -95,7 +95,7 @@ import WidgetKit
         sent.removeValue(forKey: slot)
         quietSince.removeValue(forKey: slot)
         let activity = edges.activity
-        if activity.running.contains(slot) { enqueue { await activity.end(slot, nil, dismissAt: .distantPast) } }
+        if let id = activity.shown(slot)?.id { enqueue { await activity.end(id, nil, dismissAt: .distantPast) } }
     }
     /// Drop the last confirmed summary kept for when no machine answers: what it showed may
     /// belong to a machine that is no longer to be shown.
@@ -166,14 +166,21 @@ import WidgetKit
         let activity = edges.activity
         let permitted = allowed && activity.systemAllowed
         guard machine.online else {
+            // Time out of reach proves nothing: the quiet grace starts again once it answers.
+            quietSince[slot] = nil
             // Turned off here goes at once, reachable or not.
             if !permitted, activity.running.contains(slot) { forget(slot: slot) }
             return
         }
         let summary = LockScreenBuilder.summary([machine], requests: requests, now: at)
         let shown = activity.shown(slot)
-        if let shown, MachineActivityPlan.daemonDriven(shown) {
-            return follow(machine, slot: slot, shown: shown, summary: summary, permitted: permitted, at: at)
+        // Turned off here: it goes at once, busy or not, whoever drives it.
+        guard permitted else {
+            if shown != nil { forget(slot: slot) }
+            return
+        }
+        if let shown, MachineActivityPlan.daemonDriven(shown.state) {
+            return follow(machine, slot: slot, shown: shown, summary: summary, at: at)
         }
         quietSince[slot] = MachineActivityPlan.quietSince(summary, previous: quietSince[slot], now: at)
         var step = MachineActivityPlan.step(summary, running: shown != nil, allowed: permitted,
@@ -182,7 +189,7 @@ import WidgetKit
         // "Show on Lock Screen" starts it even while nothing runs; it ends like any quiet one.
         if step == .none, shownByHand.contains(machine.hostId), permitted, shown == nil { step = .start }
         let content = summary.limited(3)
-        let seq = MachineActivityPlan.localSeq(shown: shown, written: sent[slot]?.state.seq)
+        let seq = MachineActivityPlan.localSeq(shown: shown?.state, written: sent[slot]?.state.seq)
         let state = MachineActivityPlan.local(content, seq: seq, at: at)
         entries[slot] = MachineLockEntry(slot: slot, name: machine.name, seq: seq, rows: content.rows,
                                          request: summary.current ? content.request : nil, confirmed: summary.current)
@@ -193,35 +200,46 @@ import WidgetKit
             do { try activity.start(slot, state, staleDate: stale); sent[slot] = (state, at) }
             catch { Self.log.error("Live Activity didn't start: \(error.localizedDescription, privacy: .public)") }
         case .update:
-            guard MachineActivityPlan.accepts(state, over: shown),
+            guard let shown, MachineActivityPlan.accepts(state, over: shown.state),
                   MachineActivityPlan.shouldSend(state, last: sent[slot]?.state, sentAt: sent[slot]?.at, now: at) else { return }
             sent[slot] = (state, at)
-            enqueue { await activity.update(slot, state, staleDate: stale) }
+            enqueue { await activity.update(shown.id, state, staleDate: stale) }
         case .end:
+            guard let shown else { return }
             sent[slot] = (state, at)
             let dismiss = at.addingTimeInterval(MachineActivityPlan.lingerAfterEnd)
-            enqueue { await activity.end(slot, state, dismissAt: dismiss) }
+            // Decided now, run later: by then a push or new work may have arrived, so it ends
+            // only the activity it was decided for, and only if that one is still quiet.
+            enqueue { [weak self] in
+                guard let self, self.stillEnding(slot, id: shown.id, state: state) else { return }
+                await activity.end(shown.id, state, dismissAt: dismiss)
+            }
         }
     }
-    /// The daemon drives this activity: its counts, phase and times stay, and only it ends it
-    /// (unless Live Activities are turned off here). Rows join only beside the `seq` the socket
+    /// A queued end still holds when it runs: the same activity shows the app's own count at
+    /// no later `seq`, and the machine has stayed confirmed quiet for the whole grace.
+    private func stillEnding(_ slot: Int, id: String, state: MachineActivityAttributes.ContentState) -> Bool {
+        guard let shown = edges.activity.shown(slot), shown.id == id, !MachineActivityPlan.daemonDriven(shown.state),
+              MachineActivityPlan.accepts(state, over: shown.state), let quiet = quietSince[slot] else { return false }
+        return now().timeIntervalSince(quiet) >= MachineActivityPlan.quietGrace
+    }
+    /// The daemon drives this activity: its counts, phase and times stay, and only it ends it. Rows join only beside the `seq` the socket
     /// confirmed; until then the snapshot holds nothing for it, so the widget shows counts alone.
-    private func follow(_ machine: LockScreenBuilder.Machine, slot: Int, shown: MachineActivityAttributes.ContentState,
-                        summary: LockSummary, permitted: Bool, at: Date) {
+    private func follow(_ machine: LockScreenBuilder.Machine, slot: Int, shown: ShownActivity,
+                        summary: LockSummary, at: Date) {
         quietSince[slot] = nil
-        guard permitted else { return forget(slot: slot) }
         let content = summary.limited(3)
-        guard let next = MachineActivityPlan.withRows(shown, rows: content.rows, confirmedSeq: machine.daemonSeq) else {
+        guard let next = MachineActivityPlan.withRows(shown.state, rows: content.rows, confirmedSeq: machine.daemonSeq) else {
             entries.removeValue(forKey: slot)
             return
         }
-        entries[slot] = MachineLockEntry(slot: slot, name: machine.name, seq: shown.seq, rows: content.rows,
+        entries[slot] = MachineLockEntry(slot: slot, name: machine.name, seq: shown.state.seq, rows: content.rows,
                                          request: summary.current ? content.request : nil, confirmed: summary.current)
-        guard next != shown else { return }
+        guard next != shown.state else { return }
         let activity = edges.activity
         let stale = at.addingTimeInterval(MachineActivityPlan.staleAfter)
         sent[slot] = (next, at)
-        enqueue { await activity.update(slot, next, staleDate: stale) }
+        enqueue { await activity.update(shown.id, next, staleDate: stale) }
     }
     private func enqueue(_ work: @escaping @MainActor () async -> Void) {
         let previous = commits
@@ -241,8 +259,8 @@ import WidgetKit
     var tokens: LiveActivityTokens { LiveActivityTokens() }
     var onChange: (@MainActor () -> Void)?
     var running: Set<Int> { [] }
-    func shown(_ slot: Int) -> MachineActivityAttributes.ContentState? { nil }
+    func shown(_ slot: Int) -> ShownActivity? { nil }
     func start(_ slot: Int, _ state: MachineActivityAttributes.ContentState, staleDate: Date) throws {}
-    func update(_ slot: Int, _ state: MachineActivityAttributes.ContentState, staleDate: Date) async {}
-    func end(_ slot: Int, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async {}
+    func update(_ id: String, _ state: MachineActivityAttributes.ContentState, staleDate: Date) async {}
+    func end(_ id: String, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async {}
 }
