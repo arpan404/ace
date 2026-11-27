@@ -558,8 +558,8 @@ mod tests {
 
     #[test]
     fn a_local_path_with_a_leading_emoji_does_not_panic_and_file_urls_ignore_queries() {
-        let emoji_repo = format!("../\u{1F600}-repo");
-        let _ = normalize_remote_url(&emoji_repo, "/base");
+        let emoji_repo = "../\u{1F600}-repo";
+        let _ = normalize_remote_url(emoji_repo, "/base");
         assert_eq!(
             normalize_remote_url("file:///tmp/repo?x=1#frag", "/"),
             "/tmp/repo"
@@ -568,10 +568,10 @@ mod tests {
 
     #[test]
     fn a_symref_head_branch_may_contain_ecmascript_non_separator_characters() {
-        let branch = format!("br\u{0085}anch");
+        let branch = "br\u{0085}anch";
         assert_eq!(
             symref_head(&format!("ref: refs/heads/{branch}\tHEAD\n")),
-            Some(branch)
+            Some(branch.to_owned())
         );
     }
 

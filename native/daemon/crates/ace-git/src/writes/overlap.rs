@@ -15,22 +15,13 @@ fn dirty(message: &str) -> GitError {
 async fn ignored_untracked(port: &dyn CommandPort, root: &str) -> Result<Vec<String>, GitError> {
     let listed = checked(
         port,
-        Command::new(
-            root,
-            &[
-                "ls-files",
-                "-o",
-                "-i",
-                "--exclude-standard",
-                "-z",
-            ],
-        )
-        .with_capture_bytes(8 * 1_048_576),
+        Command::new(root, &["ls-files", "-o", "-i", "--exclude-standard", "-z"])
+            .with_capture_bytes(8 * 1_048_576),
     )
     .await?;
     Ok(nul(&listed.stdout)?
         .into_iter()
-        .map(String::from)
+        .map(|path| path.to_owned())
         .filter(|path| !path.is_empty())
         .collect())
 }
@@ -57,7 +48,7 @@ async fn incoming_paths(
     .await?;
     Ok(nul(&diff.stdout)?
         .into_iter()
-        .map(String::from)
+        .map(|path| path.to_owned())
         .filter(|path| !path.is_empty())
         .collect())
 }
@@ -79,10 +70,7 @@ async fn switch_tip(port: &dyn CommandPort, root: &str, branch: &str) -> Result<
     )
     .await?;
     if tip.exit_code != 0 {
-        return Err(GitError::new(
-            GitErrorCode::InvalidRef,
-            "Invalid branch",
-        ));
+        return Err(GitError::new(GitErrorCode::InvalidRef, "Invalid branch"));
     }
     text_output(&tip.stdout)
 }
@@ -135,7 +123,11 @@ mod tests {
     use crate::writes::merge::start_merge;
 
     fn assert_ignored(fixture: &Fixture, repo: &std::path::Path, path: &str) {
-        let out = fixture.command(repo, &[]).args(["check-ignore", "-v", path]).output().expect("check-ignore");
+        let out = fixture
+            .command(repo, &[])
+            .args(["check-ignore", "-v", path])
+            .output()
+            .expect("check-ignore");
         assert!(out.status.success(), "{path} must be ignored");
     }
 
@@ -170,7 +162,10 @@ mod tests {
                 .code,
             GitErrorCode::DirtyWorktree
         );
-        assert_eq!(std::fs::read(repo.join("local.env")).expect("local"), local_before);
+        assert_eq!(
+            std::fs::read(repo.join("local.env")).expect("local"),
+            local_before
+        );
         assert_eq!(
             std::fs::read(repo.join(".git/index")).expect("index"),
             index_before
@@ -201,6 +196,9 @@ mod tests {
                 .code,
             GitErrorCode::DirtyWorktree
         );
-        assert_eq!(std::fs::read(repo.join("local.env")).expect("local"), local_before);
+        assert_eq!(
+            std::fs::read(repo.join("local.env")).expect("local"),
+            local_before
+        );
     }
 }

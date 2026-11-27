@@ -147,14 +147,14 @@ pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
                     };
                     continue;
                 }
-                if let Pending::Credential | Pending::ExecEnv = pending {
-                    if !is_null_scalar(&value, tag.as_ref()) {
-                        return Err(if matches!(pending, Pending::Credential) {
-                            CredentialValue::Field.sensitive()
-                        } else {
-                            CredentialValue::ExecEnv.sensitive()
-                        });
-                    }
+                if let Pending::Credential | Pending::ExecEnv = pending
+                    && !is_null_scalar(&value, tag.as_ref())
+                {
+                    return Err(if matches!(pending, Pending::Credential) {
+                        CredentialValue::Field.sensitive()
+                    } else {
+                        CredentialValue::ExecEnv.sensitive()
+                    });
                 }
                 if has_sensitive_span(&value) {
                     return Err(GitError::new(

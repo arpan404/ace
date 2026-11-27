@@ -94,11 +94,9 @@ pub async fn exclude_ace_private(
 fn single_git_path(bytes: &[u8], is_windows: bool) -> Option<String> {
     let text = std::str::from_utf8(bytes).ok()?;
     let stripped = if is_windows && text.ends_with("\r\n") {
-        &text[..text.len() - 2]
-    } else if text.ends_with('\n') {
-        &text[..text.len() - 1]
+        text.strip_suffix("\r\n")?
     } else {
-        text
+        text.strip_suffix('\n').unwrap_or(text)
     };
     if stripped.is_empty() {
         None
