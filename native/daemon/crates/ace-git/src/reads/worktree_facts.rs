@@ -142,6 +142,12 @@ fn newest_mtime_ms(metadata: &std::fs::Metadata) -> i64 {
     }
 }
 
+/// Directory entries in the TypeScript's order: `toSorted()` compares UTF-16 code units, so an
+/// astral name sorts before `U+FF5E` where UTF-8 bytes would put it after.
+fn traversal_order(names: &mut [String]) {
+    names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
+}
+
 /// Cold cleanup only. Bound traversal; symlinks contribute their own bytes, never target bytes.
 pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
     use sha2::{Digest, Sha256};
@@ -182,7 +188,7 @@ pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
                 }
                 names.push(entry.file_name().to_string_lossy().into_owned());
             }
-            names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
+            traversal_order(&mut names);
             for name in names {
                 walk(
                     &path.join(name),
@@ -359,22 +365,57 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_with_10001_entry_names_passes_listing_and_the_10002nd_is_refused() {
+    fn a_directory_caps_its_listing_at_10002_names_not_at_its_visit_budget() {
         let fixture = Fixture::new("g3a-dir-cap");
-        let dir = fixture.root.join("many");
-        std::fs::create_dir_all(&dir).expect("dir");
+        // 10,001 names are listed; the scan's own visit budget then refuses the walk.
+        let allowed = fixture.root.join("many");
+        std::fs::create_dir_all(&allowed).expect("dir");
         for index in 0..10_001 {
-            std::fs::create_dir(dir.join(format!("{index:05}"))).expect("entry");
+            std::fs::create_dir(allowed.join(format!("{index:05}"))).expect("entry");
         }
-        let error = worktree_footprint(&dir.to_string_lossy()).expect_err("visit budget");
-        assert_eq!(error.code, GitErrorCode::OutputTooLarge);
-        let dir = fixture.root.join("too-many");
-        std::fs::create_dir_all(&dir).expect("dir");
+        let visited = worktree_footprint(&allowed.to_string_lossy())
+            .expect_err("the walk visits more than its budget");
+        assert_eq!(visited.message, "Worktree cleanup scan exceeds its budget");
+        // The 10,002nd name refuses the listing itself.
+        let refused = fixture.root.join("too-many");
+        std::fs::create_dir_all(&refused).expect("dir");
         for index in 0..10_002 {
-            std::fs::create_dir(dir.join(format!("{index}"))).expect("entry");
+            std::fs::create_dir(refused.join(format!("{index:05}"))).expect("entry");
         }
-        let listed = worktree_footprint(&dir.to_string_lossy()).expect_err("directory listing cap");
+        let listed = worktree_footprint(&refused.to_string_lossy()).expect_err("listing cap");
         assert_eq!(listed.message, "Worktree directory exceeds its budget");
+    }
+
+    #[test]
+    fn the_traversal_order_compares_utf16_code_units() {
+        // `U+1F600` is `D83D DE00` in UTF-16, before `U+FF5E`; UTF-8 bytes would order them the
+        // other way (`EF BD 9E` < `F0 9F 98 80`).
+        let mut names = vec!["\u{FF5E}".to_owned(), "\u{1F600}".to_owned()];
+        traversal_order(&mut names);
+        assert_eq!(names, vec!["\u{1F600}".to_owned(), "\u{FF5E}".to_owned()]);
+    }
+
+    #[test]
+    fn the_newest_modification_is_floored_milliseconds() {
+        let fixture = Fixture::new("g3a-mtime");
+        let root = fixture.root.join("stamped");
+        std::fs::create_dir_all(&root).expect("dir");
+        let file = root.join("a.txt");
+        std::fs::write(&file, b"x").expect("file");
+        let stamp = std::time::UNIX_EPOCH + std::time::Duration::new(1_700_000_000, 123_456_789);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .expect("open")
+            .set_modified(stamp)
+            .expect("set the file's mtime");
+        std::fs::File::open(&root)
+            .expect("open the directory")
+            .set_modified(stamp)
+            .expect("set the directory's mtime");
+        let footprint = worktree_footprint(&root.to_string_lossy()).expect("footprint");
+        // `Math.floor(info.mtimeMs)`: milliseconds, the fraction dropped, never seconds.
+        assert_eq!(footprint.modified_at, 1_700_000_000_123);
     }
 
     #[test]
