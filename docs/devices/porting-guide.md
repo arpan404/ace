@@ -322,7 +322,8 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
 - **D4, a disable's delayed completion.** TypeScript clears `completed` and `recordingArtifact` after
   the stop's await without checking the epoch, so a recording published after devices come back is
   erased; Rust carries the disable's epoch and clears only the recording its own disable left.
-  TypeScript's service never reaches that from its own path because it serializes the race: a
+  That race lives in TypeScript's helper write, not in its service: `disableDeviceSessions` clears
+  after the await with no epoch check, and the service gate is what keeps it out of reach — a
   re-enable is rejected busy while `disabling` is set (`service.ts:590`), so no bind or recording
   can be published until every stop has finished. Rust has no such gate, and the epoch is what
   keeps a later bind's recording apart from the disable that preceded it.
