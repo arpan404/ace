@@ -127,12 +127,10 @@ impl Core {
             let _ = self.with_state(|state| state.repo.evict(&self.store, id));
             return Err(error);
         }
-        self.observe(id, facts_json, now)?;
         Ok(())
     }
 
-    /// `repo.observe` (`repository.ts:419`): every committed fold reaches recovery's limit and
-    /// restart rules. Called after the transaction, so a rule may write its own.
+    /// Observe previously folded facts with an explicit transaction.
     pub fn observe(&self, id: &str, facts_json: &str, now: f64) -> Result<(), EngineError> {
         let facts = match ace_json::parse(facts_json) {
             Ok(Value::Array(facts)) => facts.into_vec(),
@@ -173,7 +171,6 @@ impl Core {
             let _ = self.with_state(|state| state.repo.live.remove(&prepared.token).is_some());
             return Err(error);
         }
-        self.observe(id, facts_json, now)?;
         Ok(true)
     }
 

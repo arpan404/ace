@@ -316,7 +316,7 @@ impl State {
         snapshot
             .borrow_mut()
             .update_deadlines(&raw_facts, &emitted, now as i64);
-        Ok(FoldedFrame::new(snapshot, &raw_facts, emitted))
+        Ok(FoldedFrame::new(snapshot, raw_facts, emitted))
     }
 }
 

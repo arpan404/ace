@@ -7,7 +7,7 @@
 use ace_json::Value;
 use std::rc::Rc;
 
-use crate::executor::Lane;
+use crate::executor::{Deferred, Lane};
 use crate::queue::{holds, store as queue_store, write as queue_write};
 use crate::{Core, EngineError, State};
 
@@ -21,23 +21,31 @@ struct View {
     root_native_provider: Option<String>,
 }
 
-/// `recovery.observe()` (`recovery.ts:404`): the fold's facts, after the state committed.
 pub fn observe(core: &Core, thread: &str, facts: &[Value], at: f64) -> Result<(), EngineError> {
-    if super::capture::spade_owned(core, thread)? {
+    core.store
+        .atomic(|_| core.with_state(|state| observe_in(core, state, thread, facts, at))?)
+}
+
+/// Observe quota and restart consequences in the fold's own transaction.
+pub(crate) fn observe_in(
+    core: &Core,
+    state: &mut State,
+    thread: &str,
+    facts: &[Value],
+    at: f64,
+) -> Result<(), EngineError> {
+    if !facts.iter().any(limit_signal) || super::capture::spade_owned(core, thread)? {
         return Ok(());
     }
-    let view = view(core, thread)?;
+    let view = view(core, state, thread)?;
     // A root turn that completes ends any run of restarts the loop guard was counting.
     let root_completed = facts
         .iter()
         .any(|fact| completed_turn(fact) && fact_agent(fact) == view.root_key.as_deref());
     if root_completed {
         crate::restart::clear_streak(core.store.conn(), thread)?;
-        super::capture::drop_stale_capture(core, thread, at)?;
-        super::capture::release_completed_restart(core, thread, at)?;
-    }
-    if !facts.iter().any(limit_signal) {
-        return Ok(());
+        super::capture::drop_stale_capture_in(core, state, thread, at)?;
+        super::capture::release_completed_restart_in(core, state, thread, at)?;
     }
     let queue = queue_store::get(&core.store, thread)?;
     let limited = view.root_limited.is_some()
@@ -54,8 +62,8 @@ pub fn observe(core: &Core, thread: &str, facts: &[Value], at: f64) -> Result<()
             && queue.reason.as_deref() == Some("limit")
             && !crate::intents::store::recovering(core.store.conn(), thread)?
         {
-            core.with_state(|state| holds::lift_in(core, state, thread, at))??;
-            holds::schedule(core)?;
+            holds::lift_in(core, state, thread, at)?;
+            schedule_after_commit(core, thread, None);
             holds::wake(core, thread);
         } else {
             queue_write::set(&core.store, thread, r#"{"limited":false}"#, at)?;
@@ -66,7 +74,7 @@ pub fn observe(core: &Core, thread: &str, facts: &[Value], at: f64) -> Result<()
     if queue.limited && queue.reset_at == reset {
         return Ok(());
     }
-    let policy = limit_policy(core, thread)?;
+    let policy = limit_policy(core, state, thread)?;
     // A limit with a known reset lets go at that reset. ace never starts a turn by itself: only
     // "resume at reset" sends then; otherwise the limit clears and queued messages wait for the
     // person's Resume or next message. Without a reset nothing is timed.
@@ -119,14 +127,31 @@ pub fn observe(core: &Core, thread: &str, facts: &[Value], at: f64) -> Result<()
         at,
     )?;
     if policy == "migrate_now" && core.ports.has_move_target() {
-        super::deadline::automatic(core, thread, Some("migrate_now"))?;
+        super::deadline::automatic_in(core, state, thread, Some("migrate_now"))?;
     }
-    holds::schedule(core)?;
-    if core.inputs().has_preferences {
-        let token = queue_store::get(&core.store, thread)?.hold_token;
-        refresh_policy(core, thread, token)?;
-    }
+    let token = if core.inputs().has_preferences {
+        Some(queue_store::get(&core.store, thread)?.hold_token)
+    } else {
+        None
+    };
+    schedule_after_commit(core, thread, token);
     Ok(())
+}
+
+fn schedule_after_commit(core: &Core, thread: &str, token: Option<i64>) {
+    let Some(owner) = core.self_rc() else { return };
+    let thread = thread.to_owned();
+    core.defer(Deferred::Spawn(
+        Lane::Control,
+        Box::pin(async move {
+            let result = holds::schedule(&owner).and_then(|()| {
+                token.map_or(Ok(()), |token| refresh_policy(&owner, &thread, token))
+            });
+            if let Err(error) = result {
+                owner.ports.report(format!("{thread}: {error}"));
+            }
+        }),
+    ));
 }
 
 /// The roots's quota reset: the port's reading, else the latest `until` on the root.
@@ -148,41 +173,37 @@ fn account_reset(
 
 /// `this.ports.preferences ? "manual" : this.preferences(id).limitPolicy` (`recovery.ts:465`):
 /// with the port, the policy is still loading, so ace treats it as the manual default.
-fn limit_policy(core: &Core, thread: &str) -> Result<String, EngineError> {
+fn limit_policy(core: &Core, state: &mut State, thread: &str) -> Result<String, EngineError> {
     if core.inputs().has_preferences {
         return Ok("manual".to_owned());
     }
-    core.with_state(|state| {
-        let preferences = crate::queue::admission::thread_preferences(core, state, thread)?;
-        Ok::<String, EngineError>(
-            preferences
-                .get("limitPolicy")
-                .and_then(Value::as_str)
-                .unwrap_or("manual")
-                .to_owned(),
-        )
-    })?
+    let preferences = crate::queue::admission::thread_preferences(core, state, thread)?;
+    Ok(preferences
+        .get("limitPolicy")
+        .and_then(Value::as_str)
+        .unwrap_or("manual")
+        .to_owned())
 }
 
-/// The thread's state, copied out.
-fn view(core: &Core, thread: &str) -> Result<View, EngineError> {
-    core.with_state(|state| {
-        let Some(snapshot) = state.repo.state(&core.store, thread)? else {
-            return Ok::<Option<View>, EngineError>(None);
-        };
-        let borrowed = snapshot.try_borrow().map_err(|_| EngineError::Reentrant)?;
-        let root_key = borrowed.state.root_key.clone();
-        let root = root_key
+/// Read the root record even when the fold left it cold.
+fn view(core: &Core, state: &mut State, thread: &str) -> Result<View, EngineError> {
+    let snapshot = state.repo.require_state(&core.store, thread)?;
+    let mut borrowed = snapshot
+        .try_borrow_mut()
+        .map_err(|_| EngineError::Reentrant)?;
+    let root_key = borrowed.state.root_key.clone();
+    let root = match &root_key {
+        Some(root) => borrowed.agent(root)?,
+        None => None,
+    };
+    Ok(View {
+        provider: borrowed.state.config.provider.clone(),
+        root_key,
+        root_limited: root
             .as_ref()
-            .and_then(|root| borrowed.state.agents.get(root));
-        Ok(Some(View {
-            provider: borrowed.state.config.provider.clone(),
-            root_key,
-            root_limited: root.and_then(|record| record.limited.as_ref().map(|info| info.until)),
-            root_native_provider: root.map(|record| record.agent.native.provider.clone()),
-        }))
-    })??
-    .ok_or(EngineError::MissingState)
+            .and_then(|record| record.limited.as_ref().map(|info| info.until)),
+        root_native_provider: root.map(|record| record.agent.native.provider),
+    })
 }
 
 /// `turn.ended` with `outcome: "completed"`, committed in this fold.
@@ -197,7 +218,7 @@ fn fact_agent(fact: &Value) -> Option<&str> {
 }
 
 /// The facts that say a limit may have started or cleared (`recovery.ts:421`-`:427`).
-fn limit_signal(fact: &Value) -> bool {
+pub(crate) fn limit_signal(fact: &Value) -> bool {
     let kind = fact.get("type").and_then(Value::as_str).unwrap_or_default();
     if kind == "limit.cleared" {
         return true;

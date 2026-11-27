@@ -50,20 +50,25 @@ pub(crate) struct FoldedFrame {
     snapshot: Rc<RefCell<Snapshot>>,
     payloads: String,
     touched: Touched,
+    recovery_facts: Vec<Value>,
 }
 
 impl FoldedFrame {
     pub(super) fn new(
         snapshot: Rc<RefCell<Snapshot>>,
-        facts: &[Value],
+        facts: Vec<Value>,
         events: Vec<Value>,
     ) -> Self {
-        let touched = Touched::values(facts, &events);
+        let touched = Touched::values(&facts, &events);
         let payloads = ace_json::to_string(&Value::Array(events.into()));
         Self {
             snapshot,
             payloads,
             touched,
+            recovery_facts: facts
+                .into_iter()
+                .filter(crate::recovery::observe::limit_signal)
+                .collect(),
         }
     }
 
@@ -81,7 +86,13 @@ impl FoldedFrame {
             &self.payloads,
             now,
             &self.touched,
-        )
+        )?;
+        if !self.recovery_facts.is_empty()
+            && let Some(core) = state.engine.upgrade()
+        {
+            crate::recovery::observe::observe_in(&core, state, id, &self.recovery_facts, now)?;
+        }
+        Ok(())
     }
 }
 

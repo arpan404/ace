@@ -260,6 +260,7 @@ mod tests {
 
     fn engine(name: &str) -> Engine {
         let conn = home(name, &header(name));
+        crate::restart::ensure_ledgers(&conn).expect("recovery ledgers");
         let (_, shell) = Shell::store_with_controls(&conn);
         Engine::new(
             shell.clone(),

@@ -92,6 +92,16 @@ pub fn automatic(
     thread: &str,
     action: Option<&str>,
 ) -> Result<Option<Value>, EngineError> {
+    core.store
+        .atomic(|_| core.with_state(|state| automatic_in(core, state, thread, action))?)
+}
+
+pub(crate) fn automatic_in(
+    core: &Core,
+    state: &mut crate::State,
+    thread: &str,
+    action: Option<&str>,
+) -> Result<Option<Value>, EngineError> {
     if super::capture::spade_owned(core, thread)? {
         return Ok(None);
     }
@@ -108,7 +118,7 @@ pub fn automatic(
             }
         );
         queue_write::set(&core.store, thread, &patch, now)?;
-        core.with_state(|state| crate::queue::holds::sync(core, state, thread, now))??;
+        crate::queue::holds::sync(core, state, thread, now)?;
         return Ok(None);
     }
     let revision = queue_store::get(&core.store, thread)?.revision;
@@ -136,8 +146,7 @@ pub fn automatic(
         if let Some(existing) = receipt(tx.conn(), &id)? {
             return Ok(existing);
         }
-        let result = core
-            .with_state(|state| super::handle(core, state, &command))??
+        let result = super::handle(core, state, &command)?
             .unwrap_or_else(|| error(&id, "invalid_recovery_command"));
         let text = ace_json::to_string(&result);
         stmt_cache::run(

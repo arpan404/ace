@@ -295,3 +295,51 @@ fn a_stale_restart_capture_is_dropped_when_the_provider_finished_the_turn_while_
     assert_eq!(field(&conn, "trigger"), None);
     assert!(!crate::restart::has_capture(&conn, "t").unwrap());
 }
+
+const RATE_LIMIT: &str = r#"[{"type":"retry","agent":"root","on":"rate_limit","until":9000}]"#;
+
+#[test]
+fn a_provider_limit_fact_rolls_back_if_its_recovery_hold_cannot_commit() {
+    let conn = home("t", &root_header("t", ""));
+    conn.exec(
+        "INSERT INTO engine_queue (thread_id) VALUES ('t');
+         CREATE TEMP TRIGGER refuse_limit BEFORE UPDATE OF limited ON engine_queue
+         WHEN NEW.limited=1 BEGIN SELECT RAISE(ABORT, 'cannot store recovery hold'); END",
+    )
+    .unwrap();
+    let engine = engine_on(&conn);
+    let error = engine.core().apply("t", RATE_LIMIT, 1.0, None).unwrap_err();
+    assert!(
+        error.to_string().contains("cannot store recovery hold"),
+        "{error}"
+    );
+    let limits = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT count(*) AS n FROM engine_state_records
+         WHERE thread_id='t' AND section='agents' AND json_type(value,'$.limited')='object'",
+        Vec::new(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        limits
+            .get("n")
+            .and_then(crate::repository::residency::cell_int),
+        Some(0)
+    );
+    assert_eq!(field(&conn, "limited").as_deref(), Some(""));
+}
+
+#[test]
+fn a_provider_limit_fold_through_the_state_also_holds_the_queue() {
+    let conn = home("t", &root_header("t", ""));
+    conn.exec("INSERT INTO engine_queue (thread_id) VALUES ('t')")
+        .unwrap();
+    let engine = engine_on(&conn);
+    let core = engine.core();
+    core.with_state(|state| state.apply(&core.store, "t", RATE_LIMIT, 1.0, None))
+        .unwrap()
+        .unwrap();
+    assert_eq!(field(&conn, "reason").as_deref(), Some("limit"));
+    assert_eq!(field(&conn, "limited").as_deref(), Some("1"));
+}
