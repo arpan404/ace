@@ -433,6 +433,22 @@ fn retire_owner_bind(session: &mut Session, owner: &str) {
     retire_bind_at_epoch(session, epoch);
 }
 
+/// Retire the bind in flight that no pending takeover owns: an agent's claim, or a
+/// bind whose assignment is already gone. This takeover moves the revision, so that
+/// bind's own continuation loses with `controlChanged` and nothing will ever finish
+/// its cleanup; keeping its reservation would gate every ordinary operation — the
+/// person's included — on a completion that cannot succeed. A bind a still-pending
+/// owner started keeps its reservation and its epoch: that owner finishes it.
+fn retire_unowned_bind(session: &mut Session, requester: &Actor) {
+    let Some(owner) = session.binding_owner.clone() else {
+        return;
+    };
+    if owner == requester.owner || session.pending_controller.as_deref() == Some(owner.as_str()) {
+        return;
+    }
+    retire_bind_at_epoch(session, session.binding_epoch);
+}
+
 /// `disconnect` / owner drop: invalidate only this owner's pending takeover
 /// (`service.ts:1199`), and the bind that takeover left in flight.
 pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
@@ -464,6 +480,10 @@ pub fn begin_assign(
     if let Some(displaced) = session.pending_controller.clone() {
         retire_owner_bind(session, &displaced);
     }
+    // A bind in flight that belongs to no pending takeover — an agent's claim, whose
+    // resume this revision bump invalidates — is retired here, so the takeover's own
+    // control is not gated on a cleanup that can no longer finish.
+    retire_unowned_bind(session, requester);
     // A later person supersedes an earlier person's reservation, as `assignController`
     // does: the revision moves, so the earlier one loses with `controlChanged`.
     session.control_revision = session.control_revision.saturating_add(1);

@@ -778,6 +778,36 @@ fn a_person_taking_control_without_a_thread_still_clears_the_agents_recording() 
 }
 
 #[test]
+fn a_persons_threadless_takeover_authorizes_ordinary_operations_before_the_agents_cleanup_returns()
+{
+    let mut session = Session::new("ios:AAAA");
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
+    assert!(
+        session.changing_binding,
+        "the agent's bind is still cleaning up"
+    );
+    session.completed = Some(String::from("agent-recording"));
+    session.recording_artifact = Some(String::from("agent-artifact"));
+
+    let person_assign = begin_assign(&mut session, &person(), NOW).expect("the person takes");
+    finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("the person holds it");
+    assert_eq!(session.completed, None, "the old recording is cleared");
+    assert_eq!(session.recording_artifact, None);
+
+    // The agent's cleanup has not returned yet: the person's own operations must not
+    // wait on a reservation the takeover already passed.
+    authorize(&session, &person(), true, false).expect("the person's operation is authorized");
+
+    // Its late completion changes nothing.
+    let refused = resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW)
+        .expect_err("the takeover passed it");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+    assert!(!session.changing_binding);
+    authorize(&session, &person(), true, false).expect("the person still operates it");
+}
+
+#[test]
 fn cancelling_a_takeover_invalidates_so_a_late_finish_cannot_claim() {
     let mut session = Session::new("ios:AAAA");
     let assignment = begin_assign(&mut session, &person(), NOW).expect("a takeover");
