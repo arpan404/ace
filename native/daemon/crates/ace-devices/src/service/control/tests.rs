@@ -550,6 +550,45 @@ fn a_late_completion_after_the_owner_dropped_does_not_claim_control() {
 }
 
 #[test]
+fn a_second_person_supersedes_a_pending_persons_takeover() {
+    let mut session = Session::new("ios:AAAA");
+    let first = begin_assign(&mut session, &person(), NOW).expect("the first person");
+    let other = Actor::human("person-2");
+    let second = begin_assign(&mut session, &other, NOW).expect("a later person");
+    finish_assign(&mut session, second, Some(&other), NOW).expect("the later person holds it");
+    let refused = finish_assign(&mut session, first, Some(&person()), NOW).expect_err("passed");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.pending_controller, None);
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+    assert!(
+        session.lease.owned("person-2", NOW),
+        "the later person holds it"
+    );
+}
+
+#[test]
+fn a_person_taking_control_without_a_thread_still_clears_the_agents_recording() {
+    let mut session = Session::new("ios:AAAA");
+    session.completed = Some(String::from("recording-1"));
+    session.recording_artifact = Some(String::from("artifact-1"));
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
+    let person_assign =
+        begin_assign(&mut session, &person(), NOW).expect("the person takes control");
+    finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("the person holds it");
+
+    let refused = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect_err("control changed");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(
+        session.completed, None,
+        "the old thread's recording is cleaned"
+    );
+    assert_eq!(session.recording_artifact, None);
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+    assert!(!session.changing_binding);
+}
+
+#[test]
 fn cancelling_a_takeover_invalidates_so_a_late_finish_cannot_claim() {
     let mut session = Session::new("ios:AAAA");
     let assignment = begin_assign(&mut session, &person(), NOW).expect("a takeover");
@@ -696,6 +735,7 @@ fn a_stale_agent_resume_does_not_abort_a_persons_bind_in_flight() {
     let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
         .expect("person with thread");
     assert!(session.changing_binding, "the person's bind is running");
+    session.completed = Some(String::from("person-recording"));
 
     let refused = resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW)
         .expect_err("stale agent");
@@ -703,6 +743,11 @@ fn a_stale_agent_resume_does_not_abort_a_persons_bind_in_flight() {
     assert!(
         session.changing_binding,
         "the person's bind keeps its guard and epoch"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("person-recording"),
+        "the person's own bind keeps its recording"
     );
 
     // The person's bind still finishes onto their thread.

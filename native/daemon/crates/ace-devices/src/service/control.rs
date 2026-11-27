@@ -86,15 +86,20 @@ fn require_agent_caller(actor: &Actor) -> Result<(&str, &str), DeviceError> {
 }
 
 /// Clear the bind this claim started, and only that one: a newer bind — a
-/// person's, started after it — keeps its guard and its epoch, so its own
-/// cleanup is not refused `bindingDisabled` by a stale agent that landed later.
+/// person's, started after it — keeps its guard, its epoch and its recording, so
+/// its own cleanup is not refused `bindingDisabled` by a stale agent that landed
+/// later. The bind that still owns the epoch clears the old thread's published
+/// recording here, as `bindDevice`'s cleanup does, even when control moved on.
 fn abort_stale_bind(session: &mut Session, bind: &Bind) {
     let Bind::Cleanup { epoch, .. } = bind else {
         return;
     };
-    if session.changing_binding && session.binding_epoch == *epoch {
-        session.changing_binding = false;
+    if session.binding_epoch != *epoch {
+        return;
     }
+    session.changing_binding = false;
+    session.completed = None;
+    session.recording_artifact = None;
 }
 
 fn control_still_current(session: &Session, bind: &Bind) -> bool {
@@ -349,11 +354,9 @@ pub fn begin_assign(
 ) -> Result<Assignment, DeviceError> {
     if requester.kind == ActorKind::Agent {
         agent_takeover_allowed(session, requester, now, false)?;
-    } else if session.pending_controller_kind == Some(ActorKind::Human)
-        && session.pending_controller.as_deref() != Some(requester.owner.as_str())
-    {
-        return Err(words::refusal(PERSON_CONTROLLING_KEY));
     }
+    // A later person supersedes an earlier person's reservation, as `assignController`
+    // does: the revision moves, so the earlier one loses with `controlChanged`.
     session.control_revision = session.control_revision.saturating_add(1);
     let assignment = Assignment {
         revision: session.control_revision,
