@@ -114,7 +114,8 @@ impl FrameHolder {
         hold_ms: u64,
     ) -> Vec<String> {
         let mut ready = Vec::new();
-        if !self.parts.is_empty() && self.bytes + 1 + bytes > HELD_FRAME_BYTES
+        if !self.parts.is_empty()
+            && self.bytes + 1 + bytes > HELD_FRAME_BYTES
             && let Some(frame) = self.release()
         {
             ready.push(frame);

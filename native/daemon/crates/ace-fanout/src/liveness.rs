@@ -61,8 +61,8 @@ fn has_word_prefix(haystack: &str, token: &str) -> bool {
     let mut start = 0;
     while let Some(pos) = haystack[start..].find(token) {
         let idx = start + pos;
-        let boundary = idx == 0
-            || !bytes[idx - 1].is_ascii_alphanumeric() && bytes[idx - 1] != b'_';
+        let boundary =
+            idx == 0 || !bytes[idx - 1].is_ascii_alphanumeric() && bytes[idx - 1] != b'_';
         if boundary {
             return true;
         }
