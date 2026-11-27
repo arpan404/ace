@@ -546,6 +546,111 @@ pub fn commit(
 
 /// The failure half (`:201`-`:218`): the failed status, the fence's release when Git refused
 /// before writing, and the guards' release either way.
+/// `settleWorkspaceChange` (`workspace-change-clear.ts:56`): a restart left a move preparing,
+/// or its failure uncertain. Once `roots_free` reports Git has no unfinished writer on every
+/// root the change fenced, the fence goes and the move reads as a plain failure; until then the
+/// reservation stays, because a Git process may still be writing the checkout.
+pub fn settle_after_restart(
+    store: &EngineStore,
+    state: &mut State,
+    now: f64,
+    roots_free: &dyn Fn(&str) -> bool,
+) -> Result<Vec<String>, EngineError> {
+    let threads = ace_store::stmt_cache::all_rows(
+        store.conn(),
+        "SELECT DISTINCT thread_id FROM workspace_root_reservations ORDER BY thread_id",
+        Vec::new(),
+    )?;
+    let mut settled = Vec::new();
+    for row in threads {
+        let Some(id) = row
+            .get("thread_id")
+            .and_then(crate::repository::residency::cell_text)
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if state.transition_guarded(store, &id)? {
+            continue;
+        }
+        let Some(thread) = thread_row(store, &id)? else {
+            // A deleted thread has no move left to settle; its rows go with it.
+            continue;
+        };
+        let details = thread.get("details").cloned().unwrap_or(Value::Null);
+        let change = details.get("workspaceChange").cloned();
+        let stuck = change.as_ref().is_some_and(|change| {
+            change.get("state").and_then(Value::as_str) == Some("preparing")
+                || change.get("uncertain").and_then(Value::as_bool) == Some(true)
+        });
+        let roots: Vec<String> = ace_store::stmt_cache::all_rows(
+            store.conn(),
+            "SELECT root FROM workspace_root_reservations WHERE thread_id=?",
+            vec![ace_store::Value::Text(id.clone())],
+        )?
+        .iter()
+        .filter_map(|row| {
+            row.get("root")
+                .and_then(crate::repository::residency::cell_text)
+                .map(str::to_owned)
+        })
+        .collect();
+        if !stuck && roots.is_empty() {
+            continue;
+        }
+        if !roots.iter().all(|root| roots_free(root)) {
+            continue;
+        }
+        let code = change
+            .as_ref()
+            .and_then(|change| change.get("state").and_then(Value::as_str))
+            .map(|phase| {
+                if phase == "preparing" {
+                    "workspace_change_interrupted".to_owned()
+                } else {
+                    change
+                        .as_ref()
+                        .and_then(|change| change.get("error"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("workspace_change_failed")
+                        .to_owned()
+                }
+            })
+            .unwrap_or_else(|| "workspace_change_interrupted".to_owned());
+        let command_id = change
+            .as_ref()
+            .and_then(|change| change.get("commandId"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        store.atomic(|_tx| {
+            ace_store::stmt_cache::run(
+                store.conn(),
+                "DELETE FROM workspace_root_reservations WHERE thread_id=?",
+                vec![ace_store::Value::Text(id.clone())],
+            )?;
+            if stuck {
+                status(
+                    store,
+                    &id,
+                    &StatusChange {
+                        command_id: &command_id,
+                        now,
+                        details: &details,
+                        phase: "failed",
+                        error: Some(&code),
+                        uncertain: false,
+                        selection: None,
+                    },
+                )?;
+            }
+            Ok(())
+        })?;
+        settled.push(id);
+    }
+    Ok(settled)
+}
+
 /// What a failed change records.
 pub struct Failure<'a> {
     pub command_id: &'a str,
@@ -757,6 +862,81 @@ mod tests {
                 .expect_err("the peer's new work refuses")
                 .to_string(),
             "thread_tree_is_live"
+        );
+    }
+
+    fn interrupted_move(conn: &std::sync::Arc<ace_store::Connection>, state_name: &str) {
+        conn.exec(&format!(
+            "UPDATE threads SET client = {} WHERE id='t'",
+            crate::repository::testsupport::sql_text(&format!(
+                r#"{{"details":{{"workspaceChange":{{"commandId":"cmd-x","state":"{state_name}","at":1,"lossy":true,"uncertain":{}}}}}}}"#,
+                state_name == "failed"
+            ))
+        ))
+        .expect("status");
+        conn.exec("INSERT INTO workspace_root_reservations VALUES ('/gone','t','cmd-x')")
+            .expect("reservation");
+    }
+
+    // `workspace-change-clear.ts:56`: a restart's interrupted move settles once Git has no
+    // writer left, and the reservation goes with the failed status.
+    #[test]
+    fn an_interrupted_move_settles_once_its_roots_are_free() {
+        let (conn, store, mut state, shell) = home_with_checkout();
+        interrupted_move(&conn, "preparing");
+        let settled = settle_after_restart(&store, &mut state, 9.0, &|_| true).expect("settle");
+        assert_eq!(settled, ["t"]);
+        assert!(
+            ace_store::stmt_cache::get_row(
+                &conn,
+                "SELECT root FROM workspace_root_reservations WHERE thread_id='t'",
+                Vec::new()
+            )
+            .expect("reservation")
+            .is_none(),
+            "the fence is gone"
+        );
+        let published = shell
+            .events()
+            .into_iter()
+            .find_map(|(thread, payload, _)| {
+                (thread == "t").then_some(payload).and_then(|payload| {
+                    let events = ace_json::parse(&payload).ok()?;
+                    let event = events.as_array()?.first()?.clone();
+                    (event.get("type").and_then(Value::as_str) == Some("thread.client.updated"))
+                        .then_some(event)
+                })
+            })
+            .expect("the settled status was published");
+        let change = published
+            .get("changes")
+            .and_then(|changes| changes.get("details"))
+            .and_then(|details| details.get("workspaceChange"))
+            .cloned()
+            .expect("a change");
+        assert_eq!(change.get("state").and_then(Value::as_str), Some("failed"));
+        assert_eq!(
+            change.get("error").and_then(Value::as_str),
+            Some("workspace_change_interrupted")
+        );
+        assert_eq!(change.get("uncertain"), Some(&Value::Bool(false)));
+    }
+
+    // A Git writer still holds the root: the reservation stays so no second move starts.
+    #[test]
+    fn an_interrupted_move_keeps_its_reservation_while_a_writer_may_remain() {
+        let (conn, store, mut state, _shell) = home_with_checkout();
+        interrupted_move(&conn, "preparing");
+        let settled = settle_after_restart(&store, &mut state, 9.0, &|_| false).expect("settle");
+        assert!(settled.is_empty());
+        assert!(
+            ace_store::stmt_cache::get_row(
+                &conn,
+                "SELECT root FROM workspace_root_reservations WHERE thread_id='t'",
+                Vec::new()
+            )
+            .expect("reservation")
+            .is_some()
         );
     }
 

@@ -453,3 +453,38 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod boot_tests {
+    use super::*;
+    use crate::repository::testsupport::{Shell, header, home};
+
+    // `transition-state.ts:98`: a restart prunes guards whose command is no longer live, and
+    // keeps the one whose intent is still queued.
+    #[test]
+    fn a_boot_prunes_stale_guards_and_keeps_a_live_ones() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t','stale')")
+            .expect("stale");
+        conn.exec(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) \
+             VALUES ('t2', 'workspace', 'Second', 'claude', '{\"state\":\"new\"}', 0, 0)",
+        )
+        .expect("second thread");
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t2','live')")
+            .expect("live");
+        conn.exec(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,position) \
+             VALUES ('live','t2','thread.send','{}','pending',1)",
+        )
+        .expect("intent");
+        crate::transitions::begin_boot(&store, &mut state).expect("boot");
+        assert!(!state.transition_guarded(&store, "t").expect("pruned"));
+        assert!(
+            state.transition_guarded(&store, "t2").expect("kept"),
+            "the queued command still owns its guard"
+        );
+    }
+}

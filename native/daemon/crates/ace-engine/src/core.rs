@@ -375,7 +375,20 @@ impl Core {
             let after = scan.after().to_owned();
             scan.restart(after);
         }
-        let now = self.ports.now() as i64;
+        // Checkout moves a restart interrupted: a root that no longer exists has no Git writer
+        // left, so its fence goes; a root still there waits for the workspace runtime to ask
+        // Git, and keeps its reservation until then.
+        let now = self.ports.now();
+        let settled = self.with_state(|state| {
+            crate::moves::workspace::settle_after_restart(&self.store, state, now, &|root| {
+                !std::path::Path::new(root).exists()
+            })
+        })?;
+        match settled {
+            Ok(_) => {}
+            Err(error) => self.ports.report(format!("checkout moves: {error}")),
+        }
+        let now = now as i64;
         let mut rebuild = transitions::readiness::BootRebuild::default();
         loop {
             let done = self.with_state(|state| rebuild.step(&self.store, state, now))??;
