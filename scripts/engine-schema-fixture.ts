@@ -9,7 +9,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Store } from "../apps/daemon/src/store.ts";
 import { RestartCaptures } from "../apps/daemon/src/engine/restart-captures.ts";
 import { openEngineData } from "../apps/daemon/src/native-engine/open.ts";
@@ -24,7 +24,8 @@ base.close();
 const opened = new Store(openedPath);
 openEngineData(opened, {}, () => 0);
 // E5.8 creates this ledger in `Engine::new`; the Rust opener owns it now.
-new RestartCaptures(opened);
+const captures = new RestartCaptures(opened);
+void captures;
 opened.close();
 
 function dump(path: string): { type: string; name: string; tbl_name: string; sql: string }[] {
@@ -44,10 +45,9 @@ const fixture = { base: dump(basePath), opened: dump(openedPath) };
 if (fixture.base.length === 0 || fixture.opened.length <= fixture.base.length)
   throw new Error("the TypeScript opener left no schema to compare");
 writeFileSync(
-  new URL(
-    "../native/daemon/crates/ace-engine/tests/fixtures/engine-schema.json",
-    import.meta.url,
-  ),
+  new URL("../native/daemon/crates/ace-engine/tests/fixtures/engine-schema.json", import.meta.url),
   `${JSON.stringify(fixture)}\n`,
 );
-console.log(`engine-schema.json: ${fixture.base.length} base rows, ${fixture.opened.length} opened`);
+console.log(
+  `engine-schema.json: ${fixture.base.length} base rows, ${fixture.opened.length} opened`,
+);
