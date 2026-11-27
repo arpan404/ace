@@ -297,6 +297,20 @@ pub(crate) mod test_support {
                     let _ = stdin.write_all(input);
                 }
                 drop(child.stdin.take());
+                // Stderr is drained beside stdout, so a chatty child can't fill its pipe.
+                let stderr = child
+                    .stderr
+                    .take()
+                    .ok_or_else(|| {
+                        GitError::new(crate::core::error::GitErrorCode::GitMissing, "no stderr")
+                    })
+                    .map(|mut stderr| {
+                        std::thread::spawn(move || {
+                            let mut bytes = Vec::new();
+                            let _ = stderr.read_to_end(&mut bytes);
+                            bytes
+                        })
+                    })?;
                 let mut stdout = child.stdout.take().ok_or_else(|| {
                     GitError::new(crate::core::error::GitErrorCode::GitMissing, "no stdout")
                 })?;
@@ -311,17 +325,18 @@ pub(crate) mod test_support {
                     consume(&buffer[..read]);
                 }
                 drop(stdout);
-                let output = child.wait_with_output().map_err(|error| {
+                let status = child.wait().map_err(|error| {
                     GitError::new(
                         crate::core::error::GitErrorCode::GitMissing,
                         error.to_string(),
                     )
                 })?;
+                let stderr = stderr.join().unwrap_or_default();
                 Ok(CommandOutput {
                     // `captureBytes: 0`: the caller holds nothing of the stream.
                     stdout: Vec::new(),
-                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                    exit_code: output.status.code().unwrap_or(-1),
+                    stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                    exit_code: status.code().unwrap_or(-1),
                     truncated: false,
                     stopped: None,
                 })
