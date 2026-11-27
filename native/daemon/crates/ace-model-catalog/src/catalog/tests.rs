@@ -1115,7 +1115,7 @@ fn a_commit_held_past_its_deadline_never_writes_and_reports_a_timeout() {
 }
 
 #[test]
-fn a_deadline_fired_before_the_discovery_arms_one_leaves_it_whole() {
+fn a_deadline_armed_at_admission_bounds_a_stalled_guard() {
     let codex = instance(ProviderKind::Codex, "account");
     let gate = crate::signals::Gate::new();
     let held = gate.clone();
@@ -1142,13 +1142,20 @@ fn a_deadline_fired_before_the_discovery_arms_one_leaves_it_whole() {
         "admission is pending"
     );
     fixture.spawn.drain();
-    // No timer is armed while admission runs, so this one belongs to no discovery.
+    // The deadline is armed at admission, before the guard can hang: it wins even though
+    // the discovery never launched.
     fixture.deadlines.fire(1_000.0 + 1_000.0);
+    // Let the actor take the deadline before the guard is allowed to answer.
+    fixture.spawn.drain();
     gate.open();
     let status = settle(flight, &fixture.spawn, "the flight");
-    assert_eq!(status.error, None, "the admission's own discovery is whole");
-    assert_eq!(fixture.discover.calls(), 1);
-    assert_eq!(listed(&catalog).models.len(), 1);
+    assert_eq!(
+        status.error,
+        Some(StatusError::Timeout),
+        "a guard that never answers cannot outlive the deadline"
+    );
+    assert_eq!(fixture.discover.calls(), 0, "discovery never launched");
+    assert!(listed(&catalog).models.is_empty());
 }
 
 #[test]
@@ -1195,4 +1202,63 @@ fn a_revocation_during_admission_launches_no_discovery() {
         0,
         "the revoked admission never launches discovery"
     );
+}
+
+#[test]
+fn an_old_flights_settlement_never_completes_a_batch_waiting_on_its_replacement() {
+    within(15, "an old flight's late settlement", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let old_gate = crate::signals::Gate::new();
+        let new_gate = crate::signals::Gate::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (old_ready, new_ready) = (old_gate.clone(), new_gate.clone());
+        let seen = calls.clone();
+        let discover = FakeDiscover::new(move |request, _signal| {
+            let call = seen.fetch_add(1, Ordering::SeqCst);
+            let gate = if call == 0 {
+                old_ready.clone()
+            } else {
+                new_ready.clone()
+            };
+            Box::pin(async move {
+                gate.wait().await;
+                Ok(models(&request.instance, &["gpt-6-sol"]))
+            })
+        });
+        let fixture = fixture(
+            vec![codex.clone()],
+            SharedStorage::new(MemoryStorage::new()),
+            discover,
+        );
+        let catalog = fixture.catalog.clone();
+        let mut first = Box::pin(catalog.refresh(ModelFilter::instance("account")));
+        assert!(
+            poll_once(first.as_mut()).is_pending(),
+            "the old flight runs"
+        );
+        fixture.spawn.drain();
+        // The row is replaced while its old flight still runs; the replacement starts its
+        // own flight and a batch waits on it.
+        catalog
+            .register_instance(codex, None)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut second = Box::pin(catalog.refresh(ModelFilter::instance("account")));
+        assert!(
+            poll_once(second.as_mut()).is_pending(),
+            "the replacement flight runs"
+        );
+        // The old flight's task now ends and reports; that settlement must not answer the
+        // batch waiting for the replacement.
+        fixture.spawn.drain();
+        assert!(
+            poll_once(second.as_mut()).is_pending(),
+            "the old flight's settlement left the replacement's batch waiting"
+        );
+        new_gate.open();
+        let statuses = settle(second, &fixture.spawn, "the replacement refresh")
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(statuses.len(), 1);
+        let _ = settle(first, &fixture.spawn, "the old refresh");
+        assert_eq!(listed(&catalog).models.len(), 1);
+    })
 }

@@ -120,10 +120,9 @@ impl Actor {
             .get(id)
             .and_then(|pending| pending.last())
             .map(|pending| pending.done.clone());
-        if admit.is_none() {
-            // No admission guard can delay the launch, so the deadline starts now.
-            self.arm_flight_deadline(id, token);
-        }
+        // The deadline is armed at admission, before the limiter or a guard can hang: a
+        // guard that never answers must not hold a discovery slot past the deadline.
+        self.arm_flight_deadline(id, token);
         let request = with_binary_path(&config, self.configuration(&config).binary_path.as_deref());
         self.notify_id(id);
         self.spawn(
@@ -237,7 +236,7 @@ impl Actor {
         }
         self.next_batch += 1;
         let batch = self.next_batch;
-        let mut pending = std::collections::BTreeSet::new();
+        let mut pending = std::collections::BTreeMap::new();
         for id in &ids {
             let is_acp = self
                 .inner
@@ -258,7 +257,7 @@ impl Actor {
                 // yet, so its settlement could not answer it).
                 FlightStart::Started(token) | FlightStart::Running(token) => {
                     if self.flight_alive(id, token) {
-                        pending.insert(id.clone());
+                        pending.insert(id.clone(), token);
                     }
                 }
                 FlightStart::Skipped => {}

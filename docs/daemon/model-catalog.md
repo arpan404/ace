@@ -250,8 +250,13 @@ dropped revocation or removal still deletes, and a dropped write still takes its
 Slow work (discovery runs, connection probes and removal deletion) runs in tasks the
 actor spawns. Each task reports back with its token, generation and revision, and the
 actor alone decides whether the result commits, in what order per instance, and whether a
-deadline already won. Deadlines are actor-side timers that stay armed until the actor
-commits or drops the result; abort is a message, so every wait is abortable. Spawned work
+deadline already won. A flight's deadline is armed at admission, before the concurrency
+limiter or a caller's guard can wait, so a guard that never answers neither holds a
+discovery slot nor outlives the deadline. A batch that waits for a row's refresh waits on
+that flight's token: an older flight settling for the same instance never answers the
+batch that is waiting for its replacement. Deadlines are actor-side timers that stay
+armed until the actor commits or drops the result; abort is a message, so every wait is
+abortable. Spawned work
 is wrapped so a panic or a dropped task is reported as a failure and settled. Listeners
 and storage calls are contained too, so neither can unwind the actor.
 

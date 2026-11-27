@@ -42,7 +42,9 @@ pub(crate) enum TaskKind {
 /// One explicit refresh waiting for its flights.
 pub(crate) struct RefreshBatch {
     pub(crate) ids: Vec<String>,
-    pub(crate) pending: BTreeSet<String>,
+    /// The flight token each row's answer is owed by: an older flight settling for the
+    /// same id must never be mistaken for the replacement this batch waits on.
+    pub(crate) pending: BTreeMap<String, u64>,
     pub(crate) reply: Reply<Result<Vec<InstanceStatus>, CatalogError>>,
 }
 
@@ -961,6 +963,10 @@ impl Actor {
     }
 
     pub(crate) fn settle_flight(&mut self, id: &str, token: u64) {
+        // Settlement is idempotent: a token that is already released settles nothing.
+        if !self.flight_tracked(id, token) {
+            return;
+        }
         // A write still queued on the lane must not land for a flight that is over.
         if let Some(cancel) = self.commit_cancels.remove(&token) {
             cancel.cancel();
@@ -1007,7 +1013,7 @@ impl Actor {
         for waiter in self.refresh_ok_waiters.remove(&token).unwrap_or_default() {
             let _ = waiter.send(Ok(()));
         }
-        self.complete_refresh(id, status);
+        self.complete_refresh(id, token, status);
         self.notify_id(id);
         if self.refresh_after.remove(id) && !self.inner.closed && self.inner.states.contains_key(id)
         {
@@ -1019,6 +1025,31 @@ impl Actor {
         self.settle_flight(id, token);
     }
 
+    /// Whether a flight token still owns anything the actor can settle.
+    fn flight_tracked(&self, id: &str, token: u64) -> bool {
+        self.inner
+            .row_flights
+            .get(id)
+            .is_some_and(|flights| flights.iter().any(|flight| flight.token == token))
+            || self
+                .inner
+                .states
+                .get(id)
+                .is_some_and(|state| state.flight_token == Some(token))
+            || self.flight_cancels.contains_key(&token)
+            || self.commit_cancels.contains_key(&token)
+            || self.flight_waiters.contains_key(&token)
+            || self.refresh_ok_waiters.contains_key(&token)
+            || self.commit_tokens.contains(&token)
+            || self.storage_waits.values().any(|wait| {
+                matches!(
+                    wait,
+                    StorageWait::CommitReplace(plan) | StorageWait::CommitDelete(plan)
+                        if plan.token == token
+                )
+            })
+    }
+
     /// Whether a flight token still owns a running row flight.
     pub(crate) fn flight_alive(&self, id: &str, token: u64) -> bool {
         self.inner
@@ -1027,22 +1058,33 @@ impl Actor {
             .is_some_and(|flights| flights.iter().any(|flight| flight.token == token))
     }
 
-    fn complete_refresh(&mut self, id: &str, status: InstanceStatus) {
-        let batches: Vec<u64> = self
-            .refresh_batches
-            .iter()
-            .filter(|(_, batch)| batch.pending.contains(id))
-            .map(|(token, _)| *token)
-            .collect();
-        for token in batches {
-            let done = {
-                let Some(batch) = self.refresh_batches.get_mut(&token) else {
-                    continue;
-                };
-                batch.pending.remove(id);
-                batch.pending.is_empty()
-            };
-            if done && let Some(batch) = self.refresh_batches.remove(&token) {
+    fn complete_refresh(&mut self, id: &str, token: u64, status: InstanceStatus) {
+        // A row that already started its replacement flight keeps the batch waiting for
+        // that flight, never for the one that just settled.
+        let live = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.flight.as_ref().map(|flight| flight.token));
+        let mut completed = Vec::new();
+        for (batch_token, batch) in &mut self.refresh_batches {
+            if batch.pending.get(id) != Some(&token) {
+                continue;
+            }
+            match live {
+                Some(next) if next != token => {
+                    batch.pending.insert(id.to_owned(), next);
+                }
+                _ => {
+                    batch.pending.remove(id);
+                    if batch.pending.is_empty() {
+                        completed.push(*batch_token);
+                    }
+                }
+            }
+        }
+        for token in completed {
+            if let Some(batch) = self.refresh_batches.remove(&token) {
                 let statuses = batch
                     .ids
                     .iter()

@@ -401,7 +401,11 @@ fn a_stalled_admission_and_a_held_turn_do_not_block_abort_or_close() {
             &fixture.spawn,
             "a stalled admission, a held turn and close",
         );
-        assert_eq!(stalled_status.error, None, "close aborts admission quietly");
+        assert_eq!(
+            stalled_status.error,
+            Some(StatusError::Timeout),
+            "the deadline armed at admission bounds the stalled guard"
+        );
         assert_eq!(
             other_status.error,
             Some(StatusError::Timeout),
@@ -741,6 +745,62 @@ fn a_deletion_that_panics_before_it_runs_keeps_its_retry_marker() {
         assert!(
             inspected.load().unwrap_or_default().is_empty(),
             "the failed deletion stayed pending and its retry ran before storage closed"
+        );
+    })
+}
+
+#[test]
+fn a_hung_admission_loses_its_deadline_and_frees_the_discovery_slot() {
+    within(15, "a hung admission and the discovery slot", || {
+        let stalled = instance(ProviderKind::Codex, "stalled");
+        let other = instance(ProviderKind::Claude, "other");
+        let admission = crate::signals::Gate::new();
+        let held = admission.clone();
+        let admit: crate::catalog::Admit = Arc::new(move || {
+            let held = held.clone();
+            Box::pin(async move {
+                held.wait().await;
+                Ok(())
+            })
+        });
+        let discover = FakeDiscover::new(|request, _signal| {
+            Box::pin(async move { Ok(models(&request.instance, &["a-model"])) })
+        });
+        let fixture = fixture_with_concurrency(
+            vec![stalled.clone(), other],
+            SharedStorage::new(MemoryStorage::new()),
+            discover.clone(),
+            1,
+        );
+        let catalog = fixture.catalog.clone();
+        catalog
+            .register_instance(stalled, Some(admit))
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut stalled_flight =
+            Box::pin(catalog.refresh_state("stalled", RefreshCause::Background));
+        assert!(poll_once(stalled_flight.as_mut()).is_pending());
+        fixture.spawn.drain();
+        assert_eq!(
+            fixture.discover.calls(),
+            0,
+            "the hung guard holds the only slot before discovery"
+        );
+        // The deadline is armed at admission, so it bounds the hung guard too.
+        fixture.deadlines.fire(1_000.0 + 1_000.0);
+        fixture.spawn.drain();
+        let status = settle(stalled_flight, &fixture.spawn, "the stalled admission");
+        assert_eq!(status.error, Some(StatusError::Timeout));
+        // The slot the hung guard held is free: the next row discovers normally.
+        let other_status = settle(
+            catalog.refresh_state("other", RefreshCause::Background),
+            &fixture.spawn,
+            "the other row",
+        );
+        assert_eq!(other_status.error, None);
+        assert_eq!(
+            fixture.discover.calls(),
+            1,
+            "the released slot admitted the other row"
         );
     })
 }
