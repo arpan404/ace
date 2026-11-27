@@ -72,6 +72,10 @@ export function isolatedTestEnvironment(
     ACE_HISTORY_INSTANCES: "[]",
     ACE_MODEL_INSTANCES: "[]",
     ACE_TEST_REAL_HOME: realHome,
+    // Names the Rust daemon binary for `daemon-launch-test-support.ts`, test-only.
+    ...(ambient.ACE_TEST_DAEMON_BINARY !== undefined
+      ? { ACE_TEST_DAEMON_BINARY: ambient.ACE_TEST_DAEMON_BINARY }
+      : {}),
     // This flag opts into only the dedicated native fixture, never a user app or home.
     ...(ambient.ACE_SCREEN_INTEGRATION === "1" ? { ACE_SCREEN_INTEGRATION: "1" } : {}),
     // This one lets the computer engine operate Calculator, and only Calculator.

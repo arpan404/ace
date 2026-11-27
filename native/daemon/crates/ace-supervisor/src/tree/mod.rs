@@ -227,6 +227,38 @@ impl SignalIo for TreeSignalIo<'_> {
     }
 }
 
+/// `signalVerifiedTree`: signals the tree a previous run left, by evidence rather than
+/// by number. The leader must still be the process whose start is `start` when it is
+/// read, and must still be so after the capture, because the walk named whoever held
+/// the pid; then the leader and every captured member are signalled each by its own
+/// start. A leader that is gone or now someone else's sends nothing.
+pub fn signal_verified_tree(
+    pid: u32,
+    start: &str,
+    signal: SignalName,
+    io: &dyn TreeIo,
+) -> Vec<TreeRef> {
+    let Some(leader) = member_of(pid, io) else {
+        return Vec::new();
+    };
+    if leader.start != start {
+        return Vec::new();
+    }
+    let capture = capture_tree(&[pid], io, CAPTURE_LIMIT);
+    if member_of(pid, io).is_none_or(|again| again.start != start) {
+        return Vec::new();
+    }
+    let mut members = vec![leader];
+    members.extend(capture.members.into_iter().map(|member| TreeRef {
+        pid: member.pid,
+        start: member.start,
+    }));
+    for member in &members {
+        signal_tree_member(member, signal, io);
+    }
+    members
+}
+
 /// Signals one member, checked on its own just before the signal goes.
 pub fn signal_tree_member(member: &TreeRef, signal: SignalName, io: &dyn TreeIo) -> SignalOutcome {
     signal_member(member, signal, &TreeSignalIo { io })

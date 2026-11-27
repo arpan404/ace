@@ -111,6 +111,18 @@ impl DevicesChannel {
         Some(ChannelFrame::DevicesEnabled { enabled })
     }
 
+    /// The refusal a request gets, without opening a channel (`relay-channel.ts:94`-`:99`):
+    /// a missing service wins over a missing admin scope.
+    pub fn refusal(service_loaded: bool, scopes: &[Scope]) -> Option<DeviceFailure> {
+        if !service_loaded {
+            return Some(DEVICES_UNAVAILABLE);
+        }
+        if !allows_admin(scopes) {
+            return Some(DEVICE_ACCESS_REFUSED);
+        }
+        None
+    }
+
     /// A `devices.request`. A refused request is always answered, so the client can say why
     /// instead of waiting; a refusal names the credential or the missing service.
     pub fn request(&self, scopes: &[Scope]) -> Result<Request, DeviceFailure> {

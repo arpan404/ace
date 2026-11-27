@@ -4,6 +4,7 @@
 //! `remote-direct.ts:133`–`:139` and `tailscale-certificate.ts:135`–`:138`
 //! decide today.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use rustls::server::{ClientHello, ResolvesServerCert};
@@ -23,6 +24,9 @@ pub struct SniResolver {
     trusted: RwLock<Option<Trusted>>,
     /// Counts the handshakes that were served the trusted certificate (T1b.1b).
     stats: Option<Arc<Stats>>,
+    /// Bumped on every `set_trusted`: an expiry timer clears only the generation
+    /// it was armed for, never a newer certificate.
+    generation: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -38,6 +42,7 @@ impl SniResolver {
             pinned: pinned.key(),
             trusted: RwLock::new(None),
             stats: None,
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -48,12 +53,15 @@ impl SniResolver {
             pinned: pinned.key(),
             trusted: RwLock::new(None),
             stats: Some(stats),
+            generation: AtomicU64::new(0),
         }
     }
 
     /// Serve `identity` for `name` from the next handshake on, replacing any
     /// trusted certificate served before.
-    pub fn set_trusted(&self, name: &str, identity: TlsIdentity) {
+    /// Returns the generation this certificate was installed as.
+    pub fn set_trusted(&self, name: &str, identity: TlsIdentity) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let mut trusted = self
             .trusted
             .write()
@@ -62,6 +70,7 @@ impl SniResolver {
             name: normalise(name),
             key: identity.key(),
         });
+        generation
     }
 
     /// Serve the pinned certificate again from the next handshake on.
@@ -70,6 +79,14 @@ impl SniResolver {
             .write()
             .unwrap_or_else(|poison| poison.into_inner())
             .take();
+    }
+
+    /// Clear only the certificate installed as `generation`: an expiry timer
+    /// never removes a newer one.
+    pub fn clear_trusted_if(&self, generation: u64) {
+        if self.generation.load(Ordering::Acquire) == generation {
+            self.clear_trusted();
+        }
     }
 
     /// Which certificate a handshake that asked for `server_name` gets.

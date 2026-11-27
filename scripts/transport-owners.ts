@@ -16,7 +16,10 @@ export type Owner = "js:main" | `rust:${string}`;
  * Overrides only: a client message type not named here is owned by `js:main`. Every key must be
  * a type a schema defines, or the generator fails.
  */
-export const messageOwners: Record<string, Owner> = {};
+export const messageOwners: Record<string, Owner> = {
+  "devices.ack": "rust:ace-daemon-bin",
+  "devices.request": "rust:ace-daemon-bin",
+};
 
 /**
  * Each listener's HTTP request chain in order (behaviour.md §3): the first handler that claims a
@@ -36,7 +39,7 @@ export const httpStages: readonly {
   { listener: "loopback", stage: "icons", owner: "js" },
   { listener: "loopback", stage: "suits", owner: "js" },
   { listener: "loopback", stage: "preview", owner: "js" },
-  { listener: "loopback", stage: "access", owner: "js" },
+  { listener: "loopback", stage: "access", owner: "rust:ace-daemon-bin" },
   // Remote (paired devices): the org gate, outside MCP clients, then the machine routes.
   { listener: "remote", stage: "org-gate", owner: "js" },
   { listener: "remote", stage: "outside-mcp", owner: "js" },
@@ -47,5 +50,5 @@ export const httpStages: readonly {
   { listener: "remote", stage: "icons", owner: "js" },
   { listener: "remote", stage: "suits", owner: "js" },
   { listener: "remote", stage: "preview", owner: "js" },
-  { listener: "remote", stage: "access", owner: "js" },
+  { listener: "remote", stage: "access", owner: "rust:ace-daemon-bin" },
 ];
