@@ -109,6 +109,11 @@ pub fn validate_tree(json: &str, value: &Value) -> Result<(), FrameCaptureError>
 
 /// Capture a plain text line (`stdio-text` malformed line or `stderr` line) as a JSON
 /// string frame.
+///
+/// The line is a string value, so a secret it spells with an escape (`le\u0061se`) is
+/// neither decoded nor matched by the walk, which redacts exact values. TypeScript has the
+/// same hole for a string `frame()`; this is parity, not a new gap. The escaped-spelling walk
+/// covers JSON lines, where the escape is in the frame's syntax.
 pub fn capture_text_frame(
     line: &str,
     secrets: &[String],
