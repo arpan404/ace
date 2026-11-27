@@ -1,0 +1,86 @@
+{
+  "messages": {
+    "threadsPage": {
+      "type": "threads.page",
+      "requestId": "page-1",
+      "subscriptionId": "s1",
+      "before": {
+        "at": 7,
+        "id": "t_tree"
+      }
+    },
+    "commandStatus": {
+      "type": "command.status",
+      "requestId": "status-1",
+      "commandIds": [
+        "c1",
+        "c2",
+        "c3"
+      ]
+    },
+    "unsubscribe": {
+      "type": "unsubscribe",
+      "subscriptionId": "s1"
+    },
+    "subscribeThread": {
+      "type": "subscribe",
+      "subscriptionId": "s1",
+      "scope": {
+        "kind": "thread",
+        "threadId": "t_tree"
+      },
+      "paced": true,
+      "afterSeq": 5,
+      "tail": {
+        "items": 10,
+        "bytes": 4096
+      }
+    },
+    "subscribeWindow": {
+      "type": "subscribe",
+      "subscriptionId": "s2",
+      "scope": {
+        "kind": "threads",
+        "window": {
+          "limit": 20,
+          "project": "w_one",
+          "archived": false,
+          "resume": {
+            "revision": 3,
+            "epoch": "token:activity:0"
+          }
+        }
+      }
+    },
+    "outputRead": {
+      "type": "output.read",
+      "requestId": "output-1",
+      "streamId": "stream-1",
+      "offset": 0,
+      "limit": 32768
+    },
+    "interactionRead": {
+      "type": "interaction.read",
+      "requestId": "interaction-1",
+      "threadId": "t_tree",
+      "interactionId": "i1",
+      "offset": 0
+    },
+    "itemsPage": {
+      "type": "items.page",
+      "requestId": "items-1",
+      "threadId": "t_tree",
+      "before": 6,
+      "limit": 50
+    },
+    "entitiesPage": {
+      "type": "entities.page",
+      "requestId": "entities-1",
+      "threadId": "t_tree",
+      "collection": "interactions",
+      "before": 6,
+      "limit": 10,
+      "maxBytes": 16384
+    }
+  }
+}

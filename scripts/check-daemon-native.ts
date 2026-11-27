@@ -38,6 +38,35 @@ execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The fan-out vectors (T3): each is generated from the TypeScript it proves (the encoder, the
+// trims, the subscription, the sidebar subscription, command lanes and status). Regenerated and
+// compared here, a TypeScript change that moves a byte fails this check instead of leaving Rust
+// green on stale vectors.
+for (const generator of [
+  "make-vectors.ts",
+  "make-trim-vectors.ts",
+  "make-subscription-vectors.ts",
+  "make-sidebar-vectors.ts",
+  "make-command-vectors.ts",
+  "make-read-vectors.ts",
+]) {
+  execFileSync("bun", [`crates/ace-fanout/vectors/${generator}`, "--check"], {
+    cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
+    stdio: "inherit",
+  });
+}
+
+// The interaction summaries (T3): `summarizeInteraction` and the wire functions, recorded from
+// `@ace/projection/interaction-summary` and `apps/daemon/src/wire-interactions.ts`.
+execFileSync(
+  "bun",
+  ["crates/ace-projection/vectors/make-interaction-vectors.ts", "--check"],
+  {
+    cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
+    stdio: "inherit",
+  },
+);
+
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),

@@ -1,0 +1,76 @@
+{
+  "lanes": [
+    {
+      "command": "{\"id\":\"c1\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"thread.send\",\"threadId\":\"t_tree\",\"input\":[{\"type\":\"text\",\"text\":\"go on\"}]}}",
+      "device": "phone",
+      "key": "phone\u0000thread\u0000t_tree"
+    },
+    {
+      "command": "{\"id\":\"c2\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"thread.interrupt\",\"threadId\":\"t_tree\"}}",
+      "device": "phone",
+      "key": "phone\u0000thread\u0000t_tree"
+    },
+    {
+      "command": "{\"id\":\"c3\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"thread.moved\",\"threadId\":\"t_other\"}}",
+      "device": "phone",
+      "key": "phone\u0000thread\u0000t_other"
+    },
+    {
+      "command": "{\"id\":\"c4\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"workspace.archive\",\"workspaceId\":\"w_one\"}}",
+      "device": "phone",
+      "key": "phone\u0000workspace\u0000w_one"
+    },
+    {
+      "command": "{\"id\":\"c5\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"thread.fork\",\"link\":{\"threadId\":\"t_tree\"}}}",
+      "device": "phone",
+      "key": "phone\u0000thread\u0000t_tree"
+    },
+    {
+      "command": "{\"id\":\"c6\",\"deviceId\":\"phone\",\"payload\":{\"type\":\"device.ping\"}}",
+      "device": "phone",
+      "key": "phone\u0000device"
+    }
+  ],
+  "statuses": [
+    {
+      "name": "unknown",
+      "commandId": "c1",
+      "receipt": null,
+      "inFlight": false,
+      "state": "unknown",
+      "result": null
+    },
+    {
+      "name": "stored ok",
+      "commandId": "c1",
+      "receipt": "{\"commandId\":\"c1\",\"ok\":true}",
+      "inFlight": false,
+      "state": "settled",
+      "result": "{\"commandId\":\"c1\",\"ok\":true}"
+    },
+    {
+      "name": "stored failure",
+      "commandId": "c1",
+      "receipt": "{\"commandId\":\"c1\",\"ok\":false,\"error\":\"provider_failed\"}",
+      "inFlight": false,
+      "state": "settled",
+      "result": "{\"commandId\":\"c1\",\"ok\":false,\"error\":\"provider_failed\"}"
+    },
+    {
+      "name": "pending reservation",
+      "commandId": "c1",
+      "receipt": "{\"commandId\":\"c1\",\"ok\":false,\"error\":\"client_action_pending\"}",
+      "inFlight": false,
+      "state": "settled",
+      "result": "{\"commandId\":\"c1\",\"ok\":false,\"error\":\"action_outcome_uncertain\"}"
+    },
+    {
+      "name": "running even with a receipt",
+      "commandId": "c1",
+      "receipt": "{\"commandId\":\"c1\",\"ok\":true}",
+      "inFlight": true,
+      "state": "running",
+      "result": null
+    }
+  ]
+}

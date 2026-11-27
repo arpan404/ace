@@ -897,6 +897,13 @@ subscription handoff (behaviour.md §9: register, read rows and watermark togeth
 strictly above, contiguous cursors through progress frames) is ported step for step. Snapshots
 and pages are still read by TypeScript in T3 and handed over as strings.
 
+Command admission (`socket-commands.ts`) is the socket wiring's, not T3's crate work: `ace-fanout`
+owns the lanes and `commandState`, while the shell that composes the sockets admits a command
+against its routes and maintenance gate, sends the refusals (with the command id, and the
+`forge.issue.write` receipt replay), caps a socket at 64 flights and lets it read on after the
+250 ms grace. That wiring lands with T4/program composition, and its TypeScript cases are its
+proof then.
+
 ### T4a, then T4: reads to the wire (needs T3)
 
 ADR 0226 §4. **T4a first**: the lenient decoder for untrusted rows ported to Rust, proven by
