@@ -169,6 +169,53 @@ fn an_owner_drop_leaves_a_bind_that_owner_started_later_alone() {
 }
 
 #[test]
+fn a_threadless_takeover_during_a_disable_finds_no_recording_from_the_old_thread() {
+    let mut session = Session::new("ios:AAAA");
+    // The prior thread left a recording that ended on its own, waiting for its
+    // `record.stop`.
+    session.thread_id = Some(String::from("t-old"));
+    session.completed = Some(String::from("old-recording"));
+    session.recording_artifact = Some(String::from("old-artifact"));
+
+    // An agent's bind starts, so the device is unbound and its guard is set while
+    // the cleanup runs.
+    let agent_bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("agent bind");
+    assert!(session.changing_binding);
+    // Devices are turned off before that bind finishes, then on again while the
+    // disable's own cleanup is still pending.
+    let disabled = begin_disable(&mut session);
+
+    // The person takes control without a thread: there is no bind to retire, so
+    // their takeover passes the guard and reaches control.
+    let assignment = begin_assign(&mut session, &person(), NOW).expect("person takes control");
+    finish_assign(&mut session, assignment, Some(&person()), NOW).expect("person holds it");
+    authorize(&session, &person(), true, false).expect("the person may stop a recording");
+
+    assert_eq!(
+        session.completed, None,
+        "the person's record.stop has nothing of the old thread's to consume"
+    );
+    assert_eq!(session.recording_artifact, None);
+
+    // Both old completions land afterwards: the agent's bind and the disable.
+    let refused = resume_claim_for_agent(&mut session, &agent(), agent_bind, false, true, NOW)
+        .expect_err("the disable passed the agent's bind");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    finish_disable(&mut session, disabled);
+
+    assert_eq!(
+        session.completed, None,
+        "the old completions publish nothing back"
+    );
+    assert_eq!(session.recording_artifact, None);
+    assert_eq!(
+        session.lease.status(NOW).controller,
+        Controller::Human,
+        "the person keeps control"
+    );
+}
+
+#[test]
 fn a_replayed_successful_bind_completion_leaves_the_live_recording_alone() {
     let mut session = Session::new("ios:AAAA");
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");

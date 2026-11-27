@@ -10,7 +10,7 @@ use super::{
 };
 use crate::error::DeviceError;
 use crate::error::DeviceErrorCode;
-use crate::service::binding::{begin_bind_for_person, begin_disable};
+use crate::service::binding::{begin_bind_for_person, begin_disable, finish_disable};
 use crate::service::lease::{Actor, Controller};
 use crate::service::session::Session;
 use crate::service::words;

@@ -195,11 +195,20 @@ pub fn finish_bind(
 /// thread before its resources are stopped, and retires any bind still in flight
 /// so a later bind does not find a reservation nobody will finish. Returns the
 /// epoch the disable moved to, which its completion carries back.
+///
+/// The old thread's published recording goes here, at the start, not only when
+/// the stop returns: retiring the bind above clears its guard, so a person's
+/// threadless takeover can reach control and pass [`super::control::authorize`]
+/// while the disable's cleanup is still out. A `record.stop` then finds nothing
+/// of the old thread's to consume, and neither the delayed [`finish_disable`] nor
+/// the retired bind's own completion can publish it back.
 pub fn begin_disable(session: &mut Session) -> u64 {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.thread_id = None;
     session.changing_binding = false;
     session.binding_owner = None;
+    session.completed = None;
+    session.recording_artifact = None;
     // `stopDevice` releases control synchronously, before its cleanup is awaited, so
     // a re-enable before the lease ran out finds the device free.
     session.lease.release(None);
