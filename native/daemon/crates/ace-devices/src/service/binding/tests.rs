@@ -5,7 +5,9 @@
 //! `binding.ts` has no test file of its own (behaviour.md §5 lists none), so
 //! these cases are the module's only guard.
 
-use super::{Bind, Bound, begin_bind, begin_disable, finish_bind, finish_disable};
+use super::{
+    Bind, Bound, begin_bind, begin_disable, finish_bind, finish_disable, supersede_inflight_bind,
+};
 use crate::error::DeviceErrorCode;
 use crate::service::lease::{Actor, Controller};
 use crate::service::session::Session;
@@ -125,6 +127,84 @@ fn a_newer_bind_makes_the_older_one_refuse() {
         finish_bind(&mut session, "t2", epoch, false, true).expect_err("a newer change passed it");
     assert_eq!(refused.code(), DeviceErrorCode::Busy);
     assert_eq!(session.thread_id, None);
+}
+
+#[test]
+fn disabling_retires_an_in_flight_bind_and_an_obsolete_finish_leaves_the_newer_bind_alone() {
+    let mut session = bound("t1");
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+        panic!("a cleanup");
+    };
+    begin_disable(&mut session);
+    assert!(
+        !session.changing_binding,
+        "the disable retired the bind's reservation"
+    );
+
+    let Bind::Cleanup { epoch: newer, .. } = begin_bind(&mut session, "t3").expect("a new bind")
+    else {
+        panic!("a newer cleanup");
+    };
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    let refused = finish_bind(&mut session, "t2", epoch, false, true)
+        .expect_err("the disable passed this bind");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert!(
+        session.changing_binding,
+        "the newer bind keeps its reservation"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "the newer bind's published recording stays"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+
+    assert_eq!(
+        finish_bind(&mut session, "t3", newer, false, true),
+        Ok(Bound::Bound)
+    );
+    assert_eq!(session.thread_id.as_deref(), Some("t3"));
+}
+
+#[test]
+fn a_persons_supersede_retires_the_agents_bind_and_its_obsolete_finish_changes_nothing() {
+    let mut session = bound("t1");
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+        panic!("a cleanup");
+    };
+    supersede_inflight_bind(&mut session);
+    assert!(
+        !session.changing_binding,
+        "the person's takeover retires it"
+    );
+    assert_eq!(session.thread_id, None);
+
+    let Bind::Cleanup {
+        epoch: person_epoch,
+        ..
+    } = begin_bind(&mut session, "t-person").expect("the person's bind")
+    else {
+        panic!("the person's cleanup");
+    };
+    session.completed = Some(String::from("person-recording"));
+
+    let refused = finish_bind(&mut session, "t2", epoch, false, true)
+        .expect_err("the person's bind passed this one");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert!(
+        session.changing_binding,
+        "the person's bind keeps its reservation"
+    );
+    assert_eq!(session.completed.as_deref(), Some("person-recording"));
+
+    assert_eq!(
+        finish_bind(&mut session, "t-person", person_epoch, false, true),
+        Ok(Bound::Bound)
+    );
+    assert_eq!(session.thread_id.as_deref(), Some("t-person"));
 }
 
 #[test]

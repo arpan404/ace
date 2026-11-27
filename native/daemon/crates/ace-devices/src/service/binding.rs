@@ -105,6 +105,10 @@ pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<B
 /// `bindDevice`'s second half: the cleanup ran (the caller's `guard` already
 /// checked the caller's lifetime), so bind the device unless devices were turned
 /// off or a newer bind passed this one.
+///
+/// Only the bind that still owns the current epoch may touch the session: a
+/// superseded bind's late completion leaves the newer bind's reservation and
+/// recording alone.
 pub fn finish_bind(
     session: &mut Session,
     thread_id: &str,
@@ -112,13 +116,16 @@ pub fn finish_bind(
     cleanup_failed: bool,
     enabled: bool,
 ) -> Result<Bound, DeviceError> {
+    if session.binding_epoch != epoch {
+        return Err(words::refusal(TURNED_OFF_KEY));
+    }
     session.changing_binding = false;
     session.completed = None;
     session.recording_artifact = None;
     if cleanup_failed {
         return Ok(Bound::CleanupFailed);
     }
-    if !enabled || session.binding_epoch != epoch {
+    if !enabled {
         return Err(words::refusal(TURNED_OFF_KEY));
     }
     session.thread_id = Some(thread_id.to_owned());
@@ -126,10 +133,12 @@ pub fn finish_bind(
 }
 
 /// `disableDeviceSessions`: turning devices off frees every device from its
-/// thread before its resources are stopped.
+/// thread before its resources are stopped, and retires any bind still in flight
+/// so a later bind does not find a reservation nobody will finish.
 pub fn begin_disable(session: &mut Session) {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.thread_id = None;
+    session.changing_binding = false;
 }
 
 /// The stop ran: the published recording it may have left is cleared.
