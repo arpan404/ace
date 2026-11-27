@@ -88,7 +88,7 @@ impl SqlItemPage {
     }
 
     /// `ItemTextStore.read(id)`: the stored preview, its text read from the stream.
-    fn preview(&self, id: &str) -> Result<Json, PageError> {
+    pub(crate) fn preview(&self, id: &str) -> Result<Json, PageError> {
         let rows = self.query(
             "SELECT p.item, p.target, i.created_seq FROM item_previews p LEFT JOIN items i ON i.id = p.id WHERE p.id = ?",
             &[SqlValue::Text(id.to_owned())],
