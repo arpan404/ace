@@ -17,6 +17,9 @@ OpenCode discovery reads served model metadata even when `auth list` reports no
 connections. Enabled Zen models with zero input, output and cache pricing in every
 reported cost tier remain usable without credentials. Paid and other unconnected
 upstreams remain filtered. No model IDs or free-model count are hard-coded in ace.
+Only the CLI's id-only listing, which carries no metadata at all, can be qualified by
+the shape of an id (`-free`, `big-pickle`); a catalog row that carries metadata is
+judged by its own pricing and enabled flag.
 
 `CatalogModel.free?` marks these models for a Free badge. A Zen source discovered
 only through free models has `source.requiresAuth: false`, so Settings offers

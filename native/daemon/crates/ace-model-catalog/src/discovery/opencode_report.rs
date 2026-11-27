@@ -158,6 +158,9 @@ pub fn build_report(
     connected: &Connected,
 ) -> Result<OpenCodeReport, DiscoveryFailure> {
     let envelope = payload.as_object().ok_or_else(malformed)?;
+    // The reply's own Location is kept for the normaliser, so a server that answered for
+    // another directory is refused instead of being relabelled with this instance's.
+    let location = envelope.get("location").cloned().unwrap_or(Value::Null);
     let data = envelope
         .get("data")
         .and_then(Value::as_array)
@@ -212,8 +215,10 @@ pub fn build_report(
                     source.clone()
                 } else {
                     let inferred = provider_source(provider);
-                    // A provider with no connection joins only when local or free.
-                    if !free_model(provider, raw_model_id(raw).as_str())
+                    // A provider with no connection joins only when local, or when the
+                    // catalog itself prices every tier at zero: an id that merely looks
+                    // free is no evidence for a row that carries metadata.
+                    if !ace_models::free::free_opencode_model(raw)
                         && inferred.kind != ModelSourceKind::Local
                     {
                         continue;
@@ -251,7 +256,7 @@ pub fn build_report(
         .collect();
     let mut rows = ace_models::opencode::normalize_opencode_v2(
         &serde_json::json!({
-            "location": { "directory": instance.cwd },
+            "location": location,
             "data": grouped.iter().flat_map(|(_, rows)| rows.clone()).collect::<Vec<_>>(),
             "configuredDefault": envelope.get("configuredDefault").cloned().unwrap_or(Value::Null),
         }),
@@ -347,14 +352,6 @@ pub fn build_report(
         });
     }
     Ok(report)
-}
-
-fn raw_model_id(raw: &Value) -> String {
-    raw.as_object()
-        .and_then(|entry| entry.get("modelID"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned()
 }
 
 fn malformed() -> DiscoveryFailure {

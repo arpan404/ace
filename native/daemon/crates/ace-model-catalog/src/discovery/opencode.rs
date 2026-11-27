@@ -1014,6 +1014,120 @@ mod tests {
     }
 
     #[test]
+    fn a_process_backed_reply_for_another_directory_is_refused() {
+        let mut replies = vec![HttpReply {
+            status: 200,
+            body: json!({
+                "location": { "directory": "/elsewhere" },
+                "data": [catalog_entry("opencode", "deepseek-v4.1-flash", true)],
+            })
+            .to_string(),
+        }];
+        replies.push(HttpReply {
+            status: 200,
+            body: catalog_with(vec![]),
+        });
+        let http = Arc::new(ScriptedHttp::new(replies));
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]}]"#,
+            listing: Vec::new(),
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let failure = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .err()
+        .unwrap_or_else(|| panic!("a reply for another directory is refused"));
+        assert_eq!(
+            failure.message.as_deref(),
+            Some("OpenCode answered for another directory")
+        );
+    }
+
+    #[test]
+    fn an_http_row_without_metadata_is_free_only_when_every_tier_is_zero() {
+        let mut priced = catalog_entry("opencode", "hy4-flash-free", true);
+        priced["cost"] =
+            json!([{ "input": 0.4, "output": 1.2, "cache": { "read": 0, "write": 0 } }]);
+        let zero = catalog_entry("opencode", "partner-model", true);
+        let http = catalog_http(vec![priced, zero]);
+        let process = Arc::new(ScriptedProcess {
+            connections: "[]",
+            listing: Vec::new(),
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome
+                .models
+                .iter()
+                .map(|row| row.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/partner-model"],
+            "the catalog's own pricing decides, never the id"
+        );
+        assert!(
+            outcome.models[0].free.is_some(),
+            "the zero-priced row is free"
+        );
+    }
+
+    #[test]
+    fn a_cli_listed_free_choice_needs_no_metadata() {
+        let replies: Vec<HttpReply> = (0..40)
+            .map(|_| HttpReply {
+                status: 200,
+                body: catalog_with(vec![]),
+            })
+            .collect();
+        let http = Arc::new(ScriptedHttp::new(replies));
+        let process = Arc::new(ScriptedProcess {
+            connections: "[]",
+            listing: vec![crate::discovery::process::ProcessOutput {
+                status: Some(0),
+                stdout: "opencode/big-pickle\nopencode/paid-model\n".to_owned(),
+                stderr: String::new(),
+            }],
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome
+                .models
+                .iter()
+                .map(|row| row.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/big-pickle"],
+            "the CLI's id names a free choice; a paid one needs a connection"
+        );
+        assert!(outcome.models[0].free.is_some(), "the listed row is free");
+    }
+
+    #[test]
     fn a_failed_cli_supplement_keeps_the_healthy_catalog_and_marks_sources_stale() {
         let http = catalog_http(vec![
             catalog_entry("opencode", "deepseek-v4.1-flash", true),
