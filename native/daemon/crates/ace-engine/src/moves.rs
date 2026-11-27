@@ -365,6 +365,43 @@ mod tests {
         assert!(!at_rest(&idle_state(Some("move"), true), "move", 0));
     }
 
+    // A carried session's fork and its native id are one write: a failure leaves both, so a
+    // retry can still resume the session it was given.
+    #[test]
+    fn a_failed_carried_session_drop_keeps_the_fork_and_its_native_session() {
+        let conn = home("t", &header("t"));
+        let store = Shell::store(&conn);
+        let mut state = State::default();
+        conn.exec(
+            "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES ('t','/w',NULL,'forked','acp','c',NULL)",
+        )
+        .expect("session");
+        adopt_carried_session(
+            &mut state,
+            &store,
+            "t",
+            CarriedSession {
+                native_session_id: "forked".into(),
+                instance_id: "c".into(),
+                action: CarriedAction::Fork,
+            },
+        )
+        .expect("fork");
+        // The session row cannot take the clear: the fork metadata must not go without it.
+        conn.exec("ALTER TABLE engine_sessions RENAME TO engine_sessions_gone")
+            .expect("break the row");
+        let failed = drop_carried_session(&mut state, &store, "t");
+        assert!(failed.is_err(), "the clear fails and the drop with it");
+        assert!(
+            state
+                .transition_get(&store, "t")
+                .expect("metadata")
+                .fork
+                .is_some(),
+            "the fork is still there to retry"
+        );
+    }
+
     // From `workspace-change.process.test.ts`: a carried session is resumed by id or forked from
     // its end, and a failed open drops it for the handoff.
     #[test]
