@@ -154,3 +154,38 @@ it("a wake can read the missed feed while UIKit has yet to return its push token
   await vi.waitFor(() => expect(of("notifications.feedComplete").length).toBeGreaterThan(1));
   expect(daemon.notifications.address(device)?.channel).toBe("push");
 });
+
+/** What Swift adds while Live Activities are on in ace and in iOS Settings. */
+const liveActivity = (activityToken?: string) => ({
+  startToken: "ef".repeat(32),
+  ...(activityToken ? { activityToken } : {}),
+  environment: "production" as const,
+  frequentUpdates: true,
+  slot: 3,
+});
+
+it("Live Activity tokens reach the machine with the registration and go when they are turned off", async () => {
+  const { daemon, act, settle } = await phone();
+  const push = pushKey("ab".repeat(32));
+  const sync = (live?: ReturnType<typeof liveActivity>) =>
+    act({
+      type: "notifications.sync",
+      enabled: true,
+      appState: "foreground",
+      cursor: 0,
+      push,
+      ...(live ? { liveActivity: live } : {}),
+    });
+  sync(liveActivity());
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toEqual(liveActivity()));
+  // The machine's own activity started: its update token goes too, on the same connection.
+  sync(liveActivity("12".repeat(32)));
+  await vi.waitFor(() =>
+    expect(daemon.notifications.liveActivity(device)?.activityToken).toBe("12".repeat(32)),
+  );
+  // Live Activities off in ace or iOS: Swift drops the object and the machine forgets both.
+  sync();
+  await vi.waitFor(() => expect(daemon.notifications.liveActivity(device)).toBeUndefined());
+  await settle();
+  expect(daemon.notifications.address(device)).toMatchObject({ channel: "push" });
+});

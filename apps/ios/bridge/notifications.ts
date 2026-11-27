@@ -4,6 +4,7 @@ import {
   AppState,
   InteractionId,
   NotificationPreferences,
+  PhoneLiveActivity,
   ThreadId,
   type Notification,
   type NotificationAddress,
@@ -48,6 +49,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     phone: PhoneNotificationPrefs.optional(),
     /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
     push: PhonePush.nullable().optional(),
+    /** This machine's Live Activity tokens and slot (ADR 0223); absent while they are off. */
+    liveActivity: PhoneLiveActivity.optional(),
   }),
   z.object({
     type: z.literal("notifications.feedApplied"),
@@ -123,6 +126,10 @@ export class NotificationBridge {
   #synced = false;
   /** Swift's push token and key; without one the daemon sends alerts on the socket only. */
   #push: PhonePush | null = null;
+  /** Swift's Live Activity tokens for this machine; registered with the address. */
+  #liveActivity: PhoneLiveActivity | undefined;
+  /** The tokens this connection's daemon was last registered with. */
+  #toldLiveActivity: PhoneLiveActivity | undefined;
   /** What this connection has told the daemon; unknown again after every reconnect. */
   #daemon: NotificationAddress | "unregistered" | undefined;
   /**
@@ -204,6 +211,7 @@ export class NotificationBridge {
           this.#runs?.stop();
           this.#connection++;
           this.#daemon = undefined;
+          this.#toldLiveActivity = undefined;
           this.#pushRefused = false;
           // The daemon gave up waiting on that socket's frames; a late ack would mean nothing.
           this.#handedOver.clear();
@@ -236,6 +244,7 @@ export class NotificationBridge {
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
         this.#push = action.push ?? null;
+        this.#liveActivity = action.liveActivity;
         this.#watchLimits();
         this.#watchRuns();
         if (this.#client.state === "ready") {
@@ -359,16 +368,22 @@ export class NotificationBridge {
       ? phoneAddress(this.#pushRefused ? null : this.#push)
       : "unregistered";
     const told = this.#daemon;
+    const liveActivity = want === "unregistered" ? undefined : this.#liveActivity;
     const current =
-      want === "unregistered" || told === undefined || told === "unregistered"
+      (want === "unregistered" || told === undefined || told === "unregistered"
         ? want === told
-        : sameAddress(want, told);
+        : sameAddress(want, told)) && sameLiveActivity(liveActivity, this.#toldLiveActivity);
     if (!current) {
       const connection = this.#connection;
       try {
         if (want === "unregistered")
           await this.#client.request({ type: "notification.unregister" });
-        else await this.#client.request({ type: "notification.register", device: want });
+        else
+          await this.#client.request({
+            type: "notification.register",
+            device: want,
+            ...(liveActivity ? { liveActivity } : {}),
+          });
       } catch (error) {
         if (connection !== this.#connection) return;
         // A daemon older than the push channel can't parse the address and refuses it; alerts
@@ -385,6 +400,7 @@ export class NotificationBridge {
       }
       if (connection !== this.#connection) return;
       this.#daemon = want;
+      this.#toldLiveActivity = liveActivity;
     }
     if (want !== "unregistered") await this.#catchUp();
   }
@@ -629,6 +645,20 @@ function unparsable(error: unknown): boolean {
     error instanceof ClientError &&
     error.code === "daemon" &&
     (error.message === "invalid_message" || error.message === "unsupported")
+  );
+}
+/** The same tokens, environment, frequency and slot: nothing new to register. */
+function sameLiveActivity(
+  a: PhoneLiveActivity | undefined,
+  b: PhoneLiveActivity | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.startToken === b.startToken &&
+    a.activityToken === b.activityToken &&
+    a.environment === b.environment &&
+    a.frequentUpdates === b.frequentUpdates &&
+    a.slot === b.slot
   );
 }
 /** The daemon understood the request and its access policy refused it. */
