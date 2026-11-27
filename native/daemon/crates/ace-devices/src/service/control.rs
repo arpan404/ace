@@ -158,7 +158,7 @@ pub fn start_bind_for_agent(
 ) -> Result<Bind, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
     agent_takeover_allowed(session, actor, now, true)?;
-    begin_bind(session, thread_id)
+    begin_bind(session, thread_id, &actor.owner)
 }
 
 /// A person's `controller` with a thread: the takeover it reserved and the bind
@@ -181,7 +181,7 @@ pub fn start_human_controller_with_thread(
         return Err(words::refusal(PERSON_ONLY_KEY));
     }
     let assignment = begin_assign(session, person, now)?;
-    let bind = begin_bind_for_person(session, thread_id)?;
+    let bind = begin_bind_for_person(session, thread_id, &person.owner)?;
     Ok(ThreadedTakeover { assignment, bind })
 }
 
@@ -335,12 +335,27 @@ fn pending_still_matches(session: &Session, assignment: &Assignment) -> bool {
         && assignment.revision == session.control_revision
 }
 
+/// Retire the bind reservation this owner's takeover started, if it is still
+/// running. An invalidated assignment must not leave the device reserved for a
+/// cleanup nobody will finish: a person starts a threaded bind, hands back or
+/// drops, and an agent's bind would otherwise be refused `bindingBusy` until the
+/// person's stale continuation lands.
+fn retire_owner_bind(session: &mut Session, owner: &str) {
+    if !session.changing_binding || session.binding_owner.as_deref() != Some(owner) {
+        return;
+    }
+    session.binding_epoch = session.binding_epoch.saturating_add(1);
+    session.changing_binding = false;
+    session.binding_owner = None;
+}
+
 /// `disconnect` / owner drop: invalidate only this owner's pending takeover
-/// (`service.ts:1199`).
+/// (`service.ts:1199`), and the bind that takeover left in flight.
 pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
     if session.pending_controller.as_deref() == Some(owner) {
         session.control_revision = session.control_revision.saturating_add(1);
         clear_pending(session);
+        retire_owner_bind(session, owner);
     }
 }
 
@@ -355,6 +370,9 @@ pub fn begin_assign(
     if requester.kind == ActorKind::Agent {
         agent_takeover_allowed(session, requester, now, false)?;
     }
+    // This takeover invalidates the requester's earlier one, so that one's bind
+    // reservation goes with it: a hand-back is not blocked by its own clean-up.
+    retire_owner_bind(session, &requester.owner);
     // A later person supersedes an earlier person's reservation, as `assignController`
     // does: the revision moves, so the earlier one loses with `controlChanged`.
     session.control_revision = session.control_revision.saturating_add(1);

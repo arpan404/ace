@@ -304,3 +304,8 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
 - **D4, a takeover refused by a disable.** TypeScript runs the bind before it reserves control, so
   a refused bind leaves no marker; Rust reserves first, so it cancels its own assignment when the
   bind is refused and leaves any newer takeover alone.
+- **D4, a person's bind reservation after a hand-back or a drop.** TypeScript keeps
+  `changingBinding` until that bind's own cleanup finishes, even though the hand-back or disconnect
+  invalidated the assignment, so an agent binding in between is refused `bindingBusy`; Rust retires
+  the reservation the invalidated assignment left, and the person's stale continuation changes
+  nothing.

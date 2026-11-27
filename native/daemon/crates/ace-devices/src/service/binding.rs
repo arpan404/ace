@@ -56,6 +56,7 @@ pub fn supersede_inflight_bind(session: &mut Session) {
     }
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.changing_binding = false;
+    session.binding_owner = None;
     session.thread_id = None;
     session.log_owners.clear();
     session.lease.release(None);
@@ -72,7 +73,11 @@ pub enum Bound {
 
 /// `bindDevice`'s first half: refuse a second bind, then free the device from
 /// its thread and let go of control before anything is awaited.
-pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, DeviceError> {
+pub fn begin_bind(
+    session: &mut Session,
+    thread_id: &str,
+    owner: &str,
+) -> Result<Bind, DeviceError> {
     let control_revision = session.control_revision;
     if session.thread_id.as_deref() == Some(thread_id) {
         return Ok(Bind::Unchanged {
@@ -84,6 +89,7 @@ pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, Device
         return Err(words::refusal(CHANGING_THREADS_KEY));
     }
     session.changing_binding = true;
+    session.binding_owner = Some(owner.to_owned());
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     let epoch = session.binding_epoch;
     session.thread_id = None;
@@ -97,7 +103,11 @@ pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, Device
 
 /// `controller` with a thread after control is reserved: supersede an agent bind,
 /// then move the device like [`begin_bind`].
-pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<Bind, DeviceError> {
+pub fn begin_bind_for_person(
+    session: &mut Session,
+    thread_id: &str,
+    owner: &str,
+) -> Result<Bind, DeviceError> {
     let control_revision = session.control_revision;
     if session.thread_id.as_deref() == Some(thread_id) {
         supersede_inflight_bind(session);
@@ -107,7 +117,7 @@ pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<B
         });
     }
     supersede_inflight_bind(session);
-    begin_bind(session, thread_id)
+    begin_bind(session, thread_id, owner)
 }
 
 /// `bindDevice`'s second half: the cleanup ran (the caller's `guard` already
@@ -128,6 +138,7 @@ pub fn finish_bind(
         return Err(words::refusal(TURNED_OFF_KEY));
     }
     session.changing_binding = false;
+    session.binding_owner = None;
     session.completed = None;
     session.recording_artifact = None;
     if cleanup_failed {
@@ -147,6 +158,7 @@ pub fn begin_disable(session: &mut Session) {
     session.binding_epoch = session.binding_epoch.saturating_add(1);
     session.thread_id = None;
     session.changing_binding = false;
+    session.binding_owner = None;
 }
 
 /// The stop ran: the published recording it may have left is cleared.

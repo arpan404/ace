@@ -288,20 +288,31 @@ fn a_person_with_a_thread_supersedes_an_agent_bind_before_it_can_finish() {
 }
 
 #[test]
-fn a_person_binds_first_and_a_later_agents_bind_survives_the_persons_stale_continuation() {
+fn a_person_who_hands_back_while_their_threaded_bind_cleans_up_frees_the_device_for_an_agent() {
     let mut session = Session::new("ios:AAAA");
     let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
         .expect("the person begins first");
     let hand_back = begin_assign(&mut session, &person(), NOW).expect("hand back");
     finish_assign(&mut session, hand_back, None, NOW).expect("released");
-    begin_disable(&mut session);
     assert!(
         !session.changing_binding,
-        "the disable retired the person's in-flight bind"
+        "the hand-back retires the person's own bind reservation"
     );
 
-    // Back on, the agent starts its own bind while the person's cleanup is still out.
+    // The agent starts its own bind before the person's stale continuation runs.
+    assert_eq!(
+        claim_for_agent(&mut session, &agent(), NOW),
+        Ok(Claim::Take)
+    );
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+
+    // The person's stale continuation changes nothing.
     let refused = resume_human_controller_with_thread(
         &mut session,
         takeover,
@@ -313,15 +324,46 @@ fn a_person_binds_first_and_a_later_agents_bind_survives_the_persons_stale_conti
     )
     .expect_err("the person's assignment was handed back");
     assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn a_person_who_drops_while_their_threaded_bind_cleans_up_frees_the_device_for_an_agent() {
+    let mut session = Session::new("ios:AAAA");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the person begins first");
+    invalidate_pending_owner(&mut session, "person");
     assert!(
-        session.changing_binding,
-        "the agent's bind keeps its reservation"
+        !session.changing_binding,
+        "the owner drop retires the person's own bind reservation"
     );
 
+    // The agent starts its own bind before the person's stale continuation runs.
+    assert_eq!(
+        claim_for_agent(&mut session, &agent(), NOW),
+        Ok(Claim::Take)
+    );
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
     let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
         .expect("the agent resumes")
         .expect("an assignment");
     finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+
+    // The person's stale continuation changes nothing.
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-person",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect_err("the person dropped mid-bind");
+    assert_eq!(refused, words::refusal("controlChanged"));
     assert_eq!(session.thread_id.as_deref(), Some("t1"));
     assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
 }

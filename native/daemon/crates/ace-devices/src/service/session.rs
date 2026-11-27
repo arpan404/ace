@@ -74,6 +74,9 @@ pub struct Session {
     pub generation: u64,
     pub binding_epoch: u64,
     pub changing_binding: bool,
+    /// The owner whose takeover started that bind, so an invalidated assignment
+    /// retires its own reservation and nobody else's.
+    pub binding_owner: Option<String>,
     pub recording_starting: bool,
     /// A recording that ended on its own, published, waiting for its `record.stop`.
     /// The shell holds the recording itself; this names it.
@@ -105,6 +108,7 @@ impl Session {
             generation: 0,
             binding_epoch: 0,
             changing_binding: false,
+            binding_owner: None,
             recording_starting: false,
             completed: None,
             recording_artifact: None,

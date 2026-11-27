@@ -29,7 +29,7 @@ fn bound(thread_id: &str) -> Session {
 fn binding_to_the_same_thread_changes_nothing() {
     let mut session = bound("t1");
     assert!(matches!(
-        begin_bind(&mut session, "t1"),
+        begin_bind(&mut session, "t1", "agent-1"),
         Ok(Bind::Unchanged { .. })
     ));
     assert_eq!(session.thread_id.as_deref(), Some("t1"));
@@ -42,7 +42,7 @@ fn binding_to_the_same_thread_changes_nothing() {
 fn binding_while_another_bind_runs_is_busy() {
     let mut session = bound("t1");
     session.changing_binding = true;
-    let refused = begin_bind(&mut session, "t2").expect_err("a bind is running");
+    let refused = begin_bind(&mut session, "t2", "agent-1").expect_err("a bind is running");
     assert_eq!(refused, words::refusal("bindingBusy"));
     assert_eq!(refused.code(), DeviceErrorCode::Busy);
 }
@@ -50,7 +50,7 @@ fn binding_while_another_bind_runs_is_busy() {
 #[test]
 fn a_bind_frees_the_device_and_lets_go_of_control_before_cleanup() {
     let mut session = bound("t1");
-    let epoch = match begin_bind(&mut session, "t2").expect("free") {
+    let epoch = match begin_bind(&mut session, "t2", "agent-1").expect("free") {
         Bind::Cleanup { epoch, .. } => epoch,
         other => panic!("expected a cleanup, got {other:?}"),
     };
@@ -71,7 +71,8 @@ fn a_bind_frees_the_device_and_lets_go_of_control_before_cleanup() {
 #[test]
 fn a_cleanup_failure_leaves_the_device_unbound() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     assert_eq!(
@@ -90,7 +91,8 @@ fn a_cleanup_failure_leaves_the_device_unbound() {
 #[test]
 fn a_bind_that_finishes_clears_the_old_threads_recording_and_binds() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     assert_eq!(
@@ -105,7 +107,8 @@ fn a_bind_that_finishes_clears_the_old_threads_recording_and_binds() {
 #[test]
 fn devices_turned_off_during_the_cleanup_refuse_the_bind() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     let refused =
@@ -118,7 +121,8 @@ fn devices_turned_off_during_the_cleanup_refuse_the_bind() {
 #[test]
 fn a_newer_bind_makes_the_older_one_refuse() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     // A disable (or another bind) moved the epoch while this one cleaned up.
@@ -132,7 +136,8 @@ fn a_newer_bind_makes_the_older_one_refuse() {
 #[test]
 fn disabling_retires_an_in_flight_bind_and_an_obsolete_finish_leaves_the_newer_bind_alone() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     begin_disable(&mut session);
@@ -141,7 +146,8 @@ fn disabling_retires_an_in_flight_bind_and_an_obsolete_finish_leaves_the_newer_b
         "the disable retired the bind's reservation"
     );
 
-    let Bind::Cleanup { epoch: newer, .. } = begin_bind(&mut session, "t3").expect("a new bind")
+    let Bind::Cleanup { epoch: newer, .. } =
+        begin_bind(&mut session, "t3", "agent-1").expect("a new bind")
     else {
         panic!("a newer cleanup");
     };
@@ -172,7 +178,8 @@ fn disabling_retires_an_in_flight_bind_and_an_obsolete_finish_leaves_the_newer_b
 #[test]
 fn a_persons_supersede_retires_the_agents_bind_and_its_obsolete_finish_changes_nothing() {
     let mut session = bound("t1");
-    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2").expect("free") else {
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
         panic!("a cleanup");
     };
     supersede_inflight_bind(&mut session);
@@ -185,7 +192,7 @@ fn a_persons_supersede_retires_the_agents_bind_and_its_obsolete_finish_changes_n
     let Bind::Cleanup {
         epoch: person_epoch,
         ..
-    } = begin_bind(&mut session, "t-person").expect("the person's bind")
+    } = begin_bind(&mut session, "t-person", "person").expect("the person's bind")
     else {
         panic!("the person's cleanup");
     };
