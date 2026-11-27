@@ -9,3 +9,4 @@ pub mod error;
 pub mod inventory;
 pub mod platform;
 pub mod service;
+pub mod tools;

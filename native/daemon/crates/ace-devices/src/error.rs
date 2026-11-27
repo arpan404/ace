@@ -5,6 +5,9 @@
 use ace_json::{JsString, ObjectWriter, Value, write_js_string};
 use thiserror::Error;
 
+/// The hint a failure without its own next step carries (`failure.ts:17`).
+pub const GENERIC_HINT: &str = "Check installed tools and device state, then retry.";
+
 /// Maximum UTF-16 code units kept for a failure's message or hint (`failure.ts:10-11`).
 pub const MAX_FAILURE_TEXT_UTF16: usize = 2048;
 
@@ -181,7 +184,7 @@ impl DeviceError {
             other => DeviceFailure {
                 code: DeviceErrorCode::CommandFailed,
                 message: truncate_utf16(&JsString::from(other.to_string()), MAX_FAILURE_TEXT_UTF16),
-                hint: JsString::from("Check installed tools and device state, then retry."),
+                hint: JsString::from(GENERIC_HINT),
                 permission: None,
                 platform,
             },

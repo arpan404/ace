@@ -133,6 +133,10 @@ pub struct Catalog {
     pub tools: Vec<Tool>,
     pub error_codes: Vec<String>,
     pub errors: BTreeMap<String, ErrorWords>,
+    /// The setting each device permission needs, by permission name.
+    pub permission_hints: BTreeMap<String, String>,
+    /// The words a failure renders when the catalog has no entry for its code.
+    pub fallbacks: ErrorWords,
     pub instructions: Instructions,
     pub control_hints: ControlHints,
     pub session_guidance: BTreeMap<String, SessionGuidance>,
@@ -150,6 +154,8 @@ pub fn catalog() -> Result<&'static Catalog, CatalogError> {
                 tools: parse_tools(TOOLS_JSON)?,
                 error_codes: parse_error_codes(ERRORS_JSON)?,
                 errors: parse_errors(ERRORS_JSON)?,
+                permission_hints: parse_permission_hints(ERRORS_JSON)?,
+                fallbacks: parse_error_fallbacks(ERRORS_JSON)?,
                 instructions: parse_instructions(INSTRUCTIONS_JSON)?,
                 control_hints: parse_control_hints(CONTROL_HINTS_JSON)?,
                 session_guidance: parse_session_guidance(SESSION_GUIDANCE_JSON)?,
@@ -273,6 +279,38 @@ fn parse_errors(raw: &str) -> Result<BTreeMap<String, ErrorWords>, CatalogError>
         .collect()
 }
 
+fn parse_permission_hints(raw: &str) -> Result<BTreeMap<String, String>, CatalogError> {
+    const FILE: &str = "errors.json";
+    let parsed = parse(FILE, raw)?;
+    let root = object(FILE, "root", &parsed)?;
+    let hints = object(
+        FILE,
+        "permissionHints",
+        field(FILE, "permissionHints", root)?,
+    )?;
+    hints
+        .iter()
+        .map(|(permission, hint)| {
+            Ok((
+                permission.as_str().to_string(),
+                text(FILE, "permissionHints", hint)?,
+            ))
+        })
+        .collect()
+}
+
+fn parse_error_fallbacks(raw: &str) -> Result<ErrorWords, CatalogError> {
+    const FILE: &str = "errors.json";
+    let parsed = parse(FILE, raw)?;
+    let root = object(FILE, "root", &parsed)?;
+    let fallbacks = object(FILE, "fallbacks", field(FILE, "fallbacks", root)?)?;
+    let missing = object(FILE, "missing", field(FILE, "missing", fallbacks)?)?;
+    Ok(ErrorWords {
+        message: text(FILE, "message", field(FILE, "message", missing)?)?,
+        hint: text(FILE, "hint", field(FILE, "hint", missing)?)?,
+    })
+}
+
 fn parse_instructions(raw: &str) -> Result<Instructions, CatalogError> {
     const FILE: &str = "instructions.json";
     let parsed = parse(FILE, raw)?;
@@ -368,6 +406,8 @@ mod tests {
         assert!(!catalog.instructions.guide_topics.is_empty());
         assert!(!catalog.error_codes.is_empty());
         assert!(!catalog.errors.is_empty());
+        assert!(!catalog.permission_hints.is_empty());
+        assert!(!catalog.fallbacks.message.is_empty());
         assert!(!catalog.session_guidance.is_empty());
     }
 

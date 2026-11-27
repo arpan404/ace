@@ -225,9 +225,23 @@ fn scrcpy_error(hints: &Hints, error: Error) -> Error {
     }
 }
 
+/// A wire bound the request or the reply broke.
+fn wire_issue(issue: crate::service::device_tools_wire::Issue) -> Error {
+    Error::Invalid(format!("{}: {}", issue.field, issue.message))
+}
+
+/// A reply whose bounds hold, or the refusal.
+fn checked(installed: ToolsInstalled) -> Result<ToolsInstalled, Error> {
+    crate::service::device_tools_wire::check_installed(&installed).map_err(wire_issue)?;
+    Ok(installed)
+}
+
 /// `tools-entry`'s whole job on the native runtime: make sure serve-sim (a Mac) and scrcpy's
 /// server are installed, with today's URLs, checksums, limits, staging paths and atomic rename.
 pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
+    // The wire's bounds first: a request the schema rejects is refused before the
+    // catalog, the network or the filesystem is touched.
+    crate::service::device_tools_wire::check_request(&request).map_err(wire_issue)?;
     let hints = Hints::load()?;
     let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(INSTALL_TIMEOUT_MS));
     let artifacts = request.artifacts.clone().unwrap_or_else(super::artifacts);
@@ -243,7 +257,7 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
         && scrcpy_override(&request).is_none()
         && !verified(&scrcpy_path, &release.sha256);
     if !needs_serve_sim && !needs_scrcpy {
-        return Ok(ToolsInstalled {
+        return checked(ToolsInstalled {
             serve_sim: request
                 .serve_sim
                 .then(|| managed(&request.directory, &request.node, &artifacts))
@@ -329,7 +343,7 @@ pub async fn install(request: InstallRequest) -> Result<ToolsInstalled, Error> {
         } else {
             None
         };
-        Ok(ToolsInstalled {
+        checked(ToolsInstalled {
             serve_sim: serve_sim.or_else(|| {
                 request
                     .serve_sim
