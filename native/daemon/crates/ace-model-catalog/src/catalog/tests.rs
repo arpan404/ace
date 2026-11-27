@@ -227,6 +227,22 @@ fn settle<F: std::future::Future>(future: F, spawn: &TestSpawn, what: &str) -> F
 
 /// Runs `body` on its own thread, so a catalog that deadlocks fails the test instead of
 /// hanging the suite: the thread never answers and the wait times out.
+fn within<T: Send + 'static>(
+    seconds: u64,
+    what: &str,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(body());
+    });
+    match receiver.recv_timeout(std::time::Duration::from_secs(seconds)) {
+        Ok(value) => value,
+        Err(error) => panic!("{what} never settled ({error:?}): the catalog deadlocked"),
+    }
+}
+
+/// The rows the catalog serves now.
 fn listed(catalog: &Catalog) -> ModelListResult {
     catalog
         .list(ModelFilter::default(), 0, 100)
@@ -415,6 +431,53 @@ fn an_acp_rows_load_only_when_its_probe_is_configured() {
         assert_eq!(statuses.len(), 1);
         assert_eq!(fixture.discover.calls(), expected_calls, "{probe:?}");
     }
+}
+
+#[test]
+fn an_invalidation_never_waits_on_the_write_it_drains() {
+    within(15, "an invalidation and the write it drains", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let discover = always(vec![row(&codex, "gpt-6-sol")]);
+        let fixture = fixture(vec![codex], storage.clone(), discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the login's refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // One writer holds the queue, and a flight's commit takes its place behind it.
+        let held = futures::executor::block_on(catalog.hold_turn("account"));
+        let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(
+            poll_once(flight.as_mut()).is_pending(),
+            "the commit waits behind the writer"
+        );
+        // The revocation is accepted while that commit waits, and drains it.
+        let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
+        assert!(
+            poll_once(invalidating.as_mut()).is_pending(),
+            "the revocation waits for the flight it drains"
+        );
+        drop(held);
+        let (_, revoked) = settle(
+            async move { futures::join!(flight, invalidating) },
+            &fixture.spawn,
+            "an invalidation and the flight it drains",
+        );
+        revoked.unwrap_or_else(|error| panic!("{error}"));
+        let mut storage = storage.clone();
+        assert!(
+            storage.load().unwrap_or_default().is_empty(),
+            "the revoked row's choices are deleted"
+        );
+        assert!(catalog.has_instance("account"), "the row keeps its place");
+        assert!(
+            listed(&catalog).models.is_empty(),
+            "the revoked choices are gone"
+        );
+    })
 }
 
 #[test]

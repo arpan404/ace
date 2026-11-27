@@ -645,12 +645,10 @@ impl Catalog {
         if !self.flight_current(id, fence) {
             return;
         }
-        let release = self.hold_writes(id).await;
-        // A login change's deletion for this row finishes before the row is written again,
-        // and the row must still be this flight's after the wait.
-        self.await_deletion(id).await;
+        let release = self.hold_turn(id).await;
+        // The row must still be this flight's after the wait: a revocation accepted while
+        // the queue was held has already re-registered it.
         if !self.flight_current(id, fence) {
-            drop(release);
             return;
         }
         let previous = self.with_inner(|inner| {

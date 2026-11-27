@@ -255,7 +255,10 @@ impl Catalog {
                 })
                 .unwrap_or_default();
             let mut invalidations = Vec::new();
-            let tail = inner.write_tails.get(instance).cloned();
+            let tail = inner
+                .turns
+                .get(instance)
+                .and_then(super::turns::Turns::tail);
             if let Some(state) = inner.states.get(instance) {
                 if let Some(abort) = &state.abort {
                     abort.abort();
@@ -340,23 +343,23 @@ impl Catalog {
                     });
                 }
                 let invalidations = state.invalidating.clone();
-                let tail = inner.write_tails.get(id).cloned();
                 Some((
                     state.config.clone(),
                     state.admit.clone(),
                     flights,
                     invalidations,
-                    tail,
                 ))
             });
-            let Some((config, admit, flights, invalidations, tail)) = captured else {
+            let Some((config, admit, flights, invalidations)) = captured else {
                 continue;
             };
             self.register_instance(config, admit)?;
             let catalog = self.clone();
             let id = id.clone();
             let done = crate::signals::Gate::new();
-            let barrier = crate::signals::Gate::new();
+            // The deletion takes the row's next place in the queue, so a write accepted
+            // after it waits for the delete rather than racing it.
+            let mut turn = self.reserve_turn(&id);
             let work = crate::catalog::OwnedWork::register(self);
             self.with_inner(|inner| {
                 if let Some(state) = inner.states.get_mut(&id) {
@@ -366,8 +369,6 @@ impl Catalog {
                         generation: state.generation,
                     });
                 }
-                // The deletion outlives this row: a replacement's write waits for it.
-                inner.deletion_gates.insert(id.clone(), barrier.clone());
             });
             pending.push(Box::pin(async move {
                 let _work = work;
@@ -377,20 +378,18 @@ impl Catalog {
                 if let Some(pending) = invalidations {
                     pending.done.wait().await;
                 }
-                if let Some(tail) = tail {
-                    tail.wait().await;
-                }
+                turn.wait().await;
                 let removed = catalog.with_inner(|inner| inner.deletions.remove(&id));
                 catalog.with_inner(|inner| {
-                    if inner
-                        .deletion_gates
-                        .get(&id)
-                        .is_some_and(|current| current.same(&barrier))
+                    if let Some(state) = inner.states.get_mut(&id)
+                        && state
+                            .invalidating
+                            .as_ref()
+                            .is_some_and(|current| current.done.same(&done))
                     {
-                        inner.deletion_gates.remove(&id);
+                        state.invalidating = None;
                     }
                 });
-                barrier.open();
                 done.open();
                 removed
             }));

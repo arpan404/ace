@@ -4,21 +4,6 @@
 
 use super::*;
 
-fn within<T: Send + 'static>(
-    seconds: u64,
-    what: &str,
-    body: impl FnOnce() -> T + Send + 'static,
-) -> T {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(body());
-    });
-    match receiver.recv_timeout(std::time::Duration::from_secs(seconds)) {
-        Ok(value) => value,
-        Err(error) => panic!("{what} never settled ({error:?}): the catalog deadlocked"),
-    }
-}
-
 struct GatedProbe {
     gate: crate::signals::Gate,
     calls: Arc<AtomicUsize>,

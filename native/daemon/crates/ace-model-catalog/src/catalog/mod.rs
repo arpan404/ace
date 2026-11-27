@@ -12,6 +12,7 @@ mod refresh;
 mod registration;
 #[cfg(test)]
 mod tests;
+mod turns;
 mod writes;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -492,9 +493,8 @@ pub(crate) struct Inner {
     pub(crate) persisted: BTreeMap<String, CacheEntry>,
     pub(crate) persisted_order: Vec<String>,
     pub(crate) deletions: crate::deletions::PendingDeletions,
-    /// Deletions a registration does not carry: a write for the same id waits for them,
-    /// so a replacement row is never deleted by the login it replaced.
-    pub(crate) deletion_gates: BTreeMap<String, crate::signals::Gate>,
+    /// The places taken for each instance's stored choices, in the order they were accepted.
+    pub(crate) turns: BTreeMap<String, turns::Turns>,
     pub(crate) acp_loaded: BTreeSet<String>,
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
@@ -505,7 +505,6 @@ pub(crate) struct Inner {
     pub(crate) probes: usize,
     pub(crate) session_writes: usize,
     pub(crate) invalidations: usize,
-    pub(crate) write_tails: BTreeMap<String, crate::signals::Gate>,
     pub(crate) accepted_writes: Vec<crate::signals::Gate>,
     pub(crate) next_generation: u64,
     pub(crate) owned: Vec<crate::signals::Gate>,
@@ -572,7 +571,7 @@ impl Catalog {
             persisted: BTreeMap::new(),
             persisted_order: Vec::new(),
             deletions: crate::deletions::PendingDeletions::new(storage.clone()),
-            deletion_gates: BTreeMap::new(),
+            turns: BTreeMap::new(),
             acp_loaded: BTreeSet::new(),
             acp_spacing: spacing,
             closed: false,
@@ -582,7 +581,6 @@ impl Catalog {
             probes: 0,
             session_writes: 0,
             invalidations: 0,
-            write_tails: BTreeMap::new(),
             accepted_writes: Vec::new(),
             next_generation: 0,
             owned: Vec::new(),
@@ -1054,13 +1052,32 @@ impl Catalog {
         }
     }
 
-    /// Waits for a deletion another account change scheduled for this row, so a write
-    /// never recreates a row that deletion is about to remove.
-    pub(crate) async fn await_deletion(&self, id: &str) {
-        let barrier = self.with_inner(|inner| inner.deletion_gates.get(id).cloned());
-        if let Some(barrier) = barrier {
-            barrier.wait().await;
-        }
+    /// Takes this instance's place in its queue, before waiting for the places before it.
+    pub(crate) fn reserve_turn(&self, id: &str) -> turns::Turn {
+        self.with_inner(|inner| {
+            let (token, _gate, previous) = inner.turns.entry(id.to_owned()).or_default().accept();
+            turns::Turn::new(self.clone(), id.to_owned(), token, previous)
+        })
+    }
+
+    /// A place that is already its turn.
+    pub(crate) async fn hold_turn(&self, id: &str) -> turns::Turn {
+        let mut turn = self.reserve_turn(id);
+        turn.wait().await;
+        turn
+    }
+
+    /// Settles one place; the queue is forgotten once nothing waits in it.
+    fn settle_turn(&self, id: &str, token: u64) {
+        self.with_inner(|inner| {
+            let empty = inner
+                .turns
+                .get_mut(id)
+                .is_none_or(|turns| turns.settle(token));
+            if empty {
+                inner.turns.remove(id);
+            }
+        });
     }
 
     /// Completes a deletion this write would otherwise recreate.
@@ -1109,7 +1126,7 @@ impl Catalog {
             // The work registry, not the rows: a removal or flush that outlived its row
             // still holds close until it settles.
             let mut work = inner.owned.clone();
-            work.extend(inner.write_tails.values().cloned());
+            work.extend(inner.turns.values().filter_map(turns::Turns::tail));
             work.append(&mut inner.accepted_writes);
             inner.close_gate = Some(crate::signals::Gate::new());
             Plan::Drain { work, observed }
@@ -1128,9 +1145,13 @@ impl Catalog {
                     unit.wait().await;
                 }
                 // Accepted session writes are drained before storage closes.
-                for tail in
-                    self.with_inner(|inner| inner.write_tails.values().cloned().collect::<Vec<_>>())
-                {
+                for tail in self.with_inner(|inner| {
+                    inner
+                        .turns
+                        .values()
+                        .filter_map(turns::Turns::tail)
+                        .collect::<Vec<_>>()
+                }) {
                     tail.wait().await;
                 }
                 let result = self.finish_close();

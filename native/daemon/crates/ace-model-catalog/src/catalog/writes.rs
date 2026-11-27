@@ -13,8 +13,8 @@ use ace_models::instance::ModelInstance;
 use serde_json::Value;
 
 use crate::cache::CacheEntry;
+use crate::catalog::turns::Turn;
 use crate::catalog::{Catalog, CatalogError, identity_revision, owns, validate_instance};
-use crate::signals::Gate;
 
 /// What one session write learned before it took its place in the queue.
 struct SessionWrite {
@@ -26,68 +26,7 @@ struct SessionWrite {
     refreshed_at: f64,
 }
 
-/// A place in one instance's write queue, reserved before the write waits.
-pub(crate) struct WriteHold {
-    catalog: Catalog,
-    id: String,
-    gate: Gate,
-    previous: Option<Gate>,
-    waited: bool,
-}
-
-impl WriteHold {
-    /// Waits for every write that took its place earlier; once, however often it is polled.
-    pub(crate) async fn wait(&mut self) {
-        if self.waited {
-            return;
-        }
-        self.waited = true;
-        if let Some(previous) = &self.previous {
-            previous.wait().await;
-        }
-    }
-}
-
-impl Drop for WriteHold {
-    fn drop(&mut self) {
-        self.gate.open();
-        self.catalog.with_inner(|inner| {
-            if inner
-                .write_tails
-                .get(&self.id)
-                .is_some_and(|current| current.same(&self.gate))
-            {
-                inner.write_tails.remove(&self.id);
-            }
-        });
-    }
-}
-
 impl Catalog {
-    /// Takes this instance's place in the write queue, before waiting for the ones before it.
-    pub(crate) fn reserve_writes(&self, id: &str) -> WriteHold {
-        let gate = Gate::new();
-        let previous = self.with_inner(|inner| {
-            let previous = inner.write_tails.get(id).cloned();
-            inner.write_tails.insert(id.to_owned(), gate.clone());
-            previous
-        });
-        WriteHold {
-            catalog: self.clone(),
-            id: id.to_owned(),
-            gate,
-            previous,
-            waited: false,
-        }
-    }
-
-    /// A place that is already its turn.
-    pub(crate) async fn hold_writes(&self, id: &str) -> WriteHold {
-        let mut hold = self.reserve_writes(id);
-        hold.wait().await;
-        hold
-    }
-
     /// Whether the row still is the registration and login a write was accepted for.
     fn still_current(&self, input: &ModelInstance, generation: u64) -> bool {
         self.with_inner(|inner| {
@@ -135,7 +74,7 @@ impl Catalog {
         let identity = identity_revision(&input);
         let refreshed_at = self.now();
         self.with_inner(|inner| inner.session_writes += 1);
-        let mut hold = self.reserve_writes(&input.id);
+        let mut hold = self.reserve_turn(&input.id);
         hold.wait().await;
         let result = self
             .commit_session_write(
@@ -175,10 +114,6 @@ impl Catalog {
         if pending {
             self.with_inner(|inner| inner.deletions.remove(&input.id))?;
         }
-        if !self.still_current(input, generation) {
-            return Err(CatalogError::SessionGenerationChanged);
-        }
-        self.await_deletion(&input.id).await;
         if !self.still_current(input, generation) {
             return Err(CatalogError::SessionGenerationChanged);
         }
@@ -254,7 +189,7 @@ impl Catalog {
                 return false;
             };
             state.permission_modes = Some(modes.clone());
-            inner.write_tails.contains_key(instance) || state.entry.is_some()
+            inner.turns.contains_key(instance) || state.entry.is_some()
         });
         if let Some(config) = self.registered(instance) {
             self.notify_config(&config);
@@ -263,7 +198,7 @@ impl Catalog {
             return;
         }
         // The write takes its place now, so a session write accepted later builds on it.
-        let hold = self.reserve_writes(instance);
+        let hold = self.reserve_turn(instance);
         let catalog = self.clone();
         let instance = instance.to_owned();
         // An accepted write is visible to close before its task first runs.
@@ -292,11 +227,10 @@ impl Catalog {
         instance: &str,
         modes: Vec<Value>,
         token: Option<u64>,
-        mut hold: WriteHold,
+        mut hold: Turn,
     ) {
         self.with_inner(|inner| inner.session_writes += 1);
         hold.wait().await;
-        self.await_deletion(instance).await;
         // The row may have been replaced while this write waited behind another.
         let current = match token {
             Some(token) => self.with_inner(|inner| {

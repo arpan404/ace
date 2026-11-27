@@ -69,7 +69,7 @@ fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
     let fixture = fixture(vec![agent.clone()], storage.clone(), always(Vec::new()));
     let catalog = fixture.catalog.clone();
     // A write already holding the queue, and the session's write queued behind it.
-    let hold = futures::executor::block_on(catalog.hold_writes("account"));
+    let hold = futures::executor::block_on(catalog.hold_turn("account"));
     let metadata = acp_metadata("session-model");
     let mut queued = Box::pin(catalog.update_from_session(
         ModelInstance {
