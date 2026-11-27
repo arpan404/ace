@@ -414,6 +414,34 @@ impl std::fmt::Debug for CatalogOptions {
     }
 }
 
+/// One unit of catalog work that close waits for, registered independently of any row:
+/// a flight, an invalidation, a removal or an accepted write.
+pub(crate) struct OwnedWork {
+    pub(crate) catalog: Catalog,
+    pub(crate) gate: crate::signals::Gate,
+}
+
+impl OwnedWork {
+    pub(crate) fn register(catalog: &Catalog) -> Self {
+        let gate = crate::signals::Gate::new();
+        catalog.with_inner(|inner| inner.owned.push(gate.clone()));
+        Self {
+            catalog: catalog.clone(),
+            gate,
+        }
+    }
+}
+
+impl Drop for OwnedWork {
+    fn drop(&mut self) {
+        self.catalog.with_inner(|inner| {
+            inner.owned.retain(|known| !known.same(&self.gate));
+        });
+        // Settles any close that was already waiting on this unit of work.
+        self.gate.open();
+    }
+}
+
 /// The connection metadata probe running for one row (`state.probe`).
 #[derive(Clone, Debug)]
 pub(crate) struct ProbeFlight {
@@ -470,6 +498,9 @@ pub(crate) struct Inner {
     pub(crate) acp_loaded: BTreeSet<String>,
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
+    /// The close attempt running now, and the result of the last finished one.
+    pub(crate) close_gate: Option<crate::signals::Gate>,
+    pub(crate) close_result: Option<Result<(), CatalogError>>,
     pub(crate) active_flights: usize,
     pub(crate) probes: usize,
     pub(crate) session_writes: usize,
@@ -543,6 +574,8 @@ impl Catalog {
             acp_loaded: BTreeSet::new(),
             acp_spacing: spacing,
             closed: false,
+            close_gate: None,
+            close_result: None,
             active_flights: 0,
             probes: 0,
             session_writes: 0,
@@ -1035,11 +1068,27 @@ impl Catalog {
         Ok(())
     }
 
-    /// Shuts the catalog down: abort flights, drain writes, flush deletions, close storage.
+    /// Shuts the catalog down: abort flights, drain every owned unit of work, flush
+    /// deletions, close storage. Concurrent callers share one attempt and its result.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        let (flights, invalidations, observed, writes) = self.with_inner(|inner| {
-            if inner.closed {
-                return (Vec::new(), Vec::new(), None, Vec::new());
+        enum Plan {
+            Done(Result<(), CatalogError>),
+            Wait(crate::signals::Gate),
+            Drain {
+                work: Vec<crate::signals::Gate>,
+                observed: Option<Cancel>,
+            },
+        }
+        let plan = self.with_inner(|inner| {
+            if let Some(result) = &inner.close_result {
+                if result.is_ok() {
+                    return Plan::Done(Ok(()));
+                }
+                // Storage was never closed: a later close retries the deletions.
+                inner.close_result = None;
+            }
+            if let Some(gate) = &inner.close_gate {
+                return Plan::Wait(gate.clone());
             }
             inner.closed = true;
             inner.listeners.clear();
@@ -1049,38 +1098,52 @@ impl Catalog {
                 signal.abort();
             }
             let observed = inner.observed_check.take();
-            let mut flights = Vec::new();
-            let mut invalidations = Vec::new();
-            for state in inner.states.values_mut() {
+            for state in inner.states.values() {
                 if let Some(abort) = &state.abort {
                     abort.abort();
                 }
-                if let Some(flight) = &state.flight {
-                    flights.push(flight.clone());
-                }
-                if let Some(pending) = &state.invalidating {
-                    invalidations.push(pending.clone());
-                }
             }
-            let mut writes: Vec<crate::signals::Gate> =
-                inner.write_tails.values().cloned().collect();
-            writes.append(&mut inner.accepted_writes);
-            writes.append(&mut inner.owned);
-            (flights, invalidations, observed, writes)
+            // The work registry, not the rows: a removal or flush that outlived its row
+            // still holds close until it settles.
+            let mut work = inner.owned.clone();
+            work.extend(inner.write_tails.values().cloned());
+            work.append(&mut inner.accepted_writes);
+            inner.close_gate = Some(crate::signals::Gate::new());
+            Plan::Drain { work, observed }
         });
-        if let Some(cancel) = observed {
-            cancel();
+        match plan {
+            Plan::Done(result) => result,
+            Plan::Wait(gate) => {
+                gate.wait().await;
+                self.with_inner(|inner| inner.close_result.clone().unwrap_or(Ok(())))
+            }
+            Plan::Drain { work, observed, .. } => {
+                if let Some(cancel) = observed {
+                    cancel();
+                }
+                for unit in work {
+                    unit.wait().await;
+                }
+                // Accepted session writes are drained before storage closes.
+                for tail in
+                    self.with_inner(|inner| inner.write_tails.values().cloned().collect::<Vec<_>>())
+                {
+                    tail.wait().await;
+                }
+                let result = self.finish_close();
+                self.with_inner(|inner| {
+                    inner.close_result = Some(result.clone());
+                    if let Some(gate) = inner.close_gate.take() {
+                        gate.open();
+                    }
+                });
+                result
+            }
         }
-        for flight in flights {
-            flight.done.wait().await;
-        }
-        for pending in invalidations {
-            pending.done.wait().await;
-        }
-        // Accepted session writes are drained before storage closes.
-        for tail in writes {
-            tail.wait().await;
-        }
+    }
+
+    /// The last steps of a close, once every unit of work settled.
+    fn finish_close(&self) -> Result<(), CatalogError> {
         let deletions = self.with_inner(|inner| inner.deletions.flush());
         deletions?;
         let mut storage = self.storage.clone();

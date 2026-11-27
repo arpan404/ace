@@ -227,6 +227,9 @@ impl Catalog {
 
     /// Removes a row: state, cached choices, and a flush of in-flight discovery.
     pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
+        // The removal is catalog work on its own: close waits for it even after the row
+        // is gone, so storage never closes before its deletion.
+        let _work = crate::catalog::OwnedWork::register(self);
         let (flights, invalidations, tail) = self.with_inner(|inner| {
             let removal = inner.removals.contains(instance);
             if removal {
@@ -329,6 +332,7 @@ impl Catalog {
             let id = id.clone();
             let done = crate::signals::Gate::new();
             let barrier = crate::signals::Gate::new();
+            let work = crate::catalog::OwnedWork::register(self);
             self.with_inner(|inner| {
                 if let Some(state) = inner.states.get_mut(&id) {
                     state.invalidating = Some(crate::catalog::Flight {
@@ -341,6 +345,7 @@ impl Catalog {
                 inner.deletion_gates.insert(id.clone(), barrier.clone());
             });
             pending.push(Box::pin(async move {
+                let _work = work;
                 if let Some(flight) = flights {
                     flight.done.wait().await;
                 }

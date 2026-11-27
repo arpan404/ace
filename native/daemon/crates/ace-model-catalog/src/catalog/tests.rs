@@ -13,7 +13,7 @@
 //! flights settle".
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ace_models::instance::ModelInstance;
@@ -1704,6 +1704,145 @@ fn a_revocation_during_admission_launches_no_discovery() {
         fixture.discover.calls(),
         0,
         "the revoked admission never launches discovery"
+    );
+}
+
+/// Storage that refuses every operation once it has been closed, and records refusals.
+struct ClosingStorage {
+    inner: MemoryStorage,
+    closed: AtomicBool,
+    late: Arc<AtomicUsize>,
+}
+
+impl ClosingStorage {
+    fn check(&self) -> Result<(), crate::cache::CacheError> {
+        if self.closed.load(Ordering::SeqCst) {
+            self.late.fetch_add(1, Ordering::SeqCst);
+            return Err(crate::cache::CacheError::Malformed);
+        }
+        Ok(())
+    }
+}
+
+impl crate::cache::CatalogStorage for ClosingStorage {
+    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+        self.check()?;
+        self.inner.load()
+    }
+
+    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+        self.check()?;
+        self.inner.replace(entry)
+    }
+
+    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+        self.check()?;
+        self.inner.remove(instance)
+    }
+
+    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+        self.check()?;
+        self.closed.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+fn closing_storage() -> (SharedStorage, Arc<AtomicUsize>) {
+    let late = Arc::new(AtomicUsize::new(0));
+    (
+        SharedStorage::new(ClosingStorage {
+            inner: MemoryStorage::new(),
+            closed: AtomicBool::new(false),
+            late: late.clone(),
+        }),
+        late,
+    )
+}
+
+#[test]
+fn close_waits_for_a_removal_that_started_before_it() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(models(&request.instance, &["gpt-6-sol"]))
+        })
+    });
+    let (storage, late) = closing_storage();
+    let fixture = fixture(vec![codex], storage, discover);
+    let catalog = fixture.catalog.clone();
+    fixture.spawn.spawn(Box::pin({
+        let catalog = catalog.clone();
+        async move {
+            let _ = catalog
+                .refresh_state("account", RefreshCause::Background)
+                .await;
+        }
+    }));
+    fixture.spawn.drain();
+    let mut removing = Box::pin(catalog.remove_instance("account"));
+    assert!(
+        poll_once(removing.as_mut()).is_pending(),
+        "the removal waits for the flight"
+    );
+    let mut close = Box::pin(catalog.close());
+    assert!(
+        poll_once(close.as_mut()).is_pending(),
+        "close waits for the removal"
+    );
+    gate.open();
+    let (_, closed) = settle(
+        async move { futures::join!(removing, close) },
+        &fixture.spawn,
+        "a removal and close",
+    );
+    closed.unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        late.load(Ordering::SeqCst),
+        0,
+        "every removal finished before storage closed"
+    );
+}
+
+#[test]
+fn a_second_close_waits_for_the_first_ones_drain() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let gate = crate::signals::Gate::new();
+    let held = gate.clone();
+    let discover = FakeDiscover::new(move |request, _signal| {
+        let held = held.clone();
+        Box::pin(async move {
+            held.wait().await;
+            Ok(models(&request.instance, &["gpt-6-sol"]))
+        })
+    });
+    let (storage, late) = closing_storage();
+    let fixture = fixture(vec![codex], storage, discover);
+    let catalog = fixture.catalog.clone();
+    let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+    assert!(poll_once(flight.as_mut()).is_pending(), "the flight runs");
+    let mut first = Box::pin(catalog.close());
+    assert!(
+        poll_once(first.as_mut()).is_pending(),
+        "close drains the flight"
+    );
+    let mut second = Box::pin(catalog.close());
+    assert!(
+        poll_once(second.as_mut()).is_pending(),
+        "a second close waits for the first drain"
+    );
+    gate.open();
+    let (_, a, b) =
+        futures::executor::block_on(async move { futures::join!(flight, first, second) });
+    a.unwrap_or_else(|error| panic!("{error}"));
+    b.unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(
+        late.load(Ordering::SeqCst),
+        0,
+        "storage closes once, after the drain"
     );
 }
 

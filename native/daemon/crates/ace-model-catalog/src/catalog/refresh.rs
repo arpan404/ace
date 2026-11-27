@@ -177,6 +177,8 @@ impl Catalog {
                 state.flight = Some(flight.clone());
                 state.flight_token = Some(token);
             }
+            // A flight is catalog work even when its row is replaced or removed.
+            inner.owned.push(flight.done.clone());
             flight
         };
         if let Some(config) = self.registered(id) {
@@ -912,6 +914,7 @@ impl Drop for FlightGuard {
                 state.probe_revision = None;
                 state.flight_token = None;
             }
+            inner.owned.retain(|known| !known.same(&self.gate));
             // The gate belongs to this flight, not to whichever state replaced it:
             // an invalidate or remove waiting on it must never hang.
             self.gate.open();
