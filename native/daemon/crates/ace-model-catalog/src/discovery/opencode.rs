@@ -244,12 +244,21 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                         .map_err(|message| failure(FailureCode::ParseFailure, message))
                 }) {
                     Ok(listed) => {
-                        crate::discovery::opencode_report::supplement(
+                        // An overflow in the listing is a partial failure like any other:
+                        // the ids it filled in stay, and only the unfilled sources go stale.
+                        if let Err(error) = crate::discovery::opencode_report::supplement(
                             &mut report,
                             listed,
                             &connected,
                             &instance,
-                        )?;
+                        ) {
+                            let missing = report.missing_metadata.clone();
+                            crate::discovery::opencode_report::supplement_failed(
+                                &mut report,
+                                &error,
+                                missing,
+                            );
+                        }
                     }
                     Err(error) => {
                         // The catalog's own answer stands; only its missing ids fall back.
@@ -1125,6 +1134,180 @@ mod tests {
             "the CLI's id names a free choice; a paid one needs a connection"
         );
         assert!(outcome.models[0].free.is_some(), "the listed row is free");
+    }
+
+    #[test]
+    fn a_connected_provider_the_catalog_omitted_is_reported_without_models() {
+        let http = catalog_http(vec![catalog_entry("opencode", "deepseek-v4.1-flash", true)]);
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]},{"id":"anthropic","connections":[{"type":"oauth"}]}]"#,
+            listing: vec![crate::discovery::process::ProcessOutput {
+                status: Some(1),
+                stdout: String::new(),
+                stderr: "listing failed".to_owned(),
+            }],
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome
+                .models
+                .iter()
+                .map(|row| row.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/deepseek-v4.1-flash"],
+            "the catalog's healthy rows survive the failure"
+        );
+        let anthropic = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "anthropic")
+            .unwrap_or_else(|| panic!("the connected provider keeps its place"));
+        assert_eq!(
+            anthropic.status,
+            crate::sources::SourceState::Stale,
+            "nothing filled it in, so its last good rows are stale"
+        );
+        assert!(anthropic.error.is_some(), "and it names its failure");
+    }
+
+    #[test]
+    fn an_explicit_provider_error_wins_over_the_rows_of_the_same_provider() {
+        let mut replies = vec![HttpReply {
+            status: 200,
+            body: json!({
+                "location": { "directory": "/one" },
+                "data": [catalog_entry("anthropic", "claude-opus-5", true)],
+                "errors": [{ "providerID": "anthropic", "error": { "message": "upstream refused" } }],
+            })
+            .to_string(),
+        }];
+        replies.push(HttpReply {
+            status: 200,
+            body: catalog_with(vec![]),
+        });
+        let http = Arc::new(ScriptedHttp::new(replies));
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"anthropic","connections":[{"type":"oauth"}]}]"#,
+            listing: Vec::new(),
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert!(
+            outcome.models.is_empty(),
+            "a provider the server failed never serves the rows it sent"
+        );
+        let anthropic = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "anthropic")
+            .unwrap_or_else(|| panic!("the failed provider is reported"));
+        assert_eq!(anthropic.status, crate::sources::SourceState::Stale);
+        assert!(anthropic.error.is_some());
+    }
+
+    #[test]
+    fn a_successful_listing_replaces_a_no_models_advisory() {
+        let http = catalog_http(vec![
+            catalog_entry("opencode", "deepseek-v4.1-flash", true),
+            // Listed, but with no enabled chat model: its other ids come from the CLI.
+            catalog_entry("ollama", "qwen3", false),
+        ]);
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]},{"id":"ollama","local":true,"connections":[]}]"#,
+            listing: vec![crate::discovery::process::ProcessOutput {
+                status: Some(0),
+                stdout: "ollama/llama4\n".to_owned(),
+                stderr: String::new(),
+            }],
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome
+                .models
+                .iter()
+                .map(|row| row.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/deepseek-v4.1-flash", "ollama/llama4"]
+        );
+        let ollama = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "ollama")
+            .unwrap_or_else(|| panic!("the filled source is reported"));
+        assert_eq!(
+            ollama.status,
+            crate::sources::SourceState::Fresh,
+            "the listing answered for it, so it has no advisory left"
+        );
+        assert!(ollama.error.is_none(), "no_models is gone once ids arrive");
+    }
+
+    #[test]
+    fn a_listing_that_overflows_keeps_the_catalogs_healthy_rows() {
+        let http = catalog_http(vec![catalog_entry("opencode", "deepseek-v4.1-flash", true)]);
+        let listing: Vec<String> = (0..512)
+            .map(|index| format!("opencode/model-{index}"))
+            .collect();
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]}]"#,
+            listing: vec![crate::discovery::process::ProcessOutput {
+                status: Some(0),
+                stdout: format!("{}\n", listing.join("\n")),
+                stderr: String::new(),
+            }],
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome.models.len(),
+            512,
+            "the rows filled before the overflow stay"
+        );
+        assert_eq!(
+            outcome.models[0].id.0, "opencode/deepseek-v4.1-flash",
+            "the catalog's own row is kept first"
+        );
     }
 
     #[test]

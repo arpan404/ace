@@ -187,9 +187,11 @@ pub fn build_report(
             .collect(),
     };
     let mut report = OpenCodeReport::default();
-    let mut available: Connected = Vec::new();
+    // Every connected provider has a place, whether or not the catalog listed a row for
+    // it: one that listed none is reported as having no models, and one the server failed
+    // stays visible so its last good choices are kept and marked stale.
+    let mut available: Connected = connected.clone();
     let mut grouped: Vec<(String, Vec<Value>)> = Vec::new();
-    let mut failed: BTreeSet<String> = BTreeSet::new();
     for raw in data {
         if let Some(identity) = metadata_identity(raw) {
             report.metadata_ids.insert(identity);
@@ -238,16 +240,19 @@ pub fn build_report(
             None => grouped.push((provider.to_owned(), vec![raw.clone()])),
         }
     }
-    // A provider the server itself failed keeps its last good choices, never new rows.
-    for (provider, error) in &errors {
+    // An explicit error takes precedence over any rows the reply carried for that provider:
+    // a failed provider keeps its last good choices, never new ones.
+    let failed: BTreeSet<String> = errors
+        .iter()
+        .map(|(provider, _)| provider.clone())
+        .collect();
+    for (provider, _) in &errors {
         if available.iter().any(|(id, _)| id == provider) {
             continue;
         }
         if let Some((_, source)) = connected.iter().find(|(id, _)| id == provider) {
             available.push((provider.clone(), source.clone()));
         }
-        let _ = error;
-        failed.insert(provider.clone());
     }
     let eligible: HashSet<String> = available
         .iter()
@@ -463,21 +468,31 @@ pub fn supplement(
             model.free = Some(true.into());
         }
         report.models.push(model);
-        if !report
-            .sources
-            .iter()
-            .any(|status| status.source.id.0 == source.id.0)
-        {
-            report.sources.push(SourceStatus {
-                source,
-                status: SourceState::Fresh,
-                last_refreshed_at: None,
-                error: None,
-            });
-        }
+        fill_source(report, source);
         seen.insert(id);
     }
     Ok(rejected)
+}
+
+/// The listing filled a source in: it is fresh, and no longer reported as having no models.
+fn fill_source(report: &mut OpenCodeReport, source: ModelSource) {
+    match report
+        .sources
+        .iter_mut()
+        .find(|status| status.source.id.0 == source.id.0)
+    {
+        Some(status) => {
+            status.status = SourceState::Fresh;
+            status.error = None;
+        }
+        None => report.sources.push(SourceStatus {
+            source: source.clone(),
+            status: SourceState::Fresh,
+            last_refreshed_at: None,
+            error: None,
+        }),
+    }
+    report.missing_metadata.remove(&source.id.0);
 }
 
 /// A failed CLI supplement marks the sources it could not fill stale, keeping the rows.
