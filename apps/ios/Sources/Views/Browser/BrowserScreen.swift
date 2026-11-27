@@ -131,6 +131,8 @@ struct BrowserScreen: View {
         }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
         .onAppear { model.enterBrowser() }
+        // A page on this phone covers the remote one: its sound goes back to muted (ADR 0088 › Audio).
+        .onChange(of: deviceTab != nil, initial: true) { _, covered in if covered { model.browserSound(false) } }
         .onDisappear {
             // Closes the stream, unless the page floats in picture-in-picture.
             model.leaveBrowser()
