@@ -293,6 +293,141 @@ fn the_same_person_may_hand_back_while_their_own_takeover_is_still_pending() {
 }
 
 #[test]
+fn a_threaded_person_whose_bind_hits_a_disable_leaves_no_pending_marker() {
+    let mut session = Session::new("ios:AAAA");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's takeover");
+    begin_disable(&mut session);
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        false,
+        false,
+        NOW,
+    )
+    .expect_err("devices are off");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(
+        session.pending_controller, None,
+        "the marker is cancelled with its own assignment"
+    );
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    // Back on, a fresh claim reaches a holder instead of being blocked by a marker.
+    let assignment = begin_assign(&mut session, &person(), NOW).expect("a fresh claim");
+    finish_assign(&mut session, assignment, Some(&person()), NOW).expect("the person holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
+fn an_unchanged_person_bind_cannot_grant_control_while_devices_are_off() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t-view"));
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's takeover");
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        false,
+        false,
+        NOW,
+    )
+    .expect_err("devices are off");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.pending_controller, None);
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    let assignment = begin_assign(&mut session, &person(), NOW).expect("a fresh claim");
+    finish_assign(&mut session, assignment, Some(&person()), NOW).expect("the person holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
+fn a_person_bind_on_the_same_thread_refuses_across_a_disable_and_re_enable() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t-view"));
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's takeover");
+    begin_disable(&mut session);
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect_err("the disable passed it");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.pending_controller, None);
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    let assignment = begin_assign(&mut session, &person(), NOW).expect("a fresh claim");
+    finish_assign(&mut session, assignment, Some(&person()), NOW).expect("the person holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
+fn an_unchanged_agent_bind_cannot_grant_control_while_devices_are_off() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t1"));
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("an unchanged bind");
+    let refused = resume_claim_for_agent(&mut session, &agent(), bind, false, false, NOW)
+        .expect_err("devices are off");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("a fresh bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn an_unchanged_agent_bind_refuses_across_a_disable_and_re_enable() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t1"));
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("an unchanged bind");
+    begin_disable(&mut session);
+    let refused = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect_err("the disable passed it");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("a fresh bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn an_agents_bind_that_a_disable_passed_is_refused_and_a_fresh_claim_holds() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    begin_disable(&mut session);
+    let refused = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect_err("the disable passed it");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("a fresh bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");

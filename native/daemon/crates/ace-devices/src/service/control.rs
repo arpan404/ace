@@ -8,7 +8,7 @@
 //! `controlRevision`, releases the lease before anything is awaited, and a holder
 //! that comes back to a different revision loses with `busy`.
 
-use super::binding::{Bind, Bound, begin_bind, begin_bind_for_person, finish_bind};
+use super::binding::{Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, finish_bind};
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
 use super::words;
@@ -193,12 +193,20 @@ pub fn resume_human_controller_with_thread(
     let ThreadedTakeover { assignment, bind } = takeover;
     if !control_still_current(session, &bind) {
         abort_stale_bind(session, &bind);
+        cancel_assign(session, assignment);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
-    match bind {
-        Bind::Unchanged { .. } => {}
+    match &bind {
+        Bind::Unchanged { epoch, .. } => {
+            // No cleanup ran, but a disable still refuses the takeover: this bind
+            // may not hand control over across it.
+            if !enabled || session.binding_epoch != *epoch {
+                cancel_assign(session, assignment);
+                return Err(words::refusal(TURNED_OFF_KEY));
+            }
+        }
         Bind::Cleanup { epoch, .. } => {
-            match finish_bind(session, thread_id, epoch, cleanup_failed, enabled) {
+            match finish_bind(session, thread_id, *epoch, cleanup_failed, enabled) {
                 Ok(Bound::CleanupFailed) => {
                     cancel_assign(session, assignment);
                     return Ok(());
@@ -206,6 +214,7 @@ pub fn resume_human_controller_with_thread(
                 Ok(Bound::Bound) => {}
                 Err(error) => {
                     abort_stale_bind(session, &bind);
+                    cancel_assign(session, assignment);
                     return Err(error);
                 }
             }
@@ -213,6 +222,7 @@ pub fn resume_human_controller_with_thread(
     }
     if !control_still_current(session, &bind) {
         abort_stale_bind(session, &bind);
+        cancel_assign(session, assignment);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
     finish_assign(session, assignment, holder, now)
@@ -233,10 +243,16 @@ pub fn resume_claim_for_agent(
         abort_stale_bind(session, &bind);
         return Err(words::refusal(CONTROL_CHANGED_KEY));
     }
-    match bind {
-        Bind::Unchanged { .. } => {}
+    match &bind {
+        Bind::Unchanged { epoch, .. } => {
+            // Its device already belonged to this thread when the claim began; a
+            // disable since then still refuses the takeover.
+            if !enabled || session.binding_epoch != *epoch {
+                return Err(words::refusal(TURNED_OFF_KEY));
+            }
+        }
         Bind::Cleanup { epoch, .. } => {
-            match finish_bind(session, thread_id, epoch, cleanup_failed, enabled) {
+            match finish_bind(session, thread_id, *epoch, cleanup_failed, enabled) {
                 Ok(Bound::CleanupFailed) => return Ok(None),
                 Ok(Bound::Bound) => {}
                 Err(error) => {

@@ -30,8 +30,8 @@ pub const DISABLE_ALL_CLEANUP_FAILED: &str = "Devices disable cleanup failed";
 /// What starting a bind decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bind {
-    /// The device already belongs to this thread.
-    Unchanged { control_revision: u64 },
+    /// The device already belongs to this thread, as of this binding epoch.
+    Unchanged { epoch: u64, control_revision: u64 },
     /// Run the cleanup, then report it with [`finish_bind`].
     Cleanup { epoch: u64, control_revision: u64 },
 }
@@ -39,7 +39,9 @@ pub enum Bind {
 impl Bind {
     pub fn control_revision(&self) -> u64 {
         match self {
-            Self::Unchanged { control_revision } => *control_revision,
+            Self::Unchanged {
+                control_revision, ..
+            } => *control_revision,
             Self::Cleanup {
                 control_revision, ..
             } => *control_revision,
@@ -73,7 +75,10 @@ pub enum Bound {
 pub fn begin_bind(session: &mut Session, thread_id: &str) -> Result<Bind, DeviceError> {
     let control_revision = session.control_revision;
     if session.thread_id.as_deref() == Some(thread_id) {
-        return Ok(Bind::Unchanged { control_revision });
+        return Ok(Bind::Unchanged {
+            epoch: session.binding_epoch,
+            control_revision,
+        });
     }
     if session.changing_binding {
         return Err(words::refusal(CHANGING_THREADS_KEY));
@@ -96,7 +101,10 @@ pub fn begin_bind_for_person(session: &mut Session, thread_id: &str) -> Result<B
     let control_revision = session.control_revision;
     if session.thread_id.as_deref() == Some(thread_id) {
         supersede_inflight_bind(session);
-        return Ok(Bind::Unchanged { control_revision });
+        return Ok(Bind::Unchanged {
+            epoch: session.binding_epoch,
+            control_revision,
+        });
     }
     supersede_inflight_bind(session);
     begin_bind(session, thread_id)

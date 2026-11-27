@@ -297,3 +297,10 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   checks the lease only before its bind, so an agent whose bind ends after the person took and
   finished can release the live human lease; Rust rechecks the bind's control revision after the
   cleanup before it assigns, so the person keeps control.
+- **D4, a bind's reservation after a disable or a newer bind.** TypeScript's `finally` clears
+  `changingBinding` from whichever bind finishes, including one already superseded, and keeps the
+  reservation until then; Rust retires the reservation when devices are disabled or a newer bind
+  starts, and an obsolete completion changes nothing.
+- **D4, a takeover refused by a disable.** TypeScript runs the bind before it reserves control, so
+  a refused bind leaves no marker; Rust reserves first, so it cancels its own assignment when the
+  bind is refused and leaves any newer takeover alone.
