@@ -235,9 +235,35 @@ An instance-level `not_configured` result has informational severity and the
 `provider.sign_in` action. It clears old models, does not accumulate failure
 backoff, and is rechecked on explicit refresh, login change or cache max age.
 
+## Concurrency
+
+The catalog is one actor. A single task owns every mutable piece of its state: rows,
+registrations, flights, the per-instance order, reservations, invalidations, removals,
+capacity counters and the closed flag. Nothing else holds that state or a lock on it.
+
+Public methods send one command with a oneshot reply over a bounded channel and await the
+reply. A caller that goes away drops its receiver; the actor still finishes the operation
+and settles everything it admitted. A dropped Rust caller therefore does not cancel
+catalog work: a dropped close still drains the work it collected and closes storage, a
+dropped revocation or removal still deletes, and a dropped write still takes its place.
+
+Slow work (discovery runs, connection probes and removal deletion) runs in tasks the
+actor spawns. Each task reports back with its token, generation and revision, and the
+actor alone decides whether the result commits, in what order per instance, and whether a
+deadline already won. Deadlines are actor-side timers that stay armed until the actor
+commits or drops the result; abort is a message, so every wait is abortable. Spawned work
+is wrapped so a panic or a dropped task is reported as a failure and settled. Listeners
+and storage calls are contained too, so neither can unwind the actor.
+
+Close is a command: it sets the closed flag, refuses every new admission (removals
+included), aborts flights and probes, waits for every task it spawned to report, then
+flushes deletions and closes storage last before replying to every close caller. The
+command channel and each instance's pending work are bounded; capacity counts accepted
+operations until the actor settles them, never released early by a dropped caller.
+
 ## Intended differences from the TypeScript
 
 - Cutting text at a limit (`resolve.ts`'s 1024, `discovery-failure.ts`'s 8192, `cli-versions.ts`'s 4096) counts UTF-16 code units as the TypeScript does, but a cut never splits an astral character, so the last character of a truncated string is whole where the TypeScript could leave an unpaired surrogate.
 - The CLI's `models` listing is parsed with its JSON metadata, so an id the listing describes keeps its name, context and efforts; the TypeScript appends an id-only row for the same line.
 - A discovery built without a process runner (a caller that only has the HTTP port) takes the server's catalog unfiltered, because no connection status can be read.
-- A caller that goes away does not cancel the catalog's work: a dropped close still drains what it collected and closes storage, a dropped revocation or removal still deletes, and a dropped write still takes its place and, for a permission write, settles close's gate. The TypeScript cannot observe this because its promises are never cancelled, so its equivalent behaviour is that the same work runs to completion.
+- A caller that goes away does not cancel the catalog's work (see Concurrency). The TypeScript cannot observe this because its promises are never cancelled, so its equivalent behaviour is that the same work runs to completion.
