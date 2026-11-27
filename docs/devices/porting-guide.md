@@ -312,3 +312,7 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
 - **D4, a takeover that loses control while it assigns.** TypeScript authorizes the requester once
   the input release resolves (`service.ts:861`), so the takeover answers whatever that check says
   by then; Rust answers `controlChanged` for the assignment whose revision or generation moved.
+- **D4, a failed cleanup after a hand-back or a drop.** TypeScript's `bindDevice` throws its
+  `AggregateError` before `assignController` runs, so the cleanup failure answers a hand-back or a
+  drop that landed meanwhile; Rust answers `controlChanged` for the assignment whose revision moved
+  while its cleanup failed, and lets the failure win only for a disable, which moves the generation.

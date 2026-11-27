@@ -766,6 +766,51 @@ fn a_persons_cleanup_failure_outranks_a_disable_and_a_fresh_takeover() {
 }
 
 #[test]
+fn a_threaded_persons_failed_cleanup_after_a_hand_back_still_reports_control_changed() {
+    let mut session = Session::new("ios:AAAA");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's threaded takeover");
+    let hand_back = begin_assign(&mut session, &person(), NOW).expect("hand back");
+    finish_assign(&mut session, hand_back, None, NOW).expect("released");
+
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        true,
+        true,
+        NOW,
+    )
+    .expect_err("the assignment was handed back while its cleanup failed");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert_eq!(session.pending_controller, None);
+}
+
+#[test]
+fn a_threaded_persons_failed_cleanup_after_a_drop_still_reports_control_changed() {
+    let mut session = Session::new("ios:AAAA");
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's threaded takeover");
+    invalidate_pending_owner(&mut session, "person");
+
+    let refused = resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        true,
+        true,
+        NOW,
+    )
+    .expect_err("the person dropped while its cleanup failed");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert_eq!(session.pending_controller, None);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");

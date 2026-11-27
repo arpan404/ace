@@ -202,11 +202,17 @@ pub fn resume_human_controller_with_thread(
     now: f64,
 ) -> Result<(), DeviceError> {
     let ThreadedTakeover { assignment, bind } = takeover;
-    // `binding.ts` throws the cleanup's own failure before it checks the epoch or
-    // the disable, so a control change from a disable and a fresh takeover that
-    // landed during the cleanup must not replace it.
     if cleanup_failed && let Some(epoch) = bind.cleanup_epoch() {
+        // `binding.ts` throws the cleanup's own failure before it checks the
+        // disable, so a disable must not replace it. A disable moves the generation
+        // and invalidates the pending takeover with it; a hand-back or a drop moves
+        // only the revision, so this assignment still loses with `controlChanged`.
+        let disabled = assignment.generation != session.generation;
         fail_bind(session, epoch);
+        if !disabled && !control_still_current(session, &bind) {
+            cancel_assign(session, assignment);
+            return Err(words::refusal(CONTROL_CHANGED_KEY));
+        }
         cancel_assign(session, assignment);
         return Ok(());
     }
