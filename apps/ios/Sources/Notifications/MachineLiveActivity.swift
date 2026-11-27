@@ -70,23 +70,29 @@ enum MachineActivityPlan {
 
 /// Each paired machine's slot (0...15), the only thing its activity's attributes carry. Kept
 /// across launches so a machine's activity and snapshot entry keep meaning the same machine.
+/// A slot is reserved for as long as its machine is paired, attached or not; one goes to another
+/// machine only once its own is gone from the directory, and its activity and token go first.
 enum MachineSlots {
     static let count = 16
 
     /// `kept` with `host` given a slot: its own if it has one, else the lowest free one, else
-    /// one held by a machine no longer attached. Sixteen attached machines leave it none.
-    static func assign(_ host: String, kept: [String: Int], attached: Set<String>) -> [String: Int] {
-        guard kept[host] == nil else { return kept }
+    /// one whose machine is neither attached nor in `paired` (`retired`, for its activity and
+    /// token to go). An unknown directory (nil) reserves every slot.
+    static func assign(_ host: String, kept: [String: Int], attached: Set<String>,
+                       paired: Set<String>?) -> (slots: [String: Int], retired: Int?) {
+        guard kept[host] == nil else { return (kept, nil) }
         var next = kept
         let used = Set(kept.values)
         if let free = (0..<count).first(where: { !used.contains($0) }) {
             next[host] = free
-            return next
+            return (next, nil)
         }
-        guard let reclaimed = kept.filter({ !attached.contains($0.key) }).min(by: { $0.value < $1.value }) else { return kept }
-        next.removeValue(forKey: reclaimed.key)
-        next[host] = reclaimed.value
-        return next
+        guard let paired,
+              let gone = kept.filter({ !attached.contains($0.key) && !paired.contains($0.key) }).min(by: { $0.value < $1.value })
+        else { return (kept, nil) }
+        next.removeValue(forKey: gone.key)
+        next[host] = gone.value
+        return (next, gone.value)
     }
 }
 
@@ -161,6 +167,9 @@ struct ShownActivity: Equatable, Sendable {
     /// Ends that one activity: with `state` as its last word, unless it now shows a later `seq`
     /// (then it stays up); with none, at once.
     func end(_ id: String, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async
+    /// The slot's machine is turned off, unpaired or its slot given away: its token goes now, so
+    /// no sync after this carries it, and every activity in the slot ends at once.
+    func retire(_ slot: Int)
 }
 
 /// The real ActivityKit activities, requested with push tokens so each machine's daemon can
@@ -262,6 +271,14 @@ struct ShownActivity: Equatable, Sendable {
             }
         }
         watching[id] = [token, state]
+    }
+    func retire(_ slot: Int) {
+        if let held = tokens.owner[slot] { retire(held) }
+        for activity in live(slot) {
+            retire(activity.id)
+            nonisolated(unsafe) let target = activity
+            Task { await target.end(nil, dismissalPolicy: .immediate) }
+        }
     }
     private func retire(_ id: String) {
         tokens.retire(activity: id)

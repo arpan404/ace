@@ -134,15 +134,34 @@ import Testing
     }
 
     @Test func eachMachineKeepsItsSlotAndANewOneTakesTheLowestFree() {
-        var slots = MachineSlots.assign("studio", kept: [:], attached: ["studio"])
-        slots = MachineSlots.assign("laptop", kept: slots, attached: ["studio", "laptop"])
+        var slots = MachineSlots.assign("studio", kept: [:], attached: ["studio"], paired: ["studio"]).slots
+        slots = MachineSlots.assign("laptop", kept: slots, attached: ["studio", "laptop"], paired: ["studio", "laptop"]).slots
         #expect(slots == ["studio": 0, "laptop": 1])
-        #expect(MachineSlots.assign("studio", kept: slots, attached: ["studio"]) == slots)
-        // All sixteen taken: one held by a machine no longer attached is reused.
+        #expect(MachineSlots.assign("studio", kept: slots, attached: ["studio"], paired: nil).slots == slots)
+    }
+
+    @Test func aSlotGoesToAnotherMachineOnlyOnceItsOwnIsUnpairedAndTakesItsActivityAndTokenWithIt() {
         let full = Dictionary(uniqueKeysWithValues: (0..<16).map { ("m\($0)", $0) })
         let attached = Set(full.keys).subtracting(["m5"]).union(["new"])
-        #expect(MachineSlots.assign("new", kept: full, attached: attached)["new"] == 5)
-        #expect(MachineSlots.assign("new", kept: full, attached: Set(full.keys))["new"] == nil)
+        // m5 is paired but not attached yet (a launch still opening it): its slot stays its own.
+        let paired = MachineSlots.assign("new", kept: full, attached: attached, paired: Set(full.keys))
+        #expect(paired.slots == full && paired.retired == nil)
+        #expect(MachineSlots.assign("new", kept: full, attached: attached, paired: nil).retired == nil)
+        // m5 was unpaired: its slot is reused, and named for its activity and token to go first.
+        let reused = MachineSlots.assign("new", kept: full, attached: attached, paired: Set(full.keys).subtracting(["m5"]))
+        #expect(reused.slots["new"] == 5 && reused.slots["m5"] == nil && reused.retired == 5)
+
+        let port = FakeMachineActivity()
+        _ = port.tokens.adopt("old", slot: 5)
+        port.tokens.received("aa", activity: "old")
+        port.show(5, state(seq: 9, needsYou: 1), id: "old")
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { self.t0 }, sleep: { _ in })
+        hub.forget(slot: 5)
+        #expect(port.shown(5) == nil && port.ended.map(\.id) == ["old"])
+        // A token event from the old machine's activity, delivered late, can't come back.
+        port.tokens.received("late", activity: "old")
+        #expect(port.tokens.sync(on: true, slot: 5, environment: .sandbox, frequentUpdates: true)?["activityToken"] == nil)
+        #expect(port.tokens.adopt("new-activity", slot: 5))
     }
 
     @Test func aDuplicateActivityInASlotNeverReplacesTheHoldersToken() {
@@ -229,6 +248,12 @@ private final class FixtureToken {}
         guard let slot = showing.first(where: { $0.value.id == id })?.key else { return }
         ended.append((id, state))
         showing.removeValue(forKey: slot)
+    }
+    func retire(_ slot: Int) {
+        tokens.retire(slot: slot)
+        guard let shown = showing.removeValue(forKey: slot) else { return }
+        tokens.retire(activity: shown.id)
+        ended.append((shown.id, nil))
     }
 }
 

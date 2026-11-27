@@ -87,6 +87,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private(set) var liveActivity: Bool
     /// Each machine's Live Activity slot (`MachineSlots`), by host; kept across launches.
     @ObservationIgnored private(set) var slots: [String: Int]
+    /// Every paired machine's host id, from the machines directory; nil while it isn't known
+    /// (a background launch), which keeps every slot reserved.
+    @ObservationIgnored var pairedMachines: @MainActor () -> Set<String>? = { nil }
     /// Each machine's sign-ins waiting for approval when it last said, by host.
     @ObservationIgnored var accessSeen: [String: Set<String>] = [:]
     /// Usage-limit and automation-run notifications posted for each machine, oldest first,
@@ -166,6 +169,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     private func detach(_ model: ClientModel, removingMachine: Bool) {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
+        let hostId = machines[index].hostId
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
@@ -175,7 +179,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
         model.outside.onAccessState = nil
-        if removingMachine { lockScreen.changed() }
+        if removingMachine {
+            releaseSlot(hostId)
+            lockScreen.changed()
+        }
     }
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
     /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
@@ -298,9 +305,22 @@ struct SystemAuthorizer: NotificationAuthorizer {
         }
         model.notificationAction(action)
     }
-    /// A newly attached machine's Live Activity slot, kept for it from then on.
+    /// A newly attached machine's Live Activity slot, kept for it from then on. A slot taken
+    /// from a machine gone from the directory loses that machine's activity and token first.
     private func assignSlot(_ hostId: String) {
-        let next = MachineSlots.assign(hostId, kept: slots, attached: Set(machines.map(\.hostId)))
+        let next = MachineSlots.assign(hostId, kept: slots, attached: Set(machines.map(\.hostId)), paired: pairedMachines())
+        if let retired = next.retired { lockScreen.forget(slot: retired) }
+        saveSlots(next.slots)
+    }
+    /// A machine detached for good and gone from the directory: its activity, token and slot go.
+    private func releaseSlot(_ hostId: String) {
+        guard let paired = pairedMachines(), !paired.contains(hostId), let slot = slots[hostId] else { return }
+        lockScreen.forget(slot: slot)
+        var next = slots
+        next.removeValue(forKey: hostId)
+        saveSlots(next)
+    }
+    private func saveSlots(_ next: [String: Int]) {
         guard next != slots else { return }
         slots = next
         defaults.set(next, forKey: Keys.slots)

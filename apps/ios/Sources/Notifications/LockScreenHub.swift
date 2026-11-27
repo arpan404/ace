@@ -89,13 +89,13 @@ import WidgetKit
         shownByHand.insert(hostId)
         rebuild()
     }
-    /// A machine turned off or unpaired here: its activity goes at once, and its snapshot entry.
+    /// A machine turned off or unpaired here, or its slot given away: its activity and token go
+    /// at once, and its snapshot entry.
     func forget(slot: Int) {
         entries.removeValue(forKey: slot)
         sent.removeValue(forKey: slot)
         quietSince.removeValue(forKey: slot)
-        let activity = edges.activity
-        if let id = activity.shown(slot)?.id { enqueue { await activity.end(id, nil, dismissAt: .distantPast) } }
+        edges.activity.retire(slot)
     }
     /// Drop the last confirmed summary kept for when no machine answers: what it showed may
     /// belong to a machine that is no longer to be shown.
@@ -263,4 +263,5 @@ import WidgetKit
     func start(_ slot: Int, _ state: MachineActivityAttributes.ContentState, staleDate: Date) throws {}
     func update(_ id: String, _ state: MachineActivityAttributes.ContentState, staleDate: Date) async {}
     func end(_ id: String, _ state: MachineActivityAttributes.ContentState?, dismissAt: Date) async {}
+    func retire(_ slot: Int) {}
 }
