@@ -2,8 +2,8 @@
 //! Ordered Noise `CipherState` (`packages/secure-channel/src/cipher.ts`), the cipher state a
 //! finished handshake splits into: ChaCha20-Poly1305 under a 12-byte nonce whose last eight bytes
 //! count messages, the reserved nonce that exhausts a direction for good, the coordinated
-//! directional rekey, a snapshot that resumes the same ordered session, and the media key hand-over
-//! that writes key and next nonce into a caller's block.
+//! directional rekey, a suspension that consumes the state and only the resumed owner may use, and
+//! the media key hand-over that writes key and next nonce into a caller's block.
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -26,12 +26,39 @@ fn cipher(key: &Zeroizing<[u8; 32]>) -> Result<ChaCha20Poly1305, RelayError> {
     ChaCha20Poly1305::new_from_slice(&**key).map_err(|_| RelayError::Noise("Invalid cipher key"))
 }
 
-/// One direction's key and next nonce, and nothing else. It is deliberately not `Clone` and not
-/// printable: a snapshot is a session's live key, and a copy of it could outlive the state that
-/// owns it.
-pub struct Snapshot {
-    pub key: Zeroizing<[u8; 32]>,
-    pub nonce: u64,
+/// A suspended cipher: one direction's key and next nonce, owned by exactly one holder. The key
+/// and counter are private, the state is not `Clone` and not printable, and [`SuspendedCipher::resume`]
+/// consumes it, so two owners can never continue the same ordered session at the same nonce. It
+/// wipes its key when dropped, including when a resume is never taken. Persisting one across a
+/// restart is the caller's business, and must remove or consume its stored copy on resume so the
+/// same single owner rule holds across processes.
+pub struct SuspendedCipher {
+    key: Option<Zeroizing<[u8; 32]>>,
+    nonce: u64,
+}
+
+impl Drop for SuspendedCipher {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.as_mut() {
+            key.zeroize();
+        }
+        self.key = None;
+        self.nonce = 0;
+    }
+}
+
+impl SuspendedCipher {
+    /// Continue the suspended session. The suspended handle is consumed, so this can happen once.
+    pub fn resume(mut self) -> CipherState {
+        let key = self.key.take();
+        let nonce = self.nonce;
+        self.nonce = 0;
+        CipherState {
+            key,
+            nonce,
+            closed: false,
+        }
+    }
 }
 
 /// An ordered Noise cipher state. Applications must coordinate directional rekeys.
@@ -123,18 +150,23 @@ impl CipherState {
         Ok(opened)
     }
 
-    /// A copy of the key and next nonce, for a holder that must survive losing its memory (a
-    /// hibernated relay). `CipherState::new` resumes it.
-    pub fn snapshot(&self) -> Result<Snapshot, RelayError> {
+    /// Suspend the session for a holder that must survive losing its memory (a hibernated relay).
+    /// The live cipher is consumed: there is no copy of the key and no second handle at this
+    /// nonce, so resuming can never seal or open a frame twice.
+    pub fn suspend(mut self) -> Result<SuspendedCipher, RelayError> {
         if self.closed || self.nonce == MAX_NONCE {
+            self.destroy();
             return Err(RelayError::Noise("Cipher exhausted or closed"));
         }
-        let Some(key) = self.key.as_ref() else {
+        let Some(key) = self.key.take() else {
             return Err(RelayError::Noise("No cipher key"));
         };
-        Ok(Snapshot {
-            key: Zeroizing::new(**key),
-            nonce: self.nonce,
+        let nonce = self.nonce;
+        self.nonce = 0;
+        self.closed = true;
+        Ok(SuspendedCipher {
+            key: Some(key),
+            nonce,
         })
     }
 

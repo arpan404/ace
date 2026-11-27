@@ -57,6 +57,12 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
   device's current generation and an account grant's deadline are required, rechecked on every
   read, write and confirmation, and a refusal closes the channel the socket owns. The TypeScript
   `RelaySocket` takes `stillAdmitted` as an optional field and can be opened without it.
+- A cipher suspends by consuming itself and resumes by consuming the opaque suspended state
+  (`CipherState::suspend` / `SuspendedCipher::resume`), with no key or counter exposed. The
+  TypeScript `snapshot()` copies both while the original stays usable, so a send snapshot and its
+  original can encrypt twice at one key and nonce, and a receive fork can accept a frame twice.
+  A persisted suspended state must be single-owner across restarts: remove or consume the stored
+  copy when it resumes.
 
 ## Who writes the code
 

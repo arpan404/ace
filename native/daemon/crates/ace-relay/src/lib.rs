@@ -23,7 +23,7 @@ pub use channel::{
     CONTROL_BUDGET, ChannelKind, DevicesInput, RelayServices, ScreenInput, attach, binary_input,
     chunk_room, control_room, files_routes_to_scoped, support_local_only,
 };
-pub use cipher::{CipherState, Snapshot};
+pub use cipher::{CipherState, SuspendedCipher};
 pub use error::RelayError;
 pub use host::{
     Backoff, ClientSlots, ControlMessage, FirstMessage, HTTP_FEATURE, HostOptions, HttpAnswer,

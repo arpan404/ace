@@ -7,7 +7,7 @@
 
 use ace_json::Value;
 
-use super::{CipherState, MAX_MESSAGE, Snapshot};
+use super::{CipherState, MAX_MESSAGE};
 
 fn hex(text: &str) -> Vec<u8> {
     data_encoding::HEXLOWER_PERMISSIVE
@@ -169,31 +169,29 @@ fn the_last_permitted_nonce_works_once_and_the_reserved_one_exhausts_both() {
 }
 
 #[test]
-fn a_snapshot_resumes_the_same_ordered_session() {
+fn a_suspended_cipher_resumes_the_same_ordered_session_and_refuses_a_replay() {
     let key = [3u8; 32];
     let mut sender = CipherState::keyed(key);
     let mut receiver = CipherState::keyed(key);
-    receiver
-        .decrypt(&sender.encrypt(b"first", &[]).unwrap(), &[])
-        .unwrap();
-    let Snapshot {
-        key: saved_key,
-        nonce,
-    } = receiver.snapshot().unwrap();
-    receiver.destroy();
-    assert!(receiver.snapshot().is_err());
-    let mut resumed = CipherState::new(Some(saved_key), nonce);
+    let first = sender.encrypt(b"first", &[]).unwrap();
+    receiver.decrypt(&first, &[]).unwrap();
+    // Suspension consumes the live cipher: the handle that could have sealed or opened at the
+    // same nonce no longer exists, so only one owner can ever resume.
+    let suspended = receiver.suspend().unwrap();
+    let mut resumed = suspended.resume();
     assert_eq!(
         resumed
             .decrypt(&sender.encrypt(b"second", &[]).unwrap(), &[])
             .unwrap(),
         b"second"
     );
-    let replay = sender.encrypt(b"third", &[]).unwrap();
-    assert_eq!(resumed.decrypt(&replay, &[]).unwrap(), b"third");
-    assert!(resumed.decrypt(&replay, &[]).is_err());
-    // A keyless state has nothing to hand over.
-    assert!(CipherState::new(None::<[u8; 32]>, 0).snapshot().is_err());
+    let third = sender.encrypt(b"third", &[]).unwrap();
+    assert_eq!(resumed.decrypt(&third, &[]).unwrap(), b"third");
+    // The frame the resumed owner already opened is refused when replayed.
+    assert!(resumed.decrypt(&third, &[]).is_err());
+    assert_eq!(resumed.nonce(), 3);
+    // A keyless state has nothing to suspend.
+    assert!(CipherState::new(None::<[u8; 32]>, 0).suspend().is_err());
 }
 
 #[test]
