@@ -526,30 +526,33 @@ impl<'a> Fields<'a> {
     }
 
     fn integer(&mut self, key: &str, min: f64, max: f64) -> Option<f64> {
-        match self.value(key) {
-            None => None,
-            Some(value) => {
-                let Some(number) = value.as_f64() else {
-                    self.wrong_type(key, "number");
-                    return None;
-                };
-                if number.fract() != 0.0 {
-                    self.wrong_type(key, "int");
-                    return None;
-                }
-                if number < min {
-                    self.issues
-                        .issue(key, format!("number >= {}", render_number(min)));
-                    return None;
-                }
-                if number > max {
-                    self.issues
-                        .issue(key, format!("number <= {}", render_number(max)));
-                    return None;
-                }
-                Some(number)
-            }
+        let value = self.value(key)?;
+        // `z.number()` refuses what JSON can carry but JavaScript's number cannot be:
+        // a non-finite one. It is a wrong type, so the field stops there.
+        let Some(number) = value.as_f64().filter(|number| number.is_finite()) else {
+            self.wrong_type(key, "number");
+            return None;
+        };
+        if number.fract() != 0.0 {
+            self.wrong_type(key, "int");
+            return None;
         }
+        // `int()` is a safe integer: this bound continues to the field's own, as
+        // zodiac reports both rather than stopping at the first.
+        if let Some(expected) = safe_integer_issue(number) {
+            self.issues.issue(key, expected);
+        }
+        if number < min {
+            self.issues
+                .issue(key, format!("number >= {}", render_number(min)));
+            return None;
+        }
+        if number > max {
+            self.issues
+                .issue(key, format!("number <= {}", render_number(max)));
+            return None;
+        }
+        Some(number)
     }
 
     fn boolean(&mut self, key: &str) -> Option<bool> {
@@ -575,8 +578,9 @@ impl<'a> Fields<'a> {
                     None
                 }
             }
+            // Zod's enum names its values for any other type too, not the type.
             Some(_) => {
-                self.wrong_type(key, "string");
+                self.wrong_type(key, &one_of(allowed));
                 None
             }
         }
@@ -633,6 +637,22 @@ fn one_of(values: &[&str]) -> String {
 
 fn render_number(value: f64) -> String {
     ace_json::to_string(&Value::Number(value.into()))
+}
+
+/// `Number.MAX_SAFE_INTEGER` and its negative: Zod's `.int()` is a safe integer.
+const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+const MIN_SAFE_INTEGER: f64 = -9_007_199_254_740_991.0;
+
+/// The safe-integer bound a number breaks, as `argumentIssues` renders it. Zod keeps
+/// this check going to the field's own bound, so both issues are reported.
+fn safe_integer_issue(number: f64) -> Option<&'static str> {
+    if number > MAX_SAFE_INTEGER {
+        Some("int <= 9007199254740991")
+    } else if number < MIN_SAFE_INTEGER {
+        Some("int >= -9007199254740991")
+    } else {
+        None
+    }
 }
 
 /// Decode one tool's arguments exactly as its schema would.
@@ -814,19 +834,29 @@ fn act_value(fields: &mut Fields<'_>) -> Option<ActValue> {
                 let Some(raw) = object.get(key) else {
                     continue;
                 };
-                let Some(number) = raw.as_f64().filter(|number| number.fract() == 0.0) else {
+                let Some(number) = raw
+                    .as_f64()
+                    .filter(|number| number.is_finite() && number.fract() == 0.0)
+                else {
                     aborted = true;
                     continue;
                 };
+                // The safe bound first, then the offset's own: Zod reports both.
+                let mut refused = false;
+                if let Some(expected) = safe_integer_issue(number) {
+                    ranges.push((key, String::from(expected)));
+                    refused = true;
+                }
                 if number < -1_000.0 {
                     ranges.push((key, String::from("number >= -1000")));
-                    continue;
-                }
-                if number > 1_000.0 {
+                    refused = true;
+                } else if number > 1_000.0 {
                     ranges.push((key, String::from("number <= 1000")));
-                    continue;
+                    refused = true;
                 }
-                *target = number;
+                if !refused {
+                    *target = number;
+                }
             }
             if aborted {
                 union_failure(fields, "one of the documented shapes for this field");

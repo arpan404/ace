@@ -28,6 +28,10 @@ fn issue_paths(error: &super::ArgumentError) -> Vec<(&str, &str)> {
 const IOS: &str = "ios:0F0E0D0C-0B0A-4908-8706-050403020100";
 const ID_PATTERN: &str = r"a string matching /^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$/";
 const REF_PATTERN: &str = r"a string matching /^@?e[1-9]\d{0,6}$/";
+const ACT_ONE_OF: &str = "one of \"ui\", \"tap\", \"long_press\", \"swipe\", \"type\", \"key\", \"open_app\", \"open_url\", \"install\", \"record_start\", \"record_stop\", \"clipboard_get\", \"clipboard_set\", \"posture\"";
+const KEY_ONE_OF: &str = "one of \"home\", \"back\", \"rotate\", \"enter\", \"power\", \"recents\", \"volumeUp\", \"volumeDown\", \"action\", \"side\", \"keyboard\"";
+const POSTURE_ONE_OF: &str = "one of \"closed\", \"partiallyOpen\", \"open\"";
+const UI_ACTION_ONE_OF: &str = "one of \"press\", \"focus\", \"setValue\", \"scroll\", \"expand\", \"select\", \"performSecondaryAction\", \"selectText\"";
 
 #[test]
 fn every_tool_decodes_its_smallest_valid_call() {
@@ -203,6 +207,112 @@ fn a_missing_field_names_the_string_or_the_values_it_could_be() {
         issue_paths(&error),
         [("key", "Required when action is key")]
     );
+}
+
+#[test]
+fn an_enum_field_set_to_anything_but_its_values_names_the_values() {
+    // Zod's enum refuses a wrong type with the same list as an unknown string, so an
+    // agent sees what to send either way; the per-action rules do not run after it.
+    let error = act(json!({ "simId": IOS, "action": null, "x": 1 })).expect_err("null action");
+    assert_eq!(issue_paths(&error), [("action", ACT_ONE_OF)]);
+    assert!(!error.shape, "an enum's value is not a shape issue");
+    for action in [json!(3), json!({}), json!(["tap"])] {
+        let error = act(json!({ "simId": IOS, "action": action })).expect_err("not a string");
+        assert_eq!(issue_paths(&error), [("action", ACT_ONE_OF)], "{action}");
+    }
+    for (field, expected) in [
+        ("key", KEY_ONE_OF),
+        ("posture", POSTURE_ONE_OF),
+        ("uiAction", UI_ACTION_ONE_OF),
+    ] {
+        let mut args = ace_json::Map::new();
+        args.insert("simId", json!(IOS));
+        args.insert("action", json!("ui"));
+        args.insert("ref", json!("@e3"));
+        args.insert(field, json!(null));
+        let error = act(Value::Object(args)).expect_err(field);
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.path == field && issue.expected == expected),
+            "{field}: {:?}",
+            issue_paths(&error)
+        );
+    }
+}
+
+#[test]
+fn a_number_past_the_safe_integer_range_reports_the_int_bound_first() {
+    // Zod's `int()` is a safe integer: the safe bound, then the field's own bound,
+    // and both continue so the per-action rules still read the field.
+    let error = act(json!({ "simId": IOS, "action": "record_start", "x": 9_007_199_254_740_992.0 }))
+        .expect_err("too big");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("x", "int <= 9007199254740991"),
+            ("x", "number <= 16384"),
+            ("x", "Not used when action is record_start"),
+        ]
+    );
+    let error =
+        act(json!({ "simId": IOS, "action": "record_start", "x": -9_007_199_254_740_992.0 }))
+            .expect_err("too small");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("x", "int >= -9007199254740991"),
+            ("x", "number >= 0"),
+            ("x", "Not used when action is record_start"),
+        ]
+    );
+
+    // A scroll offset reports both bounds at its own path.
+    let error = act(json!({
+        "simId": IOS, "action": "ui", "ref": "@e3",
+        "value": { "dx": 9_007_199_254_740_992.0 }
+    }))
+    .expect_err("scroll");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("value.dx", "int <= 9007199254740991"),
+            ("value.dx", "number <= 1000"),
+        ]
+    );
+
+    // A read limit too.
+    let error = decode(SimTool::Ui, &json!({
+        "simId": IOS, "limit": 9_007_199_254_740_992.0
+    }))
+    .expect_err("limit");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("limit", "int <= 9007199254740991"),
+            ("limit", "number <= 64"),
+        ]
+    );
+    let error = decode(SimTool::Logs, &json!({
+        "simId": IOS, "limit": -9_007_199_254_740_992.0
+    }))
+    .expect_err("negative limit");
+    assert_eq!(
+        issue_paths(&error),
+        [
+            ("limit", "int >= -9007199254740991"),
+            ("limit", "number >= 1"),
+        ]
+    );
+
+    // A number JSON cannot carry is not a number at all, and stops the field.
+    let mut args = ace_json::Map::new();
+    args.insert("simId", json!(IOS));
+    args.insert("action", json!("record_start"));
+    args.insert("x", Value::Number(ace_json::Number::from(f64::INFINITY)));
+    let error = act(Value::Object(args)).expect_err("infinite");
+    assert_eq!(issue_paths(&error), [("x", "number")]);
 }
 
 #[test]
