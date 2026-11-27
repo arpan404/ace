@@ -1,5 +1,5 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 import { deviceFrameRate } from "./stream-profile.ts";
 import { commonStream, sameStream, StreamOwners } from "@ace/screen";
 
@@ -41,12 +41,7 @@ export const deviceVideoStream: ScreenStreamSettings = {
 
 /** A live view only takes video; a client asking for JPEG is out of date. */
 export function liveViewRequest(settings: ScreenStreamSettings): ScreenStreamSettings {
-  if (settings.codec !== "h264")
-    throw new DeviceError(
-      "not_supported",
-      "Device live views are H.264 video only",
-      "Update ace on this device; live views no longer stream JPEG.",
-    );
+  if (settings.codec !== "h264") throw catalogRefusal("liveViewH264Only");
   return settings;
 }
 /** Every viewer decodes the shared capture's H.264; the slowest panel sets its budget. */
@@ -77,11 +72,7 @@ export class DeviceStreamControl {
       idle: () => (this.#recordings ? deviceRecordingStream : idle()),
       check: (next, result) => {
         if (next.codec === "h264" && result.codec !== "h264")
-          throw new DeviceError(
-            "not_supported",
-            "This device's capture can't stream video for a live view",
-            "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools.",
-          );
+          throw catalogRefusal("captureNoVideo");
       },
     });
   }
