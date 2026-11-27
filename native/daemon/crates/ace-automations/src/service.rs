@@ -311,6 +311,17 @@ impl<'a> Service<'a> {
         if !self.lives.begin_start() {
             return Ok(());
         }
+        let result = self.start_inner();
+        if result.is_err() {
+            // A failed start still owns what it prepared: mark the requested stop while the
+            // phase is starting, then let the start's own end perform the teardown below.
+            self.lives.begin_stop();
+        }
+        self.finish_start();
+        result
+    }
+
+    fn start_inner(&mut self) -> Result<()> {
         self.generation += 1;
         let generation = self.generation;
         self.watches.clear();
@@ -353,7 +364,6 @@ impl<'a> Service<'a> {
         }
         self.drain_waiting();
         self.arm();
-        self.finish_start();
         Ok(())
     }
 

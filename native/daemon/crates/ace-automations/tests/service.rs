@@ -1137,3 +1137,81 @@ fn backfills_finished_at_from_ts_shaped_run_bodies_in_bounded_batches() {
     );
     assert_eq!(store.inbox(50, None, None, None).expect("inbox").0.len(), 1);
 }
+
+#[test]
+fn a_failed_start_releases_what_it_prepared_and_a_repaired_restart_runs() {
+    let h = Harness::new();
+    let mut service = h.started();
+    let mut watched = definition();
+    watched.id = "watched".to_owned();
+    watched.trigger = Trigger::File {
+        paths: vec!["src/**".to_owned()],
+    };
+    service.put(&watched, None).expect("watched");
+    service.put(&definition(), None).expect("put");
+    let run = service
+        .trigger("triage", "first", variables("issues"), "manual", None)
+        .expect("run");
+    let run_id = run_id(&run);
+    service.take_actions();
+    service.stop();
+    let released = h.workspace.unsubscriptions.get();
+
+    // Start-up installs the watcher, then fails on the run table.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs RENAME TO automation_runs_broken")
+        .expect("break");
+    raw.close().expect("close");
+    assert!(
+        service.start().is_err(),
+        "start-up reports the database failure"
+    );
+    assert_eq!(
+        h.workspace.unsubscriptions.get(),
+        released + 1,
+        "the failed start released the watcher it installed"
+    );
+    assert!(
+        service.take_actions().is_empty(),
+        "no partial start-up work is left to act on"
+    );
+    // The failure left the service stopped, not half-started: another attempt still starts from
+    // the beginning and reports the same failure instead of returning as if it were live.
+    assert!(
+        service.start().is_err(),
+        "a start after a failed start is not silently skipped"
+    );
+    service.stop();
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs_broken RENAME TO automation_runs")
+        .expect("restore");
+    raw.close().expect("close");
+    service.start().expect("repaired restart");
+    let actions = service.take_actions();
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::Recover { run_id: id, .. } if id == &run_id)),
+        "{actions:?}"
+    );
+    assert!(
+        h.workspace.subscriptions.borrow().len() >= 2,
+        "the repaired start installs its watcher again"
+    );
+    service.stop();
+}
