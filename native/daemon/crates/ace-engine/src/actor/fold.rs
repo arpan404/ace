@@ -316,6 +316,18 @@ fn sync_queue(core: &Rc<Core>, actor: &ActorRef) -> Result<(), EngineError> {
     apply_instance(core, actor, &[fact])
 }
 
+/// Syncs `thread`'s queue count through its resident actor when one exists, or directly on the repo.
+pub(crate) fn sync_queue_thread(core: &Rc<Core>, thread: &ThreadId) -> Result<(), EngineError> {
+    if let Some(actor) = current(core, thread) {
+        return sync_queue(core, &actor);
+    }
+    let deps = core.actor_deps.borrow().clone();
+    let Some(fact) = deps.repo.engine_queue_fact(core, thread)? else {
+        return Ok(());
+    };
+    apply(core, thread, &[fact])
+}
+
 /// `apply` (`actor.ts:521`).
 pub fn apply(core: &Rc<Core>, thread: &ThreadId, facts: &[Value]) -> Result<(), EngineError> {
     if let Some(actor) = current(core, thread) {

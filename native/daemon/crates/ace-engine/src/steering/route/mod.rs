@@ -9,6 +9,7 @@
 use ace_core::state::ThreadState;
 use ace_json::Value;
 
+use crate::EngineError;
 use crate::intents::header::IntentHeader;
 
 /// The run the engine interrupted so a person's steer reaches the model now, and whether the
@@ -119,6 +120,123 @@ pub fn steer_route(
         return Some(SteerRoute::Native);
     }
     Some(SteerRoute::Yield)
+}
+
+/// `steerLane.isSteer`: the intent goes into the provider right now.
+pub fn is_steer(
+    core: &crate::Core,
+    thread: &str,
+    intent: &IntentHeader,
+    capabilities: &Value,
+    session: SessionSteer,
+    quiescent: bool,
+    running_besides: bool,
+) -> Result<bool, EngineError> {
+    Ok(route(
+        core,
+        thread,
+        intent,
+        capabilities,
+        session,
+        quiescent,
+        running_besides,
+    )? == Some(SteerRoute::Native))
+}
+
+/// `route` (`steer-lane.ts:106`): how a waiting steer reaches the model now, or none.
+///
+/// The yield record lives on the actor in the TypeScript; until E5.2's actor carries
+/// `steerYield` (E5.5 writes it), the route reads none, which is the no-yield answer.
+pub fn route(
+    core: &crate::Core,
+    thread: &str,
+    intent: &IntentHeader,
+    capabilities: &Value,
+    session: SessionSteer,
+    quiescent: bool,
+    running_besides: bool,
+) -> Result<Option<SteerRoute>, EngineError> {
+    if intent.kind != "thread.send" || intent.delivery != "steer" {
+        return Ok(None);
+    }
+    if crate::queue::ready::has_selection(core, intent.id)? {
+        return Ok(None);
+    }
+    if core.with_state(|state| state.transition_guarded(&core.store, thread))?? {
+        return Ok(None);
+    }
+    // The steer itself counts once claimed; delivery re-checks it after the claim.
+    if crate::intents::store::transition(core.store.conn(), thread)?.is_some()
+        && (running_besides || quiescent)
+    {
+        return Ok(None);
+    }
+    let attached = core.with_state(|state| {
+        state
+            .actors
+            .by_thread
+            .get(thread)
+            .is_some_and(|actor| actor.borrow().session_attached)
+    })?;
+    let queue = crate::queue::store::get(&core.store, thread)?;
+    if !attached
+        || queue.paused
+        || queue.limited
+        || crate::intents::store::recovering(core.store.conn(), thread)?
+    {
+        return Ok(None);
+    }
+    let provider = crate::commands::prelude::thread_row(core, thread)?.and_then(|row| {
+        row.get("provider")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    let Some(provider) = provider else {
+        return Ok(None);
+    };
+    if !core.with_state(|state| state.registry.has(&provider))? {
+        return Ok(None);
+    }
+    if capabilities.get("steer").and_then(Value::as_bool) != Some(true) {
+        return Ok(None);
+    }
+    let person_chose = crate::steering::notes::person_chose(core.store.conn(), intent.id)?;
+    let person = is_person_steer(intent, person_chose);
+    let snapshot = core.with_state(|state| state.repo.require_state(&core.store, thread))??;
+    let answer = {
+        let borrowed = snapshot.borrow();
+        steer_route(person, &borrowed.state, capabilities, None, session)
+    };
+    Ok(answer)
+}
+
+/// `yielded` (`steer-lane.ts:38`): the waiting steer that cancelled the previous turn, ready to
+/// go next once that turn ends.
+pub fn yielded(
+    core: &crate::Core,
+    thread: &str,
+    record: Option<&SteerYield>,
+) -> Result<Option<IntentHeader>, EngineError> {
+    let Some(yielded) = record else {
+        return Ok(None);
+    };
+    if yielded.state != YieldState::Pending || yielded.intent_id.is_none() {
+        return Ok(None);
+    }
+    let snapshot = core.with_state(|state| state.repo.require_state(&core.store, thread))??;
+    if root_run(&snapshot.borrow().state).is_some() {
+        return Ok(None);
+    }
+    let steer = crate::intents::store::person_steer(core.store.conn(), thread)?;
+    match steer {
+        Some(steer)
+            if Some(steer.id) == yielded.intent_id
+                && !crate::queue::ready::has_selection(core, steer.id)? =>
+        {
+            Ok(Some(steer))
+        }
+        _ => Ok(None),
+    }
 }
 
 #[cfg(test)]

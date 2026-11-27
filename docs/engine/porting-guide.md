@@ -2455,17 +2455,19 @@ on; none is a behaviour left unported.
   the `creationOwner`/`preparedWorkspace` the shell would pass into `handle`. The engine side
   they call is `commands::admissions::RepoStore` (the reservation over `Repo`) and
   `liveness::stop_intents::cancel_delegated_inputs`. 4e's seam tests wait on the same wiring.
-- **4f's send path: `queue/worker.rs`** (`index.ts:1220`-`:1277` `wake`, `:1300`-`:1384` `work`,
-  `wakeQueued`, `releaseDormant`). `actor::mailbox::task::flush` exists, so `work` can be written;
-  what it still needs is the session facts it reads (`actor.session`, `steerYield`,
-  `effectiveCapabilities`, `backgroundTools`, `steerViaCancel`), which E5.6's session supplies and
-  E5.2's `Actor` does not carry yet, and the stubs it calls (`delivery.run`, `delivery.fail`,
-  `sessions.close`). Its `WorkerRun` is not bound to `workers::WorkerSets::sends` yet, and a Rust
-  test of `work` has to interleave the flush's waiter with the engine's pump. Ported and tested
-  now: `steering/route.rs` (the whole `steer-yield.ts` route table, `isPersonSteer`, `rootRun`,
-  `yieldInFlight`), `transitions/switch_ready.rs` (`usageBlocked`, `switchReady`,
-  `runsProviderWork`) and `queue/ready.rs` (`threadCapabilities`, `hasSelection`,
-  `readyForInput`).
+- **4f's send path is ported in `queue/worker.rs`**: `work`, `wake` (with its wait for the
+  store's publication), `wakeQueued`, `releaseDormant` and the `WorkerRun` the sends lane
+  starts. What it calls but does not own, and how each reads today: `delivery::run` and
+  `delivery::fail` are E5.5's stubs and throw (`delivery.rs`); closing a session on a poisoned
+  actor is E5.6's, so that branch fails `NotPorted("a session close", "E5.6")`; the ownership
+  fence is E5.9's rule (`ownership-rules.ts:117`) read as the same predicate
+  (`thread_ownership` in `stopping`, `handing` or `moved`); the session facts the steering route
+  reads (`steerViaCancel`, `backgroundTools`) default until E5.6's session supplies them; and no
+  `steerYield` record is read until E5.2's actor carries one (E5.5 writes it), so a waiting
+  yield reads as none. Ported and tested: `steering/route.rs` (the whole `steer-yield.ts` route
+  table, `isPersonSteer`, `rootRun`, `yieldInFlight`, `isSteer`, `route`, `yielded`),
+  `transitions/switch_ready.rs` (`usageBlocked`, `switchReady`, `runsProviderWork`) and
+  `queue/ready.rs` (`threadCapabilities`, `hasSelection`, `readyForInput`).
 - **The steer-yield record** (`SteerYield`) is passed into `steering::route` by its caller until
   E5.2's actor carries `steerYield`; E5.5's `steerNow`/`yieldTurn` own writing it.
 
