@@ -124,13 +124,16 @@ struct BrowserScreen: View {
         } message: { Text(browser.problem?.message ?? "") }
         .onChange(of: scenePhase, initial: true) { _, phase in
             browser.setVisible(phase == .active)
+            if phase == .background { model.browserBackground() }
             // Back in front, a device tab takes this machine's ports again; in the background
             // they go, with their connections. Inactive (Control Centre over the app) keeps them.
             if phase == .active { model.frontDeviceTab() } else if phase == .background { model.hideDeviceTabs() }
         }
         .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
+        .onAppear { model.enterBrowser() }
         .onDisappear {
-            model.closeBrowser()
+            // Closes the stream, unless the page floats in picture-in-picture.
+            model.leaveBrowser()
             model.hideDeviceTabs()
         }
     }

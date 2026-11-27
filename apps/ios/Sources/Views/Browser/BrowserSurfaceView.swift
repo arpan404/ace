@@ -33,6 +33,8 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     var nextPicture: () -> BrowserPicture? = { nil }
     /// The still the subscribe brought back, shown until the first live picture (ADR 0149).
     var nextPoster: () -> CGImage? = { nil }
+    /// Each picture as drawn, for picture-in-picture to show the same.
+    var onSample: (CMSampleBuffer) -> Void = { _ in }
     private let posterLayer = CALayer()
     private var posterGate = PosterGate()
     /// While the person can use the page, a swipe here goes to the page, never to ace's back swipe.
@@ -149,6 +151,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         let renderer = videoLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
+        onSample(sample)
         if let tabId = picture.tabId { lastPicture = (picture.image, tabId) }
         if pageSize != picture.page {
             // Another device or size: the picture starts at the fit again.
@@ -340,6 +343,8 @@ struct BrowserSurface: UIViewRepresentable {
         let model = model
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
         view.nextPoster = { [weak browser = model.browser] in browser?.nextPoster() }
+        // Picture-in-picture shows what the surface draws, ready to float when the person leaves the app.
+        view.onSample = { [weak browser = model.browser] in browser?.pip.mirror($0) }
         view.onInput = { model.browserInput($0) }
         view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
         view.onLayout = { size, scale, picture in

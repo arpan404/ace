@@ -51,6 +51,19 @@ import UIKit
     private(set) var stills: [String: UIImage] = [:]
     /// The person turned the page's sound on for this view (ADR 0088 › Audio); every view starts muted.
     private(set) var soundHere = false
+    /// The page floats in picture-in-picture now (`BrowserPipRule`).
+    private(set) var pipActive = false
+    /// The stream stays open for picture-in-picture after the person left the Browser.
+    private(set) var keptForPip = false
+    /// Bumped when the person asks picture-in-picture to go back to the page: that thread's Browser opens.
+    private(set) var pipRestore: (threadId: String, count: Int)?
+    @ObservationIgnored let pip = BrowserPictureInPicture()
+    /// Settings › Browser › Picture in picture, on this phone.
+    @ObservationIgnored var pipEnabled: () -> Bool = { UserDefaults.standard.object(forKey: BrowserPipRule.settingKey) as? Bool ?? true }
+    @ObservationIgnored private var showingBrowser = false
+    @ObservationIgnored private var pipDismissed = false
+    /// Leaving the app floats the page by itself.
+    @ObservationIgnored private(set) var pipArmed = false
     /// The picture on screen now and the tab it came from.
     @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
     @ObservationIgnored private var stillOrder: [String] = []
@@ -89,6 +102,8 @@ import UIKit
         streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
         streams?.attachAudio { chunk, path in renderer.receive(chunk, path: path) }
         renderer.follow(streams)
+        pip.nextPicture = { [weak self] in self?.nextPicture() }
+        pip.onActive = { [weak self] active in self?.pipChanged(active) }
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
@@ -106,6 +121,55 @@ import UIKit
         stills = [:]; stillOrder = []
         soundHere = false
         updateSound()
+        keptForPip = false
+        pip.stop()
+        updatePip()
+    }
+    /// The Browser is on screen, or the person left it.
+    func setShowingBrowser(_ value: Bool) {
+        showingBrowser = value
+        if value { pipDismissed = false; keptForPip = false }
+        updatePip()
+    }
+    /// The person left the Browser: true when the page floats, and its stream stays open for it.
+    func floatOnLeaving() -> Bool {
+        guard threadId != nil, BrowserPipRule.shows(state: view?.state, showingBrowser: false, dismissed: pipDismissed, enabled: pipEnabled()),
+              pip.start() else { return false }
+        keptForPip = true
+        return true
+    }
+    /// What ending picture-in-picture leaves to do: close the stream kept for it, or mute the page
+    /// the person dismissed while away from it.
+    enum PipEnd: Equatable { case close, mute, none }
+    /// Picture-in-picture ended; `restore` when the person asked to go back to the page.
+    func pipEnded(restore: Bool) -> PipEnd {
+        let onScreen = showingBrowser && visible
+        if !restore, !onScreen {
+            pipDismissed = true
+            updatePip()
+        }
+        if keptForPip {
+            if restore, let threadId { pipRestore = (threadId, (pipRestore?.count ?? 0) + 1) }
+            return .close
+        }
+        return restore || onScreen ? .none : .mute
+    }
+    /// Re-reads the rule: arms the float for leaving the app, and ends one the rule no longer holds.
+    func updatePip() {
+        let state = view?.state
+        let enabled = pipEnabled()
+        let away = threadId != nil && BrowserPipRule.shows(state: state, showingBrowser: false, dismissed: pipDismissed, enabled: enabled)
+        pipArmed = showingBrowser && away
+        pip.arm(pipArmed)
+        let onScreen = showingBrowser && visible
+        if pip.active, !(threadId != nil && BrowserPipRule.shows(state: state, showingBrowser: onScreen, dismissed: pipDismissed, enabled: enabled)) {
+            pip.stop()
+        }
+    }
+    /// While the page floats, its pictures are acknowledged as if shown, so they keep coming.
+    private func pipChanged(_ active: Bool) {
+        if pipActive != active { pipActive = active }
+        acks?.setVisible(visible || active)
     }
     /// The person's speaker: this phone plays the page's sound, or stops. The bridge is told separately.
     func setSoundHere(_ on: Bool) {
@@ -152,7 +216,8 @@ import UIKit
     /// The app came to the foreground or left it.
     func setVisible(_ value: Bool) {
         visible = value
-        acks?.setVisible(value)
+        acks?.setVisible(value || pipActive)
+        updatePip()
     }
     /// The poster a subscribe brought back since the last call, for the display link.
     func nextPoster() -> CGImage? {
@@ -182,6 +247,7 @@ import UIKit
             if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
             if view != info { view = info }
             updateSound()
+            updatePip()
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
             if page != info { page = info }
