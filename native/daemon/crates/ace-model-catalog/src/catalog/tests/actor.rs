@@ -675,3 +675,72 @@ fn a_stalled_storage_lane_never_stalls_the_catalog_and_a_deadline_wins_at_the_wr
         );
     })
 }
+
+/// Storage whose first removal panics, before it deletes anything.
+struct PanicOnceRemove {
+    inner: MemoryStorage,
+    panics: AtomicUsize,
+}
+
+impl CatalogStorage for PanicOnceRemove {
+    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+        self.inner.load()
+    }
+
+    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+        self.inner.replace(entry)
+    }
+
+    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+        if self.panics.load(Ordering::SeqCst) > 0 {
+            self.panics.fetch_sub(1, Ordering::SeqCst);
+            panic!("storage remove panicked before deleting");
+        }
+        self.inner.remove(instance)
+    }
+}
+
+#[test]
+fn a_deletion_that_panics_before_it_runs_keeps_its_retry_marker() {
+    within(15, "a panicking deletion", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(PanicOnceRemove {
+            inner: MemoryStorage::new(),
+            panics: AtomicUsize::new(1),
+        });
+        let discover = always(vec![row(&codex, "gpt-6-sol")]);
+        let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        // The new login's row is incompatible, so the old cached row must be deleted.
+        catalog
+            .register_instance(
+                ModelInstance {
+                    login_revision: "2".to_owned(),
+                    ..codex
+                },
+                None,
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        fixture.spawn.drain();
+        settle(catalog.quiesce(), &fixture.spawn, "the failed deletion");
+        let mut inspected = storage.clone();
+        assert!(
+            !inspected.load().unwrap_or_default().is_empty(),
+            "the panic left the row in storage"
+        );
+        // Close retries the pending deletion; the marker was reserved before the panic.
+        settle(catalog.close(), &fixture.spawn, "the close")
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut inspected = storage.clone();
+        assert!(
+            inspected.load().unwrap_or_default().is_empty(),
+            "the failed deletion stayed pending and its retry ran before storage closed"
+        );
+    })
+}
