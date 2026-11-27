@@ -152,6 +152,38 @@ fn an_unknown_field_names_the_fields_here_or_how_to_remove_it() {
 }
 
 #[test]
+fn an_unknown_keys_path_never_repeats_a_key_the_schema_could_not_own() {
+    // `render` shows a path segment only when it looks like a field ace's schema
+    // owns (`/^[\w$-]{1,64}$/`); anything else is `<field>`, so an argument cannot
+    // come back out through the issue's path.
+    let mut args = ace_json::Map::new();
+    args.insert("", json!(true));
+    args.insert("k".repeat(65), json!(true));
+    args.insert("secret.token", json!(true));
+    args.insert(
+        ace_json::JsString::from_units(&[0x61, 0xd800, 0x62]),
+        json!(true),
+    );
+    let error = decode(SimTool::List, &Value::Object(args)).expect_err("unknown fields");
+    assert_eq!(
+        error
+            .issues
+            .iter()
+            .map(|issue| issue.path.as_str())
+            .collect::<Vec<_>>(),
+        ["<field>", "<field>", "<field>", "<field>"]
+    );
+
+    // A key that is a field name a schema could own is still named, up to 64 units.
+    for key in ["kdash_$1".to_owned(), "k".repeat(64)] {
+        let mut args = ace_json::Map::new();
+        args.insert(key.as_str(), json!(true));
+        let error = decode(SimTool::List, &Value::Object(args)).expect_err("unknown field");
+        assert_eq!(issue_paths(&error)[0].0, key.as_str());
+    }
+}
+
+#[test]
 fn a_missing_field_names_the_string_or_the_values_it_could_be() {
     let error = decode(SimTool::Start, &json!({})).expect_err("no simId");
     assert_eq!(issue_paths(&error), [("simId", "required string, missing")]);

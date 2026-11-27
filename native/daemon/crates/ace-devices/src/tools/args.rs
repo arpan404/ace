@@ -593,9 +593,8 @@ impl<'a> Fields<'a> {
     /// The strict object's unknown keys, in the order they were sent.
     fn unknown(&mut self, allowed: &[&str]) {
         for key in self.object.keys() {
-            let key = key.as_str();
-            if !allowed.contains(&key) {
-                self.issues.unknown(key, allowed);
+            if !allowed.contains(&key.as_str()) {
+                self.issues.unknown(path_segment(key), allowed);
             }
         }
     }
@@ -607,6 +606,21 @@ impl<'a> Fields<'a> {
             Err(self.issues.capped())
         }
     }
+}
+
+/// `render`'s path segment: a field name ace's schema could own
+/// (`/^[\w$-]{1,64}$/`), never a key the agent chose. A dotted, empty, over-long
+/// or surrogate-bearing key renders as `<field>`, as the TypeScript does.
+fn path_segment(key: &JsString) -> &str {
+    const PLACEHOLDER: &str = "<field>";
+    let Some(text) = key.as_well_formed() else {
+        return PLACEHOLDER;
+    };
+    let field_name = (1..=64).contains(&text.len())
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'-'));
+    if field_name { text } else { PLACEHOLDER }
 }
 
 fn one_of(values: &[&str]) -> String {
