@@ -151,6 +151,34 @@ fn an_invalid_android_id_and_device_fields_are_returned_intact_not_reduced() {
 }
 
 #[test]
+fn an_optional_field_at_the_code_point_cap_passes_validation() {
+    // 256 emoji are 256 code points but 512 UTF-16 units: the cap is code points.
+    let serial = "📱".repeat(256);
+    assert_eq!(serial.chars().count(), 256);
+    let state = json!({
+        "device": {
+            "id": IOS,
+            "name": "Phone",
+            "state": "booted",
+            "platform": "ios",
+            "serial": serial
+        },
+        "lifecycle": "live",
+        "controller": "agent"
+    });
+    let reduced = summary(&state);
+    let Value::Object(object) = reduced else {
+        panic!("expected a summary");
+    };
+    assert_eq!(object.get("simId").and_then(Value::as_str), Some(IOS));
+    assert_eq!(
+        object.get("serial"),
+        None,
+        "the summary carries no optional fields"
+    );
+}
+
+#[test]
 fn a_name_at_the_code_point_cap_passes_validation() {
     let emoji = "📱";
     let prefix = "x".repeat(255);
