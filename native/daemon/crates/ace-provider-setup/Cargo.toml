@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-provider-setup"
+description = "Admission for the person's provider setup: which scope each status, install, login, onboarding and account request needs, and what it is told when it cannot run"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
