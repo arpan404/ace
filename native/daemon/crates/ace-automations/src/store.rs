@@ -383,16 +383,21 @@ impl AutomationStore {
         self.depth.set(1);
         let result = operation();
         self.depth.set(0);
-        match result {
-            Ok(value) => {
-                self.conn.exec("COMMIT")?;
-                Ok(value)
-            }
+        let value = match result {
+            Ok(value) => value,
             Err(error) => {
                 self.conn.exec("ROLLBACK")?;
-                Err(error)
+                return Err(error);
             }
+        };
+        // A refused COMMIT (a deferred constraint, a busy database) leaves SQLite's transaction
+        // open. Roll it back before returning, as the TypeScript's catch does, or every later
+        // write on this connection fails at BEGIN IMMEDIATE.
+        if let Err(error) = self.conn.exec("COMMIT") {
+            let _ = self.conn.exec("ROLLBACK");
+            return Err(error.into());
         }
+        Ok(value)
     }
 
     pub fn revision(&self, id: &str) -> Result<Option<i64>> {

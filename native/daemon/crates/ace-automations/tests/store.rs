@@ -737,3 +737,77 @@ fn a_current_finish_index_does_not_suppress_healing_the_other_run_indexes() {
     raw.close().expect("close");
     store.close().expect("close");
 }
+
+/// A definition that differs from `definition()` only by id, for writes after a refused commit.
+fn named(id: &str) -> Definition {
+    let text = format!(
+        r#"{{"id":"{id}","title":"Triage","enabled":true,"workspace":"/project","provider":"codex","model":"test-model","prompt":"Triage {{{{subject}}}}","worktree":true,"trigger":{{"kind":"manual"}},"missedRun":"skip","concurrency":1,"jitterMs":0}}"#
+    );
+    ace_json::from_value(&ace_json::parse(&text).expect("json")).expect("definition")
+}
+
+#[test]
+fn a_refused_commit_rolls_back_so_the_next_write_starts_its_own_transaction() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let store = open(&path);
+    store
+        .put(
+            &named("existing"),
+            None,
+            None,
+            &ace_json::Value::Object(Default::default()),
+            None,
+        )
+        .expect("first");
+    // A deferred foreign key makes SQLite refuse the COMMIT, not the INSERT: the write inside the
+    // transaction succeeds and the constraint is checked when the transaction ends.
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec(
+        "CREATE TABLE state_parent(id TEXT PRIMARY KEY);
+         INSERT INTO state_parent SELECT id FROM automation_state;
+         ALTER TABLE automation_state RENAME TO state_ok;
+         CREATE TABLE automation_state(id TEXT PRIMARY KEY REFERENCES state_parent(id) DEFERRABLE INITIALLY DEFERRED, state TEXT NOT NULL);
+         INSERT INTO automation_state SELECT id,state FROM state_ok;
+         DROP TABLE state_ok;",
+    )
+    .expect("deferred key");
+    raw.close().expect("close");
+
+    let refused = store.put(
+        &named("new"),
+        None,
+        None,
+        &ace_json::Value::Object(Default::default()),
+        None,
+    );
+    assert!(refused.is_err(), "the commit is refused");
+    assert!(
+        store.definition("new").expect("read").is_none(),
+        "a refused commit leaves nothing behind"
+    );
+
+    // SQLite leaves a transaction open after a refused COMMIT; the store must roll it back, so a
+    // retry reaches its own writes and gets the constraint again rather than a nested BEGIN.
+    let retried = store
+        .put(
+            &named("new"),
+            None,
+            None,
+            &ace_json::Value::Object(Default::default()),
+            None,
+        )
+        .expect_err("still refused");
+    assert!(
+        retried.to_string().contains("FOREIGN KEY"),
+        "the retry starts its own transaction: {retried}"
+    );
+    store.close().expect("close");
+}
