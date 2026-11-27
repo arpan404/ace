@@ -471,6 +471,80 @@ fn a_code_the_catalog_lacks_says_the_catalog_is_incomplete() {
 }
 
 #[test]
+fn a_failure_body_serializes_the_public_words_in_the_wire_order() {
+    // The bytes matter: a body built from the device's own words would read differently
+    // here even when an object comparison (key order, similar text) would pass.
+    let catalog =
+        ace_json::parse(include_str!("../../../../../catalog/errors.json")).expect("errors.json");
+    let entry = |code: &str| {
+        catalog
+            .get("catalog")
+            .and_then(Value::as_object)
+            .and_then(|all| all.get(code))
+            .unwrap_or_else(|| panic!("errors.json names {code}"))
+    };
+    let quoted = |value: &Value, key: &str| {
+        ace_json::to_string(value.get(key).unwrap_or_else(|| panic!("{key}")))
+    };
+    let words = |code: &str| {
+        let value = entry(code);
+        (quoted(value, "message"), quoted(value, "hint"))
+    };
+
+    // A device's refusal carries its own private wording; the body carries the catalog's.
+    let (message, hint) = words("stale_ref");
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::StaleRef,
+        message: JsString::from("@e3 is gone, the device says"),
+        hint: JsString::from("the device's own hint"),
+        permission: None,
+        platform: None,
+    };
+    assert_eq!(
+        ace_json::to_string(&failure_body(&failure, true)),
+        format!(
+            "{{\"code\":\"stale_ref\",\"message\":{message},\"hint\":{hint},\"detail\":\"@e3 is gone, the device says\"}}"
+        )
+    );
+
+    // A permission refusal's hint is the catalog's hint for that permission.
+    let (message, _) = words("permission_denied");
+    let permission_hint = catalog
+        .get("permissionHints")
+        .and_then(Value::as_object)
+        .and_then(|hints| hints.get("accessibility"))
+        .map(|hint| ace_json::to_string(hint))
+        .expect("the accessibility hint");
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::PermissionDenied,
+        message: JsString::from("the helper says"),
+        hint: JsString::from("the device's own hint"),
+        permission: Some(crate::error::DevicePermission::Accessibility),
+        platform: None,
+    };
+    assert_eq!(
+        ace_json::to_string(&failure_body(&failure, true)),
+        format!(
+            "{{\"code\":\"permission_denied\",\"message\":{message},\"hint\":{permission_hint},\"detail\":\"the helper says\",\"permission\":\"accessibility\"}}"
+        )
+    );
+
+    // An argument refusal puts its issues before the schema's pointer.
+    let (message, hint) = words("invalid_arguments");
+    let error = crate::tools::args::decode(
+        crate::tools::args::SimTool::Stop,
+        &json!({ "simId": IOS, "machine": "m" }),
+    )
+    .expect_err("an unknown field");
+    assert_eq!(
+        ace_json::to_string(&arguments_body(crate::tools::args::SimTool::Stop, &error)),
+        format!(
+            "{{\"code\":\"invalid_arguments\",\"message\":{message},\"hint\":{hint},\"issues\":[{{\"path\":\"machine\",\"expected\":\"no such field; fields here: simId\"}}],\"detail\":\"tools_find sim_stop returns its schema.\"}}"
+        )
+    );
+}
+
+#[test]
 fn an_ios_id_of_non_ascii_digits_is_not_a_device() {
     // JavaScript's `\d` is ASCII: 36 Arabic-Indic digits are not a UDID, even
     // though Unicode calls them digits.
