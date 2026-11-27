@@ -196,7 +196,12 @@ impl<'a> Service<'a> {
     /// The executor refused an interrupt (`cancellations.ts:47`). While the cancellation stands,
     /// try again with the TypeScript's backoff, capped at a minute.
     pub fn interrupt_failed(&mut self, run_id: &str, message: &str) {
-        if !self.lives.live() || self.store.cancellation(run_id).ok().flatten().is_none() {
+        if !self.lives.live() {
+            return;
+        }
+        // Only a readable "no cancellation" ends the retries. An unreadable one keeps them: the
+        // cancellation may well still stand, and dropping it would leave the run going.
+        if matches!(self.store.cancellation(run_id), Ok(None)) {
             return;
         }
         self.schedule_interrupt_retry(run_id);

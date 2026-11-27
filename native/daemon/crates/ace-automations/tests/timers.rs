@@ -685,3 +685,57 @@ fn a_cancelled_run_whose_recovery_finds_no_thread_settles_through_the_completion
         "{actions:?}"
     );
 }
+
+#[test]
+fn a_cancellation_lookup_failure_at_the_hand_off_keeps_the_interrupt_retry() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let run = service
+        .trigger("triage", "first", variables("first"), "manual", None)
+        .expect("run");
+    let run_id = run_id(&run);
+    service.take_actions();
+    service.set_enabled("triage", false, None).expect("pause");
+    service.take_actions();
+
+    // The first lookup happens at the failed hand-off itself, not only on the retry.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_cancellations RENAME TO automation_cancellations_broken")
+        .expect("break");
+    raw.close().expect("close");
+    service.interrupt_failed(&run_id, "Executor unavailable");
+    assert_eq!(
+        service.armed_delay(),
+        Some(1000),
+        "an unreadable cancellation keeps the retry"
+    );
+    assert!(
+        service
+            .take_errors()
+            .iter()
+            .any(|error| error == "Executor unavailable")
+    );
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_cancellations_broken RENAME TO automation_cancellations")
+        .expect("restore");
+    raw.close().expect("close");
+    h.clock.0.set(h.clock.0.get() + 1000);
+    service.timer_fired().expect("timer");
+    assert_eq!(interrupts(&service.take_actions()), vec![run_id.clone()]);
+}
