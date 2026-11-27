@@ -124,6 +124,18 @@ fn an_unknown_message_is_not_a_screen_failure() {
 }
 
 #[test]
+fn a_permission_conversion_with_no_catalog_word_still_carries_the_permission() {
+    // A missing (or invalid) catalog word falls back to `command_failed`, and the
+    // permission the conversion was about survives the fallback.
+    let failed = words::refusal_with_permission("notAWord", DevicePermission::ScreenRecording);
+    assert_eq!(failed.code(), DeviceErrorCode::CommandFailed);
+    assert_eq!(
+        failed.to_failure(None).permission,
+        Some(DevicePermission::ScreenRecording)
+    );
+}
+
+#[test]
 fn a_permission_mapping_keeps_a_catalog_code_that_is_not_permission_denied() {
     // The shared conversion carries whatever code the catalog names, so a word
     // that is `busy` does not come back as `permission_denied`.
