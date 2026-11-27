@@ -119,6 +119,64 @@ pub fn redact_js(
     ace_json::JsString::from_units(&out)
 }
 
+/// Forge's own key policy (`redact.ts:21`): token, authorization, password or secret.
+pub fn is_forge_secret_key(key: &str) -> bool {
+    static SECRET: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)token|authorization|password|secret").expect("compiles")
+    });
+    SECRET.is_match(key)
+}
+
+/// `redact.ts`'s `redactData`: strings masked while keeping lone surrogates, secret keys
+/// masked, colliding keys suffixed, and optional child environment values masked.
+pub fn redact_data_with_env(
+    value: &ace_json::Value,
+    environment: Option<&EnvironmentMatcher>,
+) -> ace_json::Value {
+    match value {
+        ace_json::Value::String(text) => ace_json::Value::String(redact_js(text, environment)),
+        ace_json::Value::Array(items) => ace_json::Value::Array(
+            items
+                .iter()
+                .map(|item| redact_data_with_env(item, environment))
+                .collect(),
+        ),
+        ace_json::Value::Object(fields) => {
+            let mut result = ace_json::Map::new();
+            let mut suffixes: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for (key, entry) in fields.iter() {
+                let redacted_key = redact_js(key, environment);
+                let base = redacted_key.as_str().to_owned();
+                let mut safe_key = base.clone();
+                let mut suffix = *suffixes.get(&base).unwrap_or(&1);
+                while result.get(safe_key.as_str()).is_some() {
+                    safe_key = format!("{base}#{suffix}");
+                    suffix += 1;
+                }
+                suffixes.insert(base, suffix);
+                let value = if is_forge_secret_key(key.as_str()) {
+                    ace_json::Value::from(REDACTED)
+                } else {
+                    redact_data_with_env(entry, environment)
+                };
+                if safe_key == redacted_key.as_str() {
+                    result.insert(redacted_key, value);
+                } else {
+                    result.insert(safe_key, value);
+                }
+            }
+            ace_json::Value::Object(result)
+        }
+        other => other.clone(),
+    }
+}
+
+/// `redactData` without an environment matcher (pattern and key masking only).
+pub fn redact_data(value: &ace_json::Value) -> ace_json::Value {
+    redact_data_with_env(value, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{REDACTED, redact};

@@ -171,13 +171,25 @@ pub trait Runner: Send + Sync {
 }
 
 /// What a supervised runner is built with.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RunnerOptions {
     pub cwd: Option<String>,
     /// Added to the daemon's own environment (after it).
     pub env: Vec<(String, String)>,
     pub timeout_ms: f64,
     pub max_bytes: usize,
+}
+
+impl std::fmt::Debug for RunnerOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let env_keys: Vec<&str> = self.env.iter().map(|(k, _)| k.as_str()).collect();
+        f.debug_struct("RunnerOptions")
+            .field("cwd", &self.cwd)
+            .field("env_keys", &env_keys)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("max_bytes", &self.max_bytes)
+            .finish()
+    }
 }
 
 impl Default for RunnerOptions {
@@ -375,6 +387,7 @@ impl SupervisedRunner {
                     dispatched: if not_dispatched { Some(false) } else { None },
                     receipt: None,
                     status: None,
+                    query_refused: false,
                 });
             }
         };

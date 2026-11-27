@@ -80,6 +80,9 @@ pub struct ForgeError {
     pub receipt: Option<ace_json::Value>,
     /// The HTTP status of a 401/403 refusal, so 401 and 403 stay distinguishable.
     pub status: Option<u16>,
+    /// True for GraphQL schema refusals (`GRAPHQL_VALIDATION_FAILED`/`undefinedField`),
+    /// matching TypeScript's `ForgeQueryRefused` so readers may fall back to a smaller query.
+    pub query_refused: bool,
 }
 
 impl ForgeError {
@@ -91,6 +94,7 @@ impl ForgeError {
             dispatched: None,
             receipt: None,
             status: None,
+            query_refused: false,
         }
     }
 
@@ -102,7 +106,25 @@ impl ForgeError {
             dispatched: Some(false),
             receipt: None,
             status: None,
+            query_refused: false,
         }
+    }
+
+    /// A GraphQL query refusal (`ForgeQueryRefused`): `invalid_data` and certainly not applied.
+    pub fn query_refused() -> ForgeError {
+        ForgeError {
+            kind: Kind::InvalidData,
+            retry_at: None,
+            dispatched: Some(false),
+            receipt: None,
+            status: None,
+            query_refused: true,
+        }
+    }
+
+    /// Whether this error is a GraphQL query refusal (`ForgeQueryRefused`).
+    pub fn is_query_refused(&self) -> bool {
+        self.query_refused
     }
 
     /// A failure the caller may retry at `at` (milliseconds since the epoch).
@@ -113,6 +135,7 @@ impl ForgeError {
             dispatched: Some(false),
             receipt: None,
             status: None,
+            query_refused: false,
         }
     }
 
@@ -124,6 +147,7 @@ impl ForgeError {
             dispatched: Some(false),
             receipt: None,
             status: Some(status),
+            query_refused: false,
         }
     }
 }

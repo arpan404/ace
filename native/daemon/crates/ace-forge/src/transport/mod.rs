@@ -13,6 +13,7 @@ pub mod admission;
 pub mod command;
 pub mod error;
 pub mod http;
+pub mod http_errors;
 pub mod identity;
 pub mod incremental;
 pub mod key;

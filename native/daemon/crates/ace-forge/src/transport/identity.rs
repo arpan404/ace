@@ -24,6 +24,15 @@ pub const IDENTITY_VERIFICATION_MS: f64 = 60_000.0;
 pub type Pins = Box<dyn Fn(&CommandRequest) -> bool + Send + Sync>;
 /// The caller's own preference check (`PinnedRunnerInput.assertCurrent`).
 pub type AssertCurrent = Box<dyn Fn() -> Result<(), ForgeError> + Send + Sync>;
+/// A custom host identity probe (`PinnedRunnerInput.identify`).
+pub type IdentifyFn = Box<
+    dyn Fn(
+            Option<std::sync::Arc<Cancellation>>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<String, ForgeError>> + Send>,
+        > + Send
+        + Sync,
+>;
 
 /// Whether `login` is the shape the schemas accept: a letter or digit, then letters, digits
 /// or hyphens, at most 100 characters.
@@ -59,6 +68,7 @@ pub struct Pinned<'a> {
     on_mismatch: Option<Box<dyn Fn() + Send + Sync>>,
     pins: Option<Pins>,
     assert_current: Option<AssertCurrent>,
+    identify_fn: Option<IdentifyFn>,
 }
 
 impl<'a> Pinned<'a> {
@@ -82,6 +92,7 @@ impl<'a> Pinned<'a> {
             on_mismatch: None,
             pins: None,
             assert_current: None,
+            identify_fn: None,
         }
     }
 
@@ -116,6 +127,12 @@ impl<'a> Pinned<'a> {
         self
     }
 
+    /// Overrides the default GitHub `user` identity probe for non-GitHub hosts.
+    pub fn with_identify(mut self, identify_fn: IdentifyFn) -> Pinned<'a> {
+        self.identify_fn = Some(identify_fn);
+        self
+    }
+
     fn current(&self) -> Result<(), ForgeError> {
         match &self.assert_current {
             Some(assert_current) => assert_current(),
@@ -141,6 +158,9 @@ impl<'a> Pinned<'a> {
 
     /// The CLI's current API account.
     async fn identify(&self, request: &CommandRequest) -> Result<String, ForgeError> {
+        if let Some(identify_fn) = &self.identify_fn {
+            return identify_fn(request.cancellation.clone()).await;
+        }
         let api = GhApi::new(self.runner, self.host.clone(), self.now.clone());
         let page = api
             .request(
