@@ -221,8 +221,12 @@ Each read keeps its exact Git command and its strict parse, ported.
 
 ## Intended differences (G4 write fixes)
 
-- Merge and branch switch pass `--no-overwrite-ignore` so an ignored untracked file is never
-  overwritten silently; TypeScript still relies on Git's default merge/switch behaviour.
+- Merge and branch switch pass `--no-overwrite-ignore` and run a fail-closed ignored-file
+  preflight (checking path-component file/directory overlap, and comparing the actual target tree
+  against `HEAD` for switch) so an ignored untracked file is not overwritten silently; TypeScript
+  still relies on Git's default merge/switch behaviour. Residual window: an ignored file created
+  after the preflight scan on Git's `ort` non-fast-forward merge path can still escape because Git's
+  `ort` strategy does not enforce `--no-overwrite-ignore` during non-fast-forward merges.
 - Commit, merge, and branch cleanup hold the serial turn and compare-and-swap HEAD/index (and
   unmerged stages for resolutions) before mutating; TypeScript rechecks HEAD but not the index.
   The merge starts and the merge commit run only while HEAD is still the observed OID, and a
