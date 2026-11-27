@@ -109,6 +109,49 @@ pub fn changes_work(kind: &str, payload: &Value) -> bool {
     true
 }
 
+/// `workChangedSince` (`thread-fence.ts:102`): whether any thread of `tree` may have work the
+/// person didn't see after event `seq`. One cached statement per thread, merged in sequence
+/// order, which is the one ordered read the TypeScript makes with the same limit.
+pub fn work_changed_since(core: &Core, threads: &[String], seq: i64) -> Result<bool, EngineError> {
+    const READ: &str =
+        "SELECT seq,type,payload FROM events WHERE thread_id=? AND seq>? ORDER BY seq LIMIT 1001";
+    let mut rows: Vec<(i64, String, String)> = Vec::new();
+    for thread in threads {
+        for row in ace_store::stmt_cache::all_rows(
+            core.store.conn(),
+            READ,
+            vec![
+                ace_store::Value::Text(thread.clone()),
+                ace_store::Value::Integer(seq),
+            ],
+        )? {
+            let at = row
+                .get("seq")
+                .and_then(crate::repository::residency::cell_int)
+                .unwrap_or(0);
+            let kind = row
+                .get("type")
+                .and_then(crate::repository::residency::cell_text)
+                .unwrap_or_default()
+                .to_owned();
+            let payload = row
+                .get("payload")
+                .and_then(crate::repository::residency::cell_text)
+                .unwrap_or_default()
+                .to_owned();
+            rows.push((at, kind, payload));
+        }
+    }
+    rows.sort_by_key(|row| row.0);
+    if rows.len() > 1_000 {
+        return Ok(true);
+    }
+    Ok(rows.iter().any(|(_, kind, payload)| {
+        let payload = ace_json::parse(payload).unwrap_or(Value::Null);
+        changes_work(kind, &payload)
+    }))
+}
+
 /// `releaseInterruptedHold` (`handler.ts:562`): a new message is the go-ahead past a stop.
 fn release_interrupted_hold(
     core: &Core,
@@ -242,9 +285,13 @@ pub fn handle(core: &Core, state: &mut State, command: &Value) -> Result<Value, 
             return Ok(fail("thread_not_found"));
         };
         let _ = row;
-        if p.get("beforeSeq").is_some() {
-            // `threadTree` is E5.10's read; the fence cannot run without it.
-            return Err(EngineError::not_ported("a thread's tree", "E5.10"));
+        if let Some(before) = p.get("beforeSeq").and_then(Value::as_i64) {
+            // The person decided at `before`: refuse once anything that could be work they
+            // didn't see happened in the thread or any thread it would stop.
+            let tree = crate::liveness::thread_tree(core, state, &thread)?;
+            if work_changed_since(core, &tree, before)? {
+                return Ok(fail("thread_changed"));
+            }
         }
         let at = core.ports.now();
         let mut archived = ace_json::Map::new();

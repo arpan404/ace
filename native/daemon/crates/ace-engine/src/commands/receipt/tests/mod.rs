@@ -298,6 +298,7 @@ fn a_message_over_sixty_four_parts_is_too_large() {
     assert_eq!(accepted.get("ok").and_then(Value::as_bool), Some(true));
 }
 
+mod archive;
 mod create;
 mod interrupt;
 mod send;
