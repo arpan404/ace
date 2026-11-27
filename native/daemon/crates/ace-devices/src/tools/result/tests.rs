@@ -258,6 +258,36 @@ fn a_live_view_refusal_on_an_android_device_keeps_control() {
 }
 
 #[test]
+fn the_how_to_spreads_over_an_object_array_or_null_as_typescript_does() {
+    // `{ ...started, guide }`: an array spreads to its index keys, and `typeof null` is
+    // "object", so null becomes an object holding only the guide.
+    let guide = "Driving ios:AAAA.";
+    assert_eq!(
+        ace_json::to_string(&with_guidance(json!(["a", "b"]), true, guide)),
+        "{\"0\":\"a\",\"1\":\"b\",\"guide\":\"Driving ios:AAAA.\"}"
+    );
+    assert_eq!(
+        ace_json::to_string(&with_guidance(json!(null), true, guide)),
+        "{\"guide\":\"Driving ios:AAAA.\"}"
+    );
+
+    // Without a first start the spread still happens; only the guide is left out.
+    assert_eq!(
+        with_guidance(json!(["a"]), false, guide),
+        json!({ "0": "a" })
+    );
+    assert_eq!(
+        with_guidance(Value::Null, false, guide),
+        json!({}),
+        "`{{...null}}` is an empty object"
+    );
+    // A value that is not an object is returned as it is, with or without one.
+    for raw in [json!("raw"), json!(3), json!(true)] {
+        assert_eq!(with_guidance(raw.clone(), true, guide), raw);
+    }
+}
+
+#[test]
 fn the_how_to_rides_on_the_first_start_only() {
     let started = json!({ "simId": IOS, "state": "booted" });
     let guided = with_guidance(started.clone(), true, "Driving ios:AAAA.");
