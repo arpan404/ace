@@ -861,6 +861,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_merge_message_bound_counts_code_points_not_utf16_units() {
+        let fixture = Fixture::new("g4-merge-message-bound");
+        let repo = fixture.repository("repo");
+        let head = conflicting(&fixture, &repo);
+        let other = String::from_utf8_lossy(&fixture.git(&repo, &["rev-parse", "other"]))
+            .trim_end()
+            .to_owned();
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        // 33,000 emoji are 33,000 code points (the zod bound) and 66,000 UTF-16 units.
+        let message = "\u{1F600}".repeat(33_000);
+        assert_eq!(
+            start_merge(&port, &root, &other, &head, &message)
+                .await
+                .expect("within the code-point bound"),
+            MergeStart::Conflicts
+        );
+        abort_merge(&port, &root).await.expect("abort");
+        // 65,537 code points is past the bound, and 131,074 UTF-16 units makes it plain.
+        let over = "\u{1F600}".repeat(MAX_COMMIT_MESSAGE_LENGTH + 1);
+        assert_eq!(
+            start_merge(&port, &root, &other, &head, &over)
+                .await
+                .expect_err("over the bound")
+                .code,
+            GitErrorCode::InvalidArgument
+        );
+    }
+
+    #[tokio::test]
     async fn a_second_merge_while_the_first_is_open_is_refused() {
         let fixture = Fixture::new("g4-second-merge");
         let repo = fixture.repository("repo");

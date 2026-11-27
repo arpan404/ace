@@ -150,6 +150,31 @@ mod tests {
     use crate::core::credentials::test_support::Fixture;
     use crate::reads::test_support::ProcessCommands;
 
+    #[test]
+    fn one_terminator_is_stripped_and_a_paths_own_newline_stays() {
+        assert_eq!(
+            single_git_path(b"/repos/ace\n", false).as_deref(),
+            Some("/repos/ace")
+        );
+        // Windows: Git's CRLF is the terminator, both characters go.
+        assert_eq!(
+            single_git_path(b"/repos/ace\r\n", true).as_deref(),
+            Some("/repos/ace")
+        );
+        // Unix: a trailing CR belongs to the path.
+        assert_eq!(
+            single_git_path(b"/repos/ace\r\n", false).as_deref(),
+            Some("/repos/ace\r")
+        );
+        // A path whose own last character is a newline keeps it.
+        assert_eq!(
+            single_git_path(b"/repos/ace\n\n", false).as_deref(),
+            Some("/repos/ace\n")
+        );
+        assert_eq!(single_git_path(&[0xff, b'\n'], false), None);
+        assert_eq!(single_git_path(b"\n", false), None);
+    }
+
     #[tokio::test]
     async fn the_local_exclude_gains_the_pattern_once_and_never_committed_it() {
         let fixture = Fixture::new("g4a-exclude");

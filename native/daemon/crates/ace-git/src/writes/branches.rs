@@ -493,6 +493,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_cleanup_branch_bound_counts_code_points_not_utf16_units() {
+        let fixture = Fixture::new("g4-cleanup-bound");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
+        let root = repo.to_string_lossy();
+        let head = crate::reads::info::head(&port, &root)
+            .await
+            .expect("head")
+            .expect("commit");
+        // 256 emoji are 256 code points (the zod bound) and 512 UTF-16 units.
+        let longest = "\u{1F600}".repeat(256);
+        // Nothing to delete is an answer, not a refusal: the bound accepted the name.
+        delete_unchanged_branch(&port, &root, &longest, &head)
+            .await
+            .expect("within the bound");
+        assert_eq!(
+            delete_unchanged_branch(&port, &root, &format!("{longest}\u{1F600}"), &head)
+                .await
+                .expect_err("over the bound")
+                .code,
+            GitErrorCode::InvalidRef
+        );
+    }
+
+    #[tokio::test]
+    async fn a_ref_conflict_carries_gits_stderr() {
+        let fixture = Fixture::new("g4-ref-conflict-stderr");
+        let repo = fixture.repository("repo");
+        fixture.git(&repo, &["branch", "ace"]);
+        let port = ProcessCommands { fixture: &fixture };
+        let error = create_branch(&port, &repo.to_string_lossy(), "ace/1f2e", "HEAD")
+            .await
+            .expect_err("blocked by its folder");
+        assert_eq!(error.code, GitErrorCode::RefConflict);
+        assert!(
+            error
+                .details
+                .get(&ace_json::JsString::from("stderr"))
+                .is_some_and(|value| !value.to_string().is_empty())
+        );
+    }
+
+    #[tokio::test]
     async fn a_branch_is_blocked_by_its_own_folder_and_by_a_branch_under_it() {
         let fixture = Fixture::new("g4a-ref-conflict");
         let repo = fixture.repository("repo");
