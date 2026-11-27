@@ -365,3 +365,91 @@ fn a_failed_connection_probe_schedules_its_own_retry() {
         "the failure waits out its backoff"
     );
 }
+
+/// A probe that records which account it was asked for and waits on a gate.
+struct RecordingProbe {
+    gate: crate::signals::Gate,
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+impl crate::catalog::ConnectionProbe for RecordingProbe {
+    fn probe(
+        &self,
+        request: crate::catalog::DiscoveryRequest,
+        signal: crate::signals::Signal,
+    ) -> futures::future::LocalBoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+    {
+        self.calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(request.instance.id.clone());
+        let gate = self.gate.clone();
+        Box::pin(async move {
+            gate.wait().await;
+            if signal.is_aborted() {
+                return Err(crate::failures::DiscoveryFailure::with_code(
+                    crate::failures::FailureCode::Timeout,
+                ));
+            }
+            Ok("fingerprint".to_owned())
+        })
+    }
+}
+
+#[test]
+fn a_reconciliation_loop_that_outlives_close_never_starts_another_account() {
+    within(15, "a reconciliation loop across close", || {
+        let gate = crate::signals::Gate::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut options = CatalogOptions::new(
+            SharedStorage::new(MemoryStorage::new()),
+            always(Vec::new()),
+            TestClock::new(1_000.0),
+            TestDeadlines::new(),
+            TestSpawn::new(),
+        );
+        options.instances = vec![
+            instance(ProviderKind::Opencode, "one"),
+            instance(ProviderKind::Opencode, "two"),
+        ];
+        options.revision_probe = Some(Arc::new(RecordingProbe {
+            gate: gate.clone(),
+            calls: calls.clone(),
+        }));
+        let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+        let mut reconciling = Box::pin(catalog.reconcile_connections());
+        assert!(
+            poll_once(reconciling.as_mut()).is_pending(),
+            "the first account's probe runs"
+        );
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["one"]
+        );
+        // Close aborts the running probe; the loop carries on to the next account.
+        let mut close = Box::pin(catalog.close());
+        assert!(
+            poll_once(close.as_mut()).is_pending(),
+            "close waits for the probe it aborted"
+        );
+        gate.open();
+        let (reconciled, closed) = settle(
+            async move { futures::join!(reconciling, close) },
+            &TestSpawn::new(),
+            "a reconciliation loop and close",
+        );
+        reconciled.unwrap_or_else(|error| panic!("{error}"));
+        closed.unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_slice(),
+            ["one"],
+            "account two's probe never starts after shutdown"
+        );
+    })
+}
