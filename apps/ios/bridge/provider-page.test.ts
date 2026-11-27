@@ -82,10 +82,10 @@ test("a signed-out CLI with a newer release offers sign-in first and says the up
   expect(codex.missing).toBe(false);
 });
 
-test("an API key is pointed at the computer's own ace, never taken on the phone", async () => {
+test("a provider that takes API keys points at its Accounts page, where the phone adds one", async () => {
   const phone = await open();
   const codex = await phone.page("codex");
-  expect(codex.apiKey).toBe("Add an API key in ace on studio.");
+  expect(codex.apiKey).toBe("Add an API key from Accounts.");
   const claude = await phone.page("claude");
   expect(claude.apiKey).toBeNull();
 });
