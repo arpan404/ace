@@ -1,29 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The catalog's state machine (`packages/models/src/catalog.ts`).
+//! The catalog's state machine (`packages/models/src/catalog.ts`) as one actor.
 //!
-//! One row per registered instance, cached rows read at startup, lazy discovery on reads,
-//! explicit refresh, account invalidation and session writes. Everything the machine
-//! cannot control is a port: [`CatalogDiscover`] for a provider's models, [`Clock`] and
-//! [`Deadlines`] for time, [`Spawn`] for background flights and [`crate::cache::CatalogStorage`]
-//! for persistence. The TypeScript's single-threaded queue is kept by a mutex around
-//! state, taken only between awaits, so a flight never blocks a read.
+//! One task owns every mutable piece of catalog state: rows, registrations, flights,
+//! per-instance order, reservations, invalidations, removals, capacity counters and the
+//! closed flag. Callers only send a [`Command`] with a oneshot reply and await it. Slow
+//! work (discovery, probes, listing, removal deletion) runs in tasks the actor spawns and
+//! reports back with its token and generation; the actor alone decides whether a result
+//! commits, in what order per instance, and when a deadline wins. A caller that goes away
+//! just drops its reply receiver: the catalog still finishes the work.
 
+mod actor;
+mod commands;
+mod flights;
 mod lifecycle;
 mod refresh;
 mod registration;
+mod storage;
 #[cfg(test)]
 mod tests;
 mod turns;
 mod writes;
 
-pub(crate) use lifecycle::{Capacity, CapacitySlot};
+pub(crate) use commands::{Command, Envelope, RefreshMode, Reply};
+pub(crate) use lifecycle::CancelHandle;
+pub(crate) use turns::Turns;
+pub(crate) use writes::{PermissionWrite, SessionWrite};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use ace_models::instance::{Backend, ModelInstance};
 use ace_protocol::generated::{CatalogModel, ProviderKind};
-use futures::future::LocalBoxFuture;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -32,7 +40,7 @@ use crate::cache::{CacheEntry, CacheError, SharedStorage};
 use crate::failures::{DiscoveryError, DiscoveryFailure, FailureCode};
 use crate::gate::{AcpProbeSpacing, RefreshCause};
 use crate::preferences::{ProviderConfig, configured_models};
-use crate::resolve::{Resolution, RoleSpec, resolve_model};
+use crate::resolve::{Resolution, RoleSpec};
 use crate::sources::{SourceState, SourceStatus};
 
 /// The longest a row is served before it is stale (six hours).
@@ -45,6 +53,8 @@ pub const DEFAULT_RETRY_MS: f64 = 30_000.0;
 pub const DEFAULT_ACP_PROBE_INTERVAL_MS: f64 = 60_000.0;
 /// Discoveries that may run at once.
 pub const DEFAULT_CONCURRENCY: usize = 4;
+/// Commands that may wait for the actor before a caller blocks.
+const COMMAND_CAPACITY: usize = 256;
 
 /// A monotonic millisecond clock, injected.
 pub trait Clock: Send + Sync {
@@ -59,10 +69,15 @@ pub trait Deadlines: Send + Sync {
 /// Stops an armed deadline. Cancelled on the thread that armed it.
 pub type Cancel = Box<dyn FnOnce() + Send>;
 
-/// Where a background flight runs. The daemon spawns on its local runtime; tests collect
-/// the tasks. Flights stay on the catalog's thread, so the port is not `Send`.
-pub trait Spawn {
-    fn spawn(&self, task: LocalBoxFuture<'static, ()>);
+/// Where a background flight runs. The actor spawns one task per flight, probe, listing or
+/// deletion; tests collect the tasks instead of running them on a runtime.
+pub trait Spawn: Send + Sync {
+    fn spawn(&self, task: BoxFuture<'static, ()>);
+
+    /// Runs whatever a port has queued. A real runtime already runs its tasks, so the
+    /// default does nothing; the test collector polls its queue so a blocking caller can
+    /// still make progress.
+    fn drive(&self) {}
 }
 
 /// The connection-metadata probe (`revisionProbe`): a fingerprint of the CLI's own
@@ -72,7 +87,7 @@ pub trait ConnectionProbe: Send + Sync {
         &self,
         request: DiscoveryRequest,
         signal: crate::signals::Signal,
-    ) -> LocalBoxFuture<'static, Result<String, DiscoveryFailure>>;
+    ) -> BoxFuture<'static, Result<String, DiscoveryFailure>>;
 }
 
 /// A discovery request: the instance, with the configured binary in place of the default.
@@ -125,7 +140,7 @@ pub trait CatalogDiscover: Send + Sync {
         request: DiscoveryRequest,
         signal: crate::signals::Signal,
         diagnostic: DiagnosticSink,
-    ) -> LocalBoxFuture<'static, DiscoverResult>;
+    ) -> BoxFuture<'static, DiscoverResult>;
 }
 
 /// One local log line about a discovery.
@@ -325,14 +340,7 @@ impl From<CacheError> for CatalogError {
 }
 
 /// What a registered row's admission guard does before a discovery starts.
-pub type Admit =
-    Arc<dyn Fn() -> futures::future::BoxFuture<'static, Result<(), String>> + Send + Sync>;
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+pub type Admit = Arc<dyn Fn() -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 /// The ports and limits the catalog runs with.
 pub struct CatalogOptions {
@@ -418,73 +426,17 @@ impl std::fmt::Debug for CatalogOptions {
     }
 }
 
-/// One unit of catalog work that close waits for, registered independently of any row:
-/// a flight, an invalidation, a removal or an accepted write.
-pub(crate) struct OwnedWork {
-    pub(crate) catalog: Catalog,
-    pub(crate) gate: crate::signals::Gate,
-}
-
-impl OwnedWork {
-    pub(crate) fn register(catalog: &Catalog) -> Self {
-        let gate = crate::signals::Gate::new();
-        catalog.with_inner(|inner| inner.owned.push(gate.clone()));
-        Self {
-            catalog: catalog.clone(),
-            gate,
-        }
-    }
-}
-
-impl Drop for OwnedWork {
-    fn drop(&mut self) {
-        self.catalog.with_inner(|inner| {
-            inner.owned.retain(|known| !known.same(&self.gate));
-        });
-        // Settles any close that was already waiting on this unit of work.
-        self.gate.open();
-    }
-}
-
-/// A removal another caller already started: its deletion, and the result every caller
-/// that asked for the same id sees.
-#[derive(Clone)]
-pub(crate) struct RemovalSlot {
+/// A discovery or invalidation running for one row.
+#[derive(Clone, Debug)]
+pub(crate) struct Flight {
     pub(crate) done: crate::signals::Gate,
-    pub(crate) result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
-}
-
-impl RemovalSlot {
-    pub(crate) fn new() -> Self {
-        Self {
-            done: crate::signals::Gate::new(),
-            result: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    /// The result once the removal settled; a waiter that finds none sees its own run.
-    pub(crate) fn settled(&self) -> Result<(), CatalogError> {
-        self.result
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-            .unwrap_or(Ok(()))
-    }
+    pub(crate) token: u64,
 }
 
 /// The connection metadata probe running for one row (`state.probe`).
 #[derive(Clone, Debug)]
 pub(crate) struct ProbeFlight {
-    pub(crate) done: crate::signals::Gate,
-}
-
-/// A discovery or invalidation running for one row: waiters share its gate.
-#[derive(Clone, Debug)]
-pub(crate) struct Flight {
-    pub done: crate::signals::Gate,
-    pub token: u64,
-    /// The registration the flight was installed for.
-    pub generation: u64,
+    pub(crate) token: u64,
 }
 
 pub(crate) struct State {
@@ -505,13 +457,27 @@ pub(crate) struct State {
     pub(crate) flight: Option<Flight>,
     pub(crate) flight_token: Option<u64>,
     pub(crate) probe_revision: Option<String>,
-    /// The connection metadata probe running for this row, shared by every poll.
     pub(crate) probe: Option<ProbeFlight>,
     pub(crate) acp_due: bool,
     /// The registration this row's state belongs to.
     pub(crate) generation: u64,
     pub(crate) abort: Option<crate::signals::Signal>,
     pub(crate) view: Option<(String, Vec<CatalogModel>)>,
+}
+
+/// One removal another caller already started: its deletion, and the result every caller
+/// that asked for the same id sees.
+pub(crate) struct Removal {
+    pub(crate) token: u64,
+    pub(crate) waiters: Vec<Reply<Result<(), CatalogError>>>,
+}
+
+/// The revocation draining an instance, which outlives the registration it replaced.
+pub(crate) struct Invalidation {
+    pub(crate) token: u64,
+    pub(crate) done: crate::signals::Gate,
+    /// The turn place whose deletion this revocation runs, in the row's queue.
+    pub(crate) place: u64,
 }
 
 pub(crate) struct Inner {
@@ -522,51 +488,44 @@ pub(crate) struct Inner {
     pub(crate) persisted_order: Vec<String>,
     pub(crate) deletions: crate::deletions::PendingDeletions,
     /// The places taken for each instance's stored choices, in the order they were accepted.
-    pub(crate) turns: BTreeMap<String, turns::Turns>,
-    /// The revocation draining each instance, which outlives the registration it replaced.
-    pub(crate) invalidating: BTreeMap<String, Flight>,
+    pub(crate) turns: BTreeMap<String, Turns>,
+    pub(crate) invalidating: BTreeMap<String, Vec<Invalidation>>,
     pub(crate) acp_loaded: BTreeSet<String>,
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
-    /// The close attempt running now, and the result of the last finished one.
-    pub(crate) close_gate: Option<crate::signals::Gate>,
-    pub(crate) close_result: Option<Result<(), CatalogError>>,
     pub(crate) active_flights: usize,
     pub(crate) probes: usize,
     pub(crate) session_writes: usize,
     pub(crate) invalidations: usize,
-    pub(crate) accepted_writes: Vec<crate::signals::Gate>,
     pub(crate) next_generation: u64,
-    pub(crate) owned: Vec<crate::signals::Gate>,
-    /// The flights running for each instance, whatever row replaced them.
-    pub(crate) row_flights: BTreeMap<String, Vec<crate::signals::Gate>>,
-    pub(crate) probe_signals: Vec<crate::signals::Signal>,
-    pub(crate) listeners: Vec<Arc<dyn Fn(ModelFilter) + Send + Sync>>,
+    pub(crate) row_flights: BTreeMap<String, Vec<Flight>>,
+    pub(crate) listeners: BTreeMap<u64, Arc<dyn Fn(ModelFilter) + Send + Sync>>,
     pub(crate) installations: BTreeMap<String, String>,
     pub(crate) connections_checked_at: Option<f64>,
     pub(crate) observers: usize,
-    pub(crate) observed_check: Option<Cancel>,
     pub(crate) flight_token: u64,
-    pub(crate) removals: BTreeMap<String, RemovalSlot>,
+    pub(crate) removals: BTreeMap<String, Removal>,
+    pub(crate) close_result: Option<Result<(), CatalogError>>,
 }
 
-/// The catalog a daemon serves.
-// The catalog is thread-local: its flights and writes are `LocalBoxFuture`s, and the
-// daemon drives it from the thread that owns it.
-#[allow(clippy::arc_with_non_send_sync)]
+/// Catalog-owned work waiting for its place in an instance's queue.
+pub(crate) enum PendingOp {
+    SessionWrite(Box<SessionWrite>),
+    PermissionWrite(Box<PermissionWrite>),
+    FlightCommit(Box<flights::Commit>),
+    Invalidation { token: u64 },
+}
+
+/// The catalog a daemon serves: a handle that only sends commands to the actor.
 #[derive(Clone)]
 pub struct Catalog {
-    pub(crate) inner: Arc<Mutex<Inner>>,
+    pub(crate) sender: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
     pub(crate) options: Arc<CatalogOptions>,
-    pub(crate) limiter: crate::signals::Limiter,
-    pub(crate) storage: SharedStorage,
 }
 
 impl std::fmt::Debug for Catalog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Catalog")
-            .field("instances", &lock(&self.inner).order.len())
-            .finish_non_exhaustive()
+        f.debug_struct("Catalog").finish_non_exhaustive()
     }
 }
 
@@ -583,17 +542,20 @@ fn check_durations(options: &CatalogOptions) -> Result<(), CatalogError> {
 }
 
 impl Catalog {
-    /// Opens the catalog over its stored rows and registers the caller's instances.
+    /// Opens the catalog over its stored rows, starts the actor, and registers the
+    /// caller's instances.
     pub fn new(options: CatalogOptions) -> Result<Self, CatalogError> {
         check_durations(&options)?;
         let spacing = AcpProbeSpacing::new(options.acp_probe_interval_ms)
             .map_err(|_| CatalogError::Duration)?;
         let mut storage = options.storage.clone();
-        let stored = storage.load()?;
+        let stored = storage::load(&mut storage)?;
         if stored.len() > crate::cache::MAX_PERSISTED_INSTANCES {
             return Err(CatalogError::TooManyCachedInstances);
         }
+        let instances = options.instances.clone();
         let storage = options.storage.clone();
+        let limiter = crate::signals::Limiter::new(options.concurrency);
         let inner = Inner {
             states: BTreeMap::new(),
             order: Vec::new(),
@@ -606,55 +568,36 @@ impl Catalog {
             acp_loaded: BTreeSet::new(),
             acp_spacing: spacing,
             closed: false,
-            close_gate: None,
-            close_result: None,
             active_flights: 0,
             probes: 0,
             session_writes: 0,
             invalidations: 0,
-            accepted_writes: Vec::new(),
             next_generation: 0,
-            owned: Vec::new(),
             row_flights: BTreeMap::new(),
-            probe_signals: Vec::new(),
-            listeners: Vec::new(),
+            listeners: BTreeMap::new(),
             installations: BTreeMap::new(),
             connections_checked_at: None,
             observers: 0,
-            observed_check: None,
             flight_token: 0,
             removals: BTreeMap::new(),
+            close_result: None,
         };
-        let instances = options.instances.clone();
-        #[allow(clippy::arc_with_non_send_sync)]
+        let (sender, receiver) = std::sync::mpsc::sync_channel(COMMAND_CAPACITY);
+        let sender = Arc::new(Mutex::new(sender));
         let options = Arc::new(options);
-        let catalog = Self {
-            inner: Arc::new(Mutex::new(inner)),
-            limiter: crate::signals::Limiter::new(options.concurrency),
-            options: options.clone(),
+        let actor = actor::Actor::new(
+            inner,
+            stored,
+            options.clone(),
             storage,
-        };
-        for entry in stored {
-            if entry.provider == ProviderKind::Acp {
-                lock(&catalog.inner)
-                    .acp_loaded
-                    .insert(entry.instance.clone());
-            }
-            let owned: Vec<CatalogModel> = entry.models.iter().map(|row| (**row).clone()).collect();
-            let models = crate::cleanup::clean_catalog(&owned);
-            let retained = crate::sources::refreshed_sources(
-                models.into_iter().map(Arc::new).collect(),
-                entry.sources.as_deref(),
-                None,
-                entry.refreshed_at,
-            );
-            let mut entry = entry;
-            entry.models = retained.models;
-            entry.sources = Some(retained.sources);
-            let mut inner = lock(&catalog.inner);
-            inner.persisted_order.push(entry.instance.clone());
-            inner.persisted.insert(entry.instance.clone(), entry);
-        }
+            limiter,
+            sender.clone(),
+        );
+        std::thread::Builder::new()
+            .name("ace-model-catalog".to_owned())
+            .spawn(move || actor.run(receiver))
+            .map_err(|_| CatalogError::Closed)?;
+        let catalog = Self { sender, options };
         for instance in instances {
             catalog.register_instance(instance, None)?;
         }
@@ -665,251 +608,103 @@ impl Catalog {
         &self.options
     }
 
-    pub(crate) fn now(&self) -> f64 {
-        self.options.clock.now()
+    /// Sends one command and blocks for its reply. The actor finishes the work even when
+    /// this call never returns, because a dropped receiver is not a cancellation.
+    pub(crate) fn ask<T>(&self, make: impl FnOnce(Reply<T>) -> Command) -> Option<T> {
+        let (reply, receiver) = futures::channel::oneshot::channel();
+        let (ack, ack_receiver) = futures::channel::oneshot::channel();
+        {
+            let sender = self
+                .sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            sender
+                .send(commands::Envelope {
+                    command: make(reply),
+                    ack: Some(ack),
+                })
+                .ok()?;
+        }
+        self.wait_ack(ack_receiver)?;
+        self.wait_sync(receiver)
     }
 
-    pub(crate) fn with_inner<T>(&self, read: impl FnOnce(&mut Inner) -> T) -> T {
-        let mut inner = lock(&self.inner);
-        read(&mut inner)
+    /// Blocks until the actor has taken the command. The actor never awaits inside a
+    /// handler, so this is bounded by one handler and does not run spawned work.
+    fn wait_ack(&self, mut receiver: futures::channel::oneshot::Receiver<()>) -> Option<()> {
+        loop {
+            match receiver.try_recv() {
+                Ok(Some(())) => return Some(()),
+                Ok(None) => std::thread::yield_now(),
+                Err(_) => return None,
+            }
+        }
     }
 
-    pub(crate) fn configuration(&self, config: &ModelInstance) -> ProviderConfig {
+    /// Blocks until `receiver` answers. Every blocking reply is immediate; work that
+    /// needs spawned tasks is awaited by `request`, never by a synchronous method.
+    fn wait_sync<T>(&self, mut receiver: futures::channel::oneshot::Receiver<T>) -> Option<T> {
+        loop {
+            match receiver.try_recv() {
+                Ok(Some(value)) => return Some(value),
+                Ok(None) => std::thread::yield_now(),
+                Err(_) => return None,
+            }
+        }
+    }
+
+    pub(crate) async fn request<T>(&self, make: impl FnOnce(Reply<T>) -> Command) -> Option<T> {
+        let (reply, receiver) = futures::channel::oneshot::channel();
+        let (ack, ack_receiver) = futures::channel::oneshot::channel();
+        {
+            let sender = self
+                .sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            sender
+                .send(commands::Envelope {
+                    command: make(reply),
+                    ack: Some(ack),
+                })
+                .ok()?;
+        }
+        // The acknowledgement makes the first poll mean what the TypeScript's synchronous
+        // queue meant: the command has been taken, not merely queued. The actor never
+        // blocks inside a command, so this wait is bounded by one handler.
+        self.wait_ack(ack_receiver)?;
+        receiver.await.ok()
+    }
+
+    /// Sends a command and waits until the actor handled it, for fire-and-forget calls.
+    pub(crate) fn tell(&self, make: impl FnOnce(Reply<()>) -> Command) {
+        let (reply, _) = futures::channel::oneshot::channel();
+        let (ack, ack_receiver) = futures::channel::oneshot::channel();
+        let sent = {
+            let sender = self
+                .sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            sender.send(commands::Envelope {
+                command: make(reply),
+                ack: Some(ack),
+            })
+        };
+        if sent.is_ok() {
+            let _ = self.wait_ack(ack_receiver);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn revision(&self, config: &ModelInstance) -> String {
         let rows = self
             .options
             .preferences
             .as_ref()
             .map(|preferences| preferences())
             .unwrap_or_default();
-        crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id))
-    }
-
-    pub(crate) fn enabled(&self, config: &ModelInstance) -> bool {
-        self.configuration(config).enabled != Some(false)
-    }
-
-    pub(crate) fn revision(&self, config: &ModelInstance) -> String {
-        let path = self.configuration(config).binary_path;
-        revision_of(config, path.as_deref())
-    }
-
-    pub(crate) fn cache_revision(&self, config: &ModelInstance) -> String {
-        cache_revision(config)
-    }
-
-    /// The instance's row as the person would read it, from the cached entry alone.
-    pub(crate) fn models_of(&self, state: &mut State) -> Vec<CatalogModel> {
-        let preferences = self
-            .options
-            .preferences
-            .as_ref()
-            .map(|preferences| preferences())
-            .unwrap_or_default();
-        let config = crate::preferences::provider_configuration(
-            &preferences,
-            state.config.provider,
-            Some(&state.config.id),
-        );
-        let key = format!(
-            "{}|{}|{}|{:?}",
-            state.settings_key,
-            state
-                .entry
-                .as_ref()
-                .map(|entry| entry.revision.clone())
-                .unwrap_or_default(),
-            state
-                .entry
-                .as_ref()
-                .map(|entry| entry.refreshed_at)
-                .unwrap_or_default(),
-            state
-                .entry
-                .as_ref()
-                .map(|entry| entry.models.len())
-                .unwrap_or_default()
-        );
-        if let Some((cached, rows)) = &state.view
-            && *cached == key
-        {
-            return rows.clone();
-        }
-        let rows: Vec<CatalogModel> = state
-            .entry
-            .as_ref()
-            .map(|entry| {
-                let owned: Vec<CatalogModel> =
-                    entry.models.iter().map(|row| (**row).clone()).collect();
-                configured_models(&owned, state.config.provider, &state.config.id, &config)
-            })
-            .unwrap_or_default();
-        state.view = Some((key, rows.clone()));
-        rows
-    }
-
-    pub(crate) fn selection(&self, filter: &ModelFilter) -> Vec<String> {
-        let inner = lock(&self.inner);
-        let matches = |state: &State| {
-            filter
-                .provider
-                .is_none_or(|provider| state.config.provider == provider)
-                && filter
-                    .acp_agent_id
-                    .as_ref()
-                    .is_none_or(|id| state.config.acp_agent_id.as_ref() == Some(id))
-                && filter
-                    .installation_id
-                    .as_ref()
-                    .is_none_or(|id| state.config.installation_id.as_ref() == Some(id))
-                && filter
-                    .instance_id
-                    .as_ref()
-                    .is_none_or(|id| state.config.instance_id.as_ref() == Some(id))
-        };
-        if let Some(instance) = &filter.instance {
-            return match inner.states.get(instance) {
-                Some(state) if matches(state) => vec![instance.clone()],
-                _ => Vec::new(),
-            };
-        }
-        let ids: Vec<String> = match filter.provider {
-            Some(provider) => inner.providers.get(&provider).cloned().unwrap_or_default(),
-            None => inner.order.clone(),
-        };
-        ids.into_iter()
-            .filter(|id| inner.states.get(id).is_some_and(&matches))
-            .collect()
-    }
-
-    pub(crate) fn revalidate(&self, ids: &[String], cause: RefreshCause) {
-        refresh::revalidate(self, ids, cause);
-    }
-
-    pub(crate) fn stale(&self, state: &State) -> bool {
-        let now = self.now();
-        if let Some(unconfigured_at) = state.unconfigured_at
-            && !state.dirty
-        {
-            return now - unconfigured_at >= self.options.ttl_ms;
-        }
-        state.dirty
-            || state.error.is_some()
-            || state
-                .entry
-                .as_ref()
-                .and_then(|entry| entry.sources.as_ref())
-                .is_some_and(|sources| sources.iter().any(crate::sources::source_failed))
-            || state.entry.is_none()
-            || state
-                .entry
-                .as_ref()
-                .is_some_and(|entry| now - entry.refreshed_at >= self.options.ttl_ms)
-    }
-
-    pub(crate) fn status(&self, state: &State) -> InstanceStatus {
-        let refreshing = state.flight.is_some() && state.error_detail.is_none();
-        let stale = self.stale(state);
-        let enabled = self.enabled(&state.config);
-        let now = self.now();
-        let permission_modes = state.permission_modes.clone().or_else(|| {
-            state
-                .entry
-                .as_ref()
-                .and_then(|entry| entry.permission_modes.clone())
-        });
-        let sources = state
-            .entry
-            .as_ref()
-            .and_then(|entry| entry.sources.as_ref())
-            .map(|sources| {
-                sources
-                    .iter()
-                    .map(|source| {
-                        let mut status = source.clone();
-                        if let Some(label) = source_label(&state.config)
-                            && status.source.kind
-                                == ace_protocol::generated::ModelSourceKind::Account
-                        {
-                            status.source.label = label.to_owned().into();
-                        }
-                        status.status = if refreshing {
-                            SourceState::Refreshing
-                        } else if state.error.is_some()
-                            || state.dirty
-                            || state.entry.is_none()
-                            || now
-                                - (status
-                                    .last_refreshed_at
-                                    .or_else(|| {
-                                        state.entry.as_ref().map(|entry| entry.refreshed_at)
-                                    })
-                                    .unwrap_or(now))
-                                >= self.options.ttl_ms
-                            || crate::sources::source_failed(&status)
-                        {
-                            SourceState::Stale
-                        } else {
-                            SourceState::Fresh
-                        };
-                        if state.error_detail.is_some() || status.error.is_some() {
-                            let failure = DiscoveryFailure {
-                                code: state
-                                    .error_detail
-                                    .as_ref()
-                                    .map(|detail| detail.code.as_str().to_owned())
-                                    .or_else(|| {
-                                        status
-                                            .error
-                                            .as_ref()
-                                            .map(|error| error.code.as_str().to_owned())
-                                    }),
-                                ..DiscoveryFailure::default()
-                            };
-                            status.error = Some(crate::failures::discovery_error(
-                                Some(&failure),
-                                FailureCode::DiscoveryFailed,
-                                &crate::failures::ErrorContext {
-                                    provider: Some(&state.config.provider.to_string()),
-                                    source: Some(&status.source.id.0),
-                                    backend: None,
-                                },
-                            ));
-                        }
-                        status
-                    })
-                    .collect()
-            });
-        InstanceStatus {
-            provider: state.config.provider,
-            instance: state.config.id.clone(),
-            acp_agent_id: state.config.acp_agent_id.clone(),
-            installation_id: state.config.installation_id.clone(),
-            instance_id: state.config.instance_id.clone(),
-            refreshed_at: state.entry.as_ref().map(|entry| entry.refreshed_at),
-            last_refreshed_at: state.entry.as_ref().map(|entry| entry.refreshed_at),
-            enabled: Some(enabled),
-            status: Some(if refreshing {
-                RowStatus::Refreshing
-            } else if stale {
-                RowStatus::Stale
-            } else {
-                RowStatus::Fresh
-            }),
-            error_detail: state.error_detail.clone(),
-            sources,
-            stale,
-            refreshing,
-            error: state.error,
-            permission_modes,
-            model_probe: match crate::gate::reported_probe(
-                state.config.model_probe,
-                state.entry.is_some(),
-            ) {
-                Some(ace_models::instance::ModelProbe::Automatic) => Some("automatic".to_owned()),
-                Some(ace_models::instance::ModelProbe::OnRequest) => Some("on-request".to_owned()),
-                None => None,
-            },
-        }
+        let configuration =
+            crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id));
+        revision_of(config, configuration.binary_path.as_deref())
     }
 
     /// A page of rows and every selected instance's status.
@@ -922,106 +717,55 @@ impl Catalog {
         if offset > 40_960 || !(1..=100).contains(&limit) {
             return Err(CatalogError::InvalidListOptions);
         }
-        let ids = self.selection(&filter);
-        self.check_connections();
-        self.revalidate(&ids, RefreshCause::Read);
-        let mut models = Vec::new();
-        let mut skipped = offset;
-        let mut remaining = limit + 1;
-        for id in &ids {
-            let rows = self
-                .with_inner(|inner| inner.states.get_mut(id).map(|state| self.models_of(state)));
-            let Some(rows) = rows else { continue };
-            if skipped >= rows.len() {
-                skipped -= rows.len();
-                continue;
-            }
-            let end = rows.len().min(skipped + remaining);
-            for row in &rows[skipped..end] {
-                models.push(row.clone());
-                remaining -= 1;
-            }
-            skipped = 0;
-            if remaining == 0 {
-                break;
-            }
-        }
-        let more = models.len() > limit;
-        if more {
-            models.pop();
-        }
-        let instances = self.with_inner(|inner| {
-            ids.iter()
-                .filter_map(|id| inner.states.get(id).map(|state| self.status(state)))
-                .collect()
-        });
-        Ok(ModelListResult {
-            models,
-            instances,
-            next_offset: more.then_some(offset + limit),
+        self.ask(|reply| Command::List {
+            filter,
+            offset,
+            limit,
+            reply,
         })
+        .unwrap_or(Err(CatalogError::Closed))
     }
 
     /// The model a role spec names, having asked for stale rows to refresh.
     pub fn resolve(&self, spec: &RoleSpec) -> Result<Resolution, String> {
-        let filter = ModelFilter {
-            provider: spec.provider,
-            instance: spec.instance.clone(),
-            ..ModelFilter::default()
-        };
-        let ids = self.selection(&filter);
-        self.check_connections();
-        self.revalidate(&ids, RefreshCause::Read);
-        self.resolve_selected(spec, &ids)
+        self.ask(|reply| Command::Resolve {
+            spec: spec.clone(),
+            cached: false,
+            reply,
+        })
+        .unwrap_or_else(|| Err("Catalog closed".to_owned()))
     }
 
     /// The same resolution over retained choices, without scheduling discovery.
     pub fn resolve_cached(&self, spec: &RoleSpec) -> Result<Resolution, String> {
-        let filter = ModelFilter {
-            provider: spec.provider,
-            instance: spec.instance.clone(),
-            ..ModelFilter::default()
-        };
-        let ids = self.selection(&filter);
-        self.resolve_selected(spec, &ids)
-    }
-
-    fn resolve_selected(&self, spec: &RoleSpec, ids: &[String]) -> Result<Resolution, String> {
-        let mut rows = Vec::new();
-        for id in ids {
-            if let Some(models) =
-                self.with_inner(|inner| inner.states.get_mut(id).map(|state| self.models_of(state)))
-            {
-                rows.extend(models);
-            }
-        }
-        let mut stale: BTreeMap<String, bool> = BTreeMap::new();
-        self.with_inner(|inner| {
-            for (id, state) in &inner.states {
-                stale.insert(id.clone(), self.stale(state));
-            }
-        });
-        resolve_model(spec, &rows, |instance| {
-            stale.get(instance).copied().unwrap_or(true)
+        self.ask(|reply| Command::Resolve {
+            spec: spec.clone(),
+            cached: true,
+            reply,
         })
+        .unwrap_or_else(|| Err("Catalog closed".to_owned()))
     }
 
     pub fn has_provider(&self, provider: ProviderKind) -> bool {
-        self.with_inner(|inner| {
-            inner
-                .providers
-                .get(&provider)
-                .is_some_and(|ids| !ids.is_empty())
-        })
+        self.ask(|reply| Command::HasProvider { provider, reply })
+            .unwrap_or(false)
     }
 
     pub fn has_instance(&self, instance: &str) -> bool {
-        self.with_inner(|inner| inner.states.contains_key(instance))
+        self.ask(|reply| Command::HasInstance {
+            id: instance.to_owned(),
+            reply,
+        })
+        .unwrap_or(false)
     }
 
     /// The instance as registered now, for a session to report into later.
     pub fn registered(&self, id: &str) -> Option<ModelInstance> {
-        self.with_inner(|inner| inner.states.get(id).map(|state| state.config.clone()))
+        self.ask(|reply| Command::Registered {
+            id: id.to_owned(),
+            reply,
+        })
+        .flatten()
     }
 
     /// Subscribes to row changes. The limit is 4096 listeners.
@@ -1029,149 +773,531 @@ impl Catalog {
         &self,
         listener: Arc<dyn Fn(ModelFilter) + Send + Sync>,
     ) -> Result<Cancel, CatalogError> {
-        let mut inner = lock(&self.inner);
-        if inner.listeners.len() >= 4096 {
-            return Err(CatalogError::ListenerLimit);
-        }
-        inner.listeners.push(listener.clone());
-        let inner_ref = self.inner.clone();
+        let token = self
+            .ask(|reply| Command::Listen { listener, reply })
+            .unwrap_or(Err(CatalogError::Closed))?;
+        let sender = self.sender.clone();
         Ok(Box::new(move || {
-            let mut inner = lock(&inner_ref);
-            inner
-                .listeners
-                .retain(|current| !Arc::ptr_eq(current, &listener));
+            let sender = sender
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _ = sender.send(Envelope {
+                command: Command::Unlisten { token },
+                ack: None,
+            });
         }))
     }
 
     /// Ordinary catalog changes retain usable choices while discovery replaces them.
     pub fn mark_stale(&self, filter: ModelFilter) -> Result<(), CatalogError> {
-        let changes = self.with_inner(|inner| {
-            if inner.closed {
-                return Err(CatalogError::Closed);
+        self.ask(|reply| Command::MarkStale { filter, reply })
+            .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Registers an instance, restoring a compatible cached row.
+    pub fn register_instance(
+        &self,
+        input: ModelInstance,
+        admit: Option<Admit>,
+    ) -> Result<(), CatalogError> {
+        self.ask(|reply| Command::Register {
+            input,
+            admit,
+            reply,
+        })
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// A sign-in changed: the old account's choices are gone immediately.
+    pub async fn login_changed(
+        &self,
+        instance: &str,
+        revision: &str,
+        sign_in_method: Option<Option<String>>,
+    ) -> Result<Vec<InstanceStatus>, CatalogError> {
+        let immediate = self
+            .request(|reply| Command::LoginChanged {
+                instance: instance.to_owned(),
+                revision: revision.to_owned(),
+                sign_in_method,
+                reply,
+            })
+            .await
+            .unwrap_or(Err(CatalogError::Closed));
+        match immediate? {
+            Some(statuses) => Ok(statuses),
+            None => self.refresh(ModelFilter::instance(instance)).await,
+        }
+    }
+
+    /// Removes a row: state, cached choices, and a flush of in-flight discovery.
+    pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
+        self.request(|reply| Command::Remove {
+            instance: instance.to_owned(),
+            reply,
+        })
+        .await
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Account-change boundary: revoke choices immediately, then delete them.
+    pub async fn invalidate(&self, filter: ModelFilter) -> Result<(), CatalogError> {
+        self.request(|reply| Command::Invalidate { filter, reply })
+            .await
+            .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Settings changed: rows whose effective configuration changed are fenced and refreshed.
+    pub fn configuration_changed(&self) {
+        self.tell(|reply| Command::ConfigurationChanged { reply });
+    }
+
+    /// A provider's installed version changed for this runtime.
+    pub fn installation_changed(&self, provider: ProviderKind, version: &str, runtime: &str) {
+        self.tell(|reply| Command::InstallationChanged {
+            provider,
+            version: version.to_owned(),
+            runtime: runtime.to_owned(),
+            reply,
+        });
+    }
+
+    /// The statuses an explicit refresh reports.
+    pub async fn refresh(&self, filter: ModelFilter) -> Result<Vec<InstanceStatus>, CatalogError> {
+        self.request(|reply| Command::Refresh {
+            filter,
+            mode: RefreshMode::All,
+            reply,
+        })
+        .await
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// The person asked for one row's models (Load models).
+    pub async fn load(&self, instance: &str) -> Result<Vec<InstanceStatus>, CatalogError> {
+        self.request(|reply| Command::Refresh {
+            filter: ModelFilter::instance(instance),
+            mode: RefreshMode::Load(instance.to_owned()),
+            reply,
+        })
+        .await
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Waits for rows that never loaded, or loaded empty and are due.
+    pub async fn load_missing(
+        &self,
+        filter: ModelFilter,
+    ) -> Result<Vec<InstanceStatus>, CatalogError> {
+        self.request(|reply| Command::Refresh {
+            filter,
+            mode: RefreshMode::Missing,
+            reply,
+        })
+        .await
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Discovers one row, sharing a flight that is already running.
+    #[allow(dead_code)]
+    pub(crate) async fn refresh_state(&self, id: &str, cause: RefreshCause) -> InstanceStatus {
+        self.request(|reply| Command::RefreshState {
+            id: id.to_owned(),
+            cause,
+            reply,
+        })
+        .await
+        .unwrap_or_else(|| empty_status(id))
+    }
+
+    /// Explicit refresh: resets the pause and owns the result through settings changes.
+    #[allow(dead_code)]
+    pub(crate) async fn refresh_current(&self, id: &str, cause: RefreshCause) -> InstanceStatus {
+        self.mark_not_paused(id);
+        let mut revision = self
+            .registered(id)
+            .map(|config| self.revision(&config))
+            .unwrap_or_default();
+        let mut status = self.refresh_state(id, cause).await;
+        loop {
+            if !self.has_instance(id) {
+                break;
             }
-            let mut changes = Vec::new();
-            for id in selection_locked(inner, &filter) {
-                let Some(state) = inner.states.get_mut(&id) else {
-                    continue;
-                };
-                if state.config.provider == ProviderKind::Acp {
-                    continue;
-                }
-                state.dirty = true;
-                state.probe_retry_at = 0.0;
-                state.backoff.reset();
-                state.retry_at = 0.0;
-                changes.push(state.config.clone());
+            let Some(config) = self.registered(id) else {
+                break;
+            };
+            let current = self.revision(&config);
+            let flying = self
+                .ask(|reply| Command::HasFlight {
+                    id: id.to_owned(),
+                    reply,
+                })
+                .unwrap_or(false);
+            if !flying && current == revision {
+                break;
             }
-            Ok(changes)
-        })?;
-        for config in &changes {
-            self.notify_config(config);
+            revision = current;
+            status = self.refresh_state(id, cause).await;
+        }
+        status
+    }
+
+    #[allow(dead_code)]
+    fn mark_not_paused(&self, id: &str) {
+        self.tell(|reply| Command::ResetPause {
+            id: id.to_owned(),
+            reply,
+        });
+    }
+
+    /// Metadata from an already authorized session. No process or inference starts.
+    pub async fn update_from_session(
+        &self,
+        input: ModelInstance,
+        metadata: &Value,
+    ) -> Result<(), CatalogError> {
+        self.request(|reply| Command::UpdateSession {
+            input,
+            metadata: metadata.clone(),
+            reply,
+        })
+        .await
+        .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// A session's reported modes survive a restart: written onto the cached entry.
+    pub fn update_permission_modes(&self, instance: &str, modes: Vec<Value>) {
+        self.tell(|reply| Command::UpdateModes {
+            instance: instance.to_owned(),
+            modes,
+            reply,
+        });
+    }
+
+    /// Waits until the actor has no spawned work left. Test plumbing only.
+    #[allow(dead_code)]
+    pub(crate) fn pending_session_writes(&self) -> usize {
+        self.ask(|reply| Command::PendingWork { reply })
+            .unwrap_or(0)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn quiesce(&self) {
+        let _ = self.request(|reply| Command::Quiesce { reply }).await;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn inspect_row(&self, id: &str) -> (Option<String>, bool) {
+        self.ask(|reply| Command::Inspect {
+            id: id.to_owned(),
+            reply,
+        })
+        .unwrap_or((None, false))
+    }
+
+    /// Shuts the catalog down: abort flights, drain every spawned task, flush deletions,
+    /// close storage. Concurrent callers share one attempt and its result.
+    pub async fn close(&self) -> Result<(), CatalogError> {
+        self.request(|reply| Command::Close { reply })
+            .await
+            .unwrap_or(Err(CatalogError::Closed))
+    }
+
+    /// Poll only CLI connection metadata; unchanged metadata never starts discovery.
+    pub async fn reconcile_connections(&self) -> Result<(), CatalogError> {
+        let Some(ids) = self.request(|reply| Command::ReconcileIds { reply }).await else {
+            return Err(CatalogError::Closed);
+        };
+        let Some(ids) = ids else {
+            return Ok(());
+        };
+        for id in ids {
+            let closed = self
+                .request(|reply| Command::Probe { id, reply })
+                .await
+                .unwrap_or(Err(CatalogError::Closed));
+            closed?;
         }
         Ok(())
     }
 
-    pub(crate) fn notify_config(&self, config: &ModelInstance) {
-        let listeners = lock(&self.inner).listeners.clone();
-        let filter = ModelFilter {
-            provider: Some(config.provider),
-            instance: Some(config.id.clone()),
-            ..ModelFilter::default()
-        };
-        for listener in listeners {
-            listener(filter.clone());
-        }
+    /// While a client watches the catalog, re-check connections every interval.
+    pub fn observe_connections(&self) -> CancelHandle {
+        let token = self.ask(|reply| Command::Observe { reply }).unwrap_or(None);
+        CancelHandle::new(self.clone(), token)
     }
 
     /// Takes this instance's place in its queue, before waiting for the places before it.
+    #[allow(dead_code)]
     pub(crate) fn reserve_turn(&self, id: &str) -> turns::Turn {
-        self.with_inner(|inner| {
-            let (token, _gate, previous) = inner.turns.entry(id.to_owned()).or_default().accept();
-            turns::Turn::new(self.clone(), id.to_owned(), token, previous)
-        })
+        let token = self
+            .ask(|reply| Command::ReserveTurn {
+                id: id.to_owned(),
+                reply,
+            })
+            .unwrap_or_default();
+        turns::Turn::new(self.clone(), id.to_owned(), token)
     }
 
     /// A place that is already its turn.
+    #[allow(dead_code)]
     pub(crate) async fn hold_turn(&self, id: &str) -> turns::Turn {
-        let mut turn = self.reserve_turn(id);
-        turn.wait().await;
-        turn
+        let Some((token, granted)) = self
+            .request(|reply| Command::HoldTurn {
+                id: id.to_owned(),
+                reply,
+            })
+            .await
+        else {
+            return turns::Turn::detached(self.clone(), id.to_owned());
+        };
+        let mut pending = turns::PendingTurn {
+            catalog: self.clone(),
+            id: id.to_owned(),
+            token,
+            armed: true,
+        };
+        let _ = granted.await;
+        pending.armed = false;
+        turns::Turn::new(self.clone(), id.to_owned(), token)
     }
 
-    /// Settles one place; the queue is forgotten once nothing waits in it.
-    fn settle_turn(&self, id: &str, token: u64) {
-        self.with_inner(|inner| {
-            let empty = inner
-                .turns
-                .get_mut(id)
-                .is_none_or(|turns| turns.settle(token));
-            if empty {
-                inner.turns.remove(id);
-            }
+    #[allow(dead_code)]
+    pub(crate) fn settle_turn(&self, id: &str, token: u64) {
+        self.tell(|reply| Command::SettleTurn {
+            id: id.to_owned(),
+            token,
+            reply,
         });
-    }
-
-    /// The last steps of a removal: its row's deletion, then every other pending one, and
-    /// the id is free to register again once that finished.
-    pub(crate) fn finish_removal(&self, id: &str) -> Result<(), CatalogError> {
-        let _ = self.with_inner(|inner| inner.deletions.remove(id));
-        let retried = self.with_inner(|inner| inner.deletions.retry());
-        match retried.into_iter().find(|result| result.is_err()) {
-            Some(Err(error)) => Err(CatalogError::Cache(error)),
-            _ => Ok(()),
-        }
-    }
-
-    /// Publishes one removal's result to everyone who asked for it, and frees the id.
-    fn settle_removal(&self, id: &str, slot: &RemovalSlot, result: &Result<(), CatalogError>) {
-        *slot
-            .result
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result.clone());
-        slot.done.open();
-        self.with_inner(|inner| {
-            if inner
-                .removals
-                .get(id)
-                .is_some_and(|known| known.done.same(&slot.done))
-            {
-                inner.removals.remove(id);
-            }
-        });
-    }
-
-    /// Completes a deletion this write would otherwise recreate.
-    pub(crate) fn finish_deletion(&self, id: &str) -> Result<(), CatalogError> {
-        if self.with_inner(|inner| inner.deletions.has(id)) {
-            self.with_inner(|inner| inner.deletions.remove(id))?;
-        }
-        Ok(())
     }
 }
 
-fn selection_locked(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
-    if let Some(instance) = &filter.instance {
-        let matches = inner.states.get(instance).is_some_and(|state| {
-            filter
-                .provider
-                .is_none_or(|provider| state.config.provider == provider)
-                && filter
-                    .acp_agent_id
-                    .as_ref()
-                    .is_none_or(|value| state.config.acp_agent_id.as_ref() == Some(value))
-                && filter
-                    .installation_id
-                    .as_ref()
-                    .is_none_or(|value| state.config.installation_id.as_ref() == Some(value))
-                && filter
-                    .instance_id
-                    .as_ref()
-                    .is_none_or(|value| state.config.instance_id.as_ref() == Some(value))
+pub(crate) fn empty_status(id: &str) -> InstanceStatus {
+    InstanceStatus {
+        provider: ProviderKind::Acp,
+        instance: id.to_owned(),
+        acp_agent_id: None,
+        installation_id: None,
+        instance_id: None,
+        refreshed_at: None,
+        last_refreshed_at: None,
+        enabled: Some(true),
+        status: None,
+        error_detail: None,
+        sources: None,
+        stale: true,
+        refreshing: false,
+        error: None,
+        permission_modes: None,
+        model_probe: None,
+    }
+}
+
+/// The instance's row as the person would read it, from the cached entry alone.
+pub(crate) fn models_of(options: &CatalogOptions, state: &mut State) -> Vec<CatalogModel> {
+    let preferences = options
+        .preferences
+        .as_ref()
+        .map(|preferences| preferences())
+        .unwrap_or_default();
+    let config = crate::preferences::provider_configuration(
+        &preferences,
+        state.config.provider,
+        Some(&state.config.id),
+    );
+    let key = format!(
+        "{}|{}|{}|{:?}",
+        state.settings_key,
+        state
+            .entry
+            .as_ref()
+            .map(|entry| entry.revision.clone())
+            .unwrap_or_default(),
+        state
+            .entry
+            .as_ref()
+            .map(|entry| entry.refreshed_at)
+            .unwrap_or_default(),
+        state
+            .entry
+            .as_ref()
+            .map(|entry| entry.models.len())
+            .unwrap_or_default()
+    );
+    if let Some((cached, rows)) = &state.view
+        && *cached == key
+    {
+        return rows.clone();
+    }
+    let rows: Vec<CatalogModel> = state
+        .entry
+        .as_ref()
+        .map(|entry| {
+            let owned: Vec<CatalogModel> = entry.models.iter().map(|row| (**row).clone()).collect();
+            configured_models(&owned, state.config.provider, &state.config.id, &config)
+        })
+        .unwrap_or_default();
+    state.view = Some((key, rows.clone()));
+    rows
+}
+
+pub(crate) fn stale(options: &CatalogOptions, state: &State) -> bool {
+    let now = options.clock.now();
+    if let Some(unconfigured_at) = state.unconfigured_at
+        && !state.dirty
+    {
+        return now - unconfigured_at >= options.ttl_ms;
+    }
+    state.dirty
+        || state.error.is_some()
+        || state
+            .entry
+            .as_ref()
+            .and_then(|entry| entry.sources.as_ref())
+            .is_some_and(|sources| sources.iter().any(crate::sources::source_failed))
+        || state.entry.is_none()
+        || state
+            .entry
+            .as_ref()
+            .is_some_and(|entry| now - entry.refreshed_at >= options.ttl_ms)
+}
+
+pub(crate) fn status_of(options: &CatalogOptions, inner: &Inner, state: &State) -> InstanceStatus {
+    let refreshing = state.flight.is_some() && state.error_detail.is_none();
+    let is_stale = stale(options, state);
+    let enabled = enabled_of(options, &state.config);
+    let now = options.clock.now();
+    let permission_modes = state.permission_modes.clone().or_else(|| {
+        state
+            .entry
+            .as_ref()
+            .and_then(|entry| entry.permission_modes.clone())
+    });
+    let sources = state
+        .entry
+        .as_ref()
+        .and_then(|entry| entry.sources.as_ref())
+        .map(|sources| {
+            sources
+                .iter()
+                .map(|source| {
+                    let mut status = source.clone();
+                    if let Some(label) = source_label(&state.config)
+                        && status.source.kind == ace_protocol::generated::ModelSourceKind::Account
+                    {
+                        status.source.label = label.to_owned().into();
+                    }
+                    status.status = if refreshing {
+                        SourceState::Refreshing
+                    } else if state.error.is_some()
+                        || state.dirty
+                        || state.entry.is_none()
+                        || now
+                            - (status
+                                .last_refreshed_at
+                                .or_else(|| state.entry.as_ref().map(|entry| entry.refreshed_at))
+                                .unwrap_or(now))
+                            >= options.ttl_ms
+                        || crate::sources::source_failed(&status)
+                    {
+                        SourceState::Stale
+                    } else {
+                        SourceState::Fresh
+                    };
+                    if state.error_detail.is_some() || status.error.is_some() {
+                        let failure = DiscoveryFailure {
+                            code: state
+                                .error_detail
+                                .as_ref()
+                                .map(|detail| detail.code.as_str().to_owned())
+                                .or_else(|| {
+                                    status
+                                        .error
+                                        .as_ref()
+                                        .map(|error| error.code.as_str().to_owned())
+                                }),
+                            ..DiscoveryFailure::default()
+                        };
+                        status.error = Some(crate::failures::discovery_error(
+                            Some(&failure),
+                            FailureCode::DiscoveryFailed,
+                            &crate::failures::ErrorContext {
+                                provider: Some(&state.config.provider.to_string()),
+                                source: Some(&status.source.id.0),
+                                backend: None,
+                            },
+                        ));
+                    }
+                    status
+                })
+                .collect()
         });
-        return if matches {
-            vec![instance.clone()]
+    let _ = inner;
+    InstanceStatus {
+        provider: state.config.provider,
+        instance: state.config.id.clone(),
+        acp_agent_id: state.config.acp_agent_id.clone(),
+        installation_id: state.config.installation_id.clone(),
+        instance_id: state.config.instance_id.clone(),
+        refreshed_at: state.entry.as_ref().map(|entry| entry.refreshed_at),
+        last_refreshed_at: state.entry.as_ref().map(|entry| entry.refreshed_at),
+        enabled: Some(enabled),
+        status: Some(if refreshing {
+            RowStatus::Refreshing
+        } else if is_stale {
+            RowStatus::Stale
         } else {
-            Vec::new()
+            RowStatus::Fresh
+        }),
+        error_detail: state.error_detail.clone(),
+        sources,
+        stale: is_stale,
+        refreshing,
+        error: state.error,
+        permission_modes,
+        model_probe: match crate::gate::reported_probe(
+            state.config.model_probe,
+            state.entry.is_some(),
+        ) {
+            Some(ace_models::instance::ModelProbe::Automatic) => Some("automatic".to_owned()),
+            Some(ace_models::instance::ModelProbe::OnRequest) => Some("on-request".to_owned()),
+            None => None,
+        },
+    }
+}
+
+fn enabled_of(options: &CatalogOptions, config: &ModelInstance) -> bool {
+    let rows = options
+        .preferences
+        .as_ref()
+        .map(|preferences| preferences())
+        .unwrap_or_default();
+    crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id)).enabled
+        != Some(false)
+}
+
+pub(crate) fn selection(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
+    let matches = |state: &State| {
+        filter
+            .provider
+            .is_none_or(|provider| state.config.provider == provider)
+            && filter
+                .acp_agent_id
+                .as_ref()
+                .is_none_or(|id| state.config.acp_agent_id.as_ref() == Some(id))
+            && filter
+                .installation_id
+                .as_ref()
+                .is_none_or(|id| state.config.installation_id.as_ref() == Some(id))
+            && filter
+                .instance_id
+                .as_ref()
+                .is_none_or(|id| state.config.instance_id.as_ref() == Some(id))
+    };
+    if let Some(instance) = &filter.instance {
+        return match inner.states.get(instance) {
+            Some(state) if matches(state) => vec![instance.clone()],
+            _ => Vec::new(),
         };
     }
     let ids: Vec<String> = match filter.provider {
@@ -1179,22 +1305,7 @@ fn selection_locked(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
         None => inner.order.clone(),
     };
     ids.into_iter()
-        .filter(|id| {
-            inner.states.get(id).is_some_and(|state| {
-                filter
-                    .acp_agent_id
-                    .as_ref()
-                    .is_none_or(|value| state.config.acp_agent_id.as_ref() == Some(value))
-                    && filter
-                        .installation_id
-                        .as_ref()
-                        .is_none_or(|value| state.config.installation_id.as_ref() == Some(value))
-                    && filter
-                        .instance_id
-                        .as_ref()
-                        .is_none_or(|value| state.config.instance_id.as_ref() == Some(value))
-            })
-        })
+        .filter(|id| inner.states.get(id).is_some_and(&matches))
         .collect()
 }
 
@@ -1203,7 +1314,7 @@ fn source_label(config: &ModelInstance) -> Option<&str> {
 }
 
 /// The revision a cached row is keyed by (`cacheRevision`).
-fn cache_revision(instance: &ModelInstance) -> String {
+pub(crate) fn cache_revision(instance: &ModelInstance) -> String {
     if instance.provider == ProviderKind::Opencode {
         return sha256_json(&serde_json::json!([
             instance.login_revision,
@@ -1223,7 +1334,7 @@ fn cache_revision(instance: &ModelInstance) -> String {
 }
 
 /// What a cached row belongs to; an ACP row's folder is no part of it (`identityRevision`).
-fn identity_revision(instance: &ModelInstance) -> String {
+pub(crate) fn identity_revision(instance: &ModelInstance) -> String {
     sha256_json(&serde_json::json!([
         instance.id,
         instance.provider,
@@ -1245,7 +1356,7 @@ fn identity_revision(instance: &ModelInstance) -> String {
     ]))
 }
 
-fn revision_of(instance: &ModelInstance, binary_path: Option<&str>) -> String {
+pub(crate) fn revision_of(instance: &ModelInstance, binary_path: Option<&str>) -> String {
     match (binary_path, instance.installation_version.as_deref()) {
         (Some(path), _) => sha256_json(&serde_json::json!([
             cache_revision(instance),
@@ -1323,10 +1434,50 @@ pub(crate) fn validate_instance(instance: &ModelInstance) -> Result<(), CatalogE
     Ok(())
 }
 
-/// One state's fresh status for the flight that ended.
-/// The ids a filter selects, for a caller already holding the lock.
-pub(crate) fn selection_for(inner: &mut Inner, filter: &ModelFilter) -> Vec<String> {
-    selection_locked(inner, filter)
+/// `connectionRevision`: only non-secret provider identities and availability are hashed.
+pub(crate) fn flights_connection_revision(
+    provider: ProviderKind,
+    models: &[CatalogModel],
+    sources: Option<&[SourceStatus]>,
+) -> String {
+    let values: Vec<String> = if provider == ProviderKind::Opencode {
+        let mut values: Vec<String> = sources
+            .unwrap_or_default()
+            .iter()
+            .filter(|status| status.source.requires_auth != Some(false))
+            .map(|status| {
+                serde_json::to_string(&serde_json::json!([
+                    status.source.kind,
+                    status.source.id,
+                    status.source.label,
+                    status.source.service
+                ]))
+                .unwrap_or_default()
+            })
+            .collect();
+        values.sort();
+        values
+    } else {
+        let mut values: Vec<String> = models
+            .iter()
+            .map(|model| {
+                format!(
+                    "{}/{}",
+                    model
+                        .native_provider_id
+                        .as_ref()
+                        .map(|provider| provider.0.0.as_str())
+                        .unwrap_or(""),
+                    model.id.0
+                )
+            })
+            .collect();
+        values.sort();
+        values
+    };
+    sha256_json(&Value::Array(
+        values.into_iter().map(Value::String).collect(),
+    ))
 }
 
 /// Whether `token` still owns row `id`: a re-registration bumps the generation.
@@ -1335,8 +1486,4 @@ pub(crate) fn owns(inner: &Inner, id: &str, token: u64) -> bool {
         .states
         .get(id)
         .is_some_and(|state| state.generation == token)
-}
-
-pub(crate) fn fresh_status(catalog: &Catalog, id: &str) -> Option<InstanceStatus> {
-    catalog.with_inner(|inner| inner.states.get(id).map(|state| catalog.status(state)))
 }

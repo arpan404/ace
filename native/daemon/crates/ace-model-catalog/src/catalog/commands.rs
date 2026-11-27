@@ -1,0 +1,234 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The catalog actor's mailbox: every public call is one command with a oneshot reply.
+//!
+//! Nothing outside the actor touches catalog state. A caller that goes away drops its
+//! reply receiver; the actor still finishes the operation and settles everything it
+//! admitted, which is how cancellation is handled here.
+
+use std::sync::Arc;
+
+use ace_models::instance::ModelInstance;
+use serde_json::Value;
+
+use crate::catalog::{
+    Admit, CatalogError, DiscoveryDiagnostics, DiscoveryOutcome, InstanceStatus, ModelFilter,
+    ModelListResult,
+};
+use crate::failures::DiscoveryFailure;
+use crate::gate::RefreshCause;
+use crate::resolve::{Resolution, RoleSpec};
+
+/// One reply slot. Sending fails only when the caller dropped it, which never cancels work.
+pub(crate) type Reply<T> = futures::channel::oneshot::Sender<T>;
+
+/// One message and the caller's acknowledgement that the actor handled it.
+pub(crate) struct Envelope {
+    pub(crate) command: Command,
+    pub(crate) ack: Option<Reply<()>>,
+}
+
+/// Every message the actor thread accepts, from a caller or from work it spawned.
+pub(crate) enum Command {
+    List {
+        filter: ModelFilter,
+        offset: usize,
+        limit: usize,
+        reply: Reply<Result<ModelListResult, CatalogError>>,
+    },
+    Resolve {
+        spec: RoleSpec,
+        cached: bool,
+        reply: Reply<Result<Resolution, String>>,
+    },
+    HasProvider {
+        provider: ace_protocol::generated::ProviderKind,
+        reply: Reply<bool>,
+    },
+    HasInstance {
+        id: String,
+        reply: Reply<bool>,
+    },
+    Registered {
+        id: String,
+        reply: Reply<Option<ModelInstance>>,
+    },
+    HasFlight {
+        id: String,
+        reply: Reply<bool>,
+    },
+    ResetPause {
+        id: String,
+        reply: Reply<()>,
+    },
+    Listen {
+        listener: Arc<dyn Fn(ModelFilter) + Send + Sync>,
+        reply: Reply<Result<u64, CatalogError>>,
+    },
+    Unlisten {
+        token: u64,
+    },
+    MarkStale {
+        filter: ModelFilter,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    Register {
+        input: ModelInstance,
+        admit: Option<Admit>,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    ConfigurationChanged {
+        reply: Reply<()>,
+    },
+    InstallationChanged {
+        provider: ace_protocol::generated::ProviderKind,
+        version: String,
+        runtime: String,
+        reply: Reply<()>,
+    },
+    LoginChanged {
+        instance: String,
+        revision: String,
+        sign_in_method: Option<Option<String>>,
+        /// `Some` for an ACP row, which reports at once; `None` means the caller refreshes.
+        reply: Reply<Result<Option<Vec<InstanceStatus>>, CatalogError>>,
+    },
+    Remove {
+        instance: String,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    Invalidate {
+        filter: ModelFilter,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    Refresh {
+        filter: ModelFilter,
+        mode: RefreshMode,
+        reply: Reply<Result<Vec<InstanceStatus>, CatalogError>>,
+    },
+    RefreshState {
+        id: String,
+        cause: RefreshCause,
+        reply: Reply<InstanceStatus>,
+    },
+    UpdateSession {
+        input: ModelInstance,
+        metadata: Value,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    UpdateModes {
+        instance: String,
+        modes: Vec<Value>,
+        reply: Reply<()>,
+    },
+    HoldTurn {
+        id: String,
+        reply: Reply<(u64, futures::channel::oneshot::Receiver<()>)>,
+    },
+    ReserveTurn {
+        id: String,
+        reply: Reply<u64>,
+    },
+    SettleTurn {
+        id: String,
+        token: u64,
+        reply: Reply<()>,
+    },
+    Close {
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    ReconcileIds {
+        reply: Reply<Option<Vec<String>>>,
+    },
+    Probe {
+        id: String,
+        reply: Reply<Result<(), CatalogError>>,
+    },
+    Observe {
+        reply: Reply<Option<u64>>,
+    },
+    UnobserveWith {
+        reply: Reply<()>,
+    },
+    /// Waits until the actor has no spawned work left. Tests use it to settle a drain.
+    Quiesce {
+        reply: Reply<()>,
+    },
+    /// Test inspection: how many accepted session writes have not settled.
+    PendingWork {
+        reply: Reply<usize>,
+    },
+    /// Test inspection: the row's connection fingerprint and whether it reports an error.
+    Inspect {
+        id: String,
+        reply: Reply<(Option<String>, bool)>,
+    },
+
+    // Work the actor spawned, reporting back.
+    TaskSettled {
+        task: u64,
+    },
+    Deadline {
+        id: String,
+        token: u64,
+    },
+    ProbeDeadline {
+        id: String,
+        token: u64,
+    },
+    /// A flight asks to proceed once admission and the CLI check passed; the actor arms
+    /// the deadline and answers whether the discovery may launch.
+    FlightAdmit {
+        id: String,
+        token: u64,
+        reply: Reply<bool>,
+    },
+    FlightOutcome {
+        id: String,
+        token: u64,
+        started_at: f64,
+        diagnostics: DiscoveryDiagnostics,
+        outcome: FlightOutcome,
+    },
+    ProbeOutcome {
+        id: String,
+        token: u64,
+        generation: u64,
+        revision: String,
+        started_at: f64,
+        result: Option<Result<String, DiscoveryFailure>>,
+    },
+    RemovalDone {
+        id: String,
+        token: u64,
+        result: Result<(), crate::cache::CacheError>,
+    },
+    InvalidationDone {
+        id: String,
+        token: u64,
+    },
+    /// A queued permission-mode write's place may run.
+    PermissionReady {
+        id: String,
+        place: u64,
+    },
+}
+
+/// Which refresh a caller asked for.
+#[derive(Debug, Clone)]
+pub(crate) enum RefreshMode {
+    /// Every selected row, resetting each retry pause.
+    All,
+    /// One instance, with the person's own probe deferral.
+    Load(String),
+    /// Rows that never loaded, or loaded empty and are due.
+    Missing,
+}
+
+/// What a flight's discovery reported.
+pub(crate) enum FlightOutcome {
+    Discovered(DiscoveryOutcome),
+    Failed(Box<DiscoveryFailure>),
+    Admission(String),
+    /// The task ended without an answer: aborted, dropped, or panicked.
+    None,
+}

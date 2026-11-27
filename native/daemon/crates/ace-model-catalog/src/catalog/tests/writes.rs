@@ -26,7 +26,11 @@ fn a_queued_write_for_the_old_login_never_lands_on_the_new_one() {
     let discover = always(vec![row(&codex, "gpt-6-sol")]);
     let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
     let catalog = fixture.catalog.clone();
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     // Accepted, then a new login registers and loads its own row before the queued task runs.
     catalog.update_permission_modes(
         "account",
@@ -94,7 +98,7 @@ fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
         .unwrap_or_else(|error| panic!("{error}"));
     assert!(catalog.has_instance("account"));
     drop(hold);
-    let written = futures::executor::block_on(queued);
+    let written = settle(queued, &fixture.spawn, "the queued write");
     assert_eq!(
         written,
         Err(CatalogError::SessionGenerationChanged),
@@ -117,7 +121,11 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
     let fixture = fixture(vec![agent.clone()], storage.clone(), always(Vec::new()));
     let catalog = fixture.catalog.clone();
     let metadata = acp_metadata("session-model");
-    let _ = futures::executor::block_on(catalog.update_from_session(agent.clone(), &metadata));
+    let _ = settle(
+        catalog.update_from_session(agent.clone(), &metadata),
+        &fixture.spawn,
+        "the session write",
+    );
     // Accepted but not started: its place in the queue is already taken.
     catalog.update_permission_modes(
         "account",
@@ -132,7 +140,7 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
         "the later write waits for the earlier permission write"
     );
     fixture.spawn.drain();
-    futures::executor::block_on(session).unwrap_or_else(|error| panic!("{error}"));
+    settle(session, &fixture.spawn, "the session write").unwrap_or_else(|error| panic!("{error}"));
     let mut storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
@@ -168,7 +176,7 @@ fn a_dropped_writer_never_lets_later_work_pass_the_one_before_it() {
         "a dropped place releases nothing before the place before it finished"
     );
     drop(held);
-    futures::executor::block_on(later);
+    settle(later, &fixture.spawn, "the later turn");
 }
 
 #[test]
@@ -193,8 +201,12 @@ fn a_dropped_session_write_releases_its_capacity_slot() {
     }
     drop(held);
     // The slots are free again, so a later session write is accepted.
-    futures::executor::block_on(catalog.update_from_session(agent.clone(), &metadata))
-        .unwrap_or_else(|error| panic!("{error}"));
+    settle(
+        catalog.update_from_session(agent.clone(), &metadata),
+        &fixture.spawn,
+        "the session write",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
 }
 
 #[test]
@@ -242,16 +254,20 @@ fn a_session_reports_levels_for_the_model_it_runs_without_erasing_others() {
         always(Vec::new()),
     );
     let catalog = &fixture.catalog;
-    futures::executor::block_on(async {
-        catalog
-            .update_from_session(agent.clone(), &setup("fast"))
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
-        catalog
-            .update_from_session(agent.clone(), &setup("deep"))
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
-    });
+    settle(
+        async {
+            catalog
+                .update_from_session(agent.clone(), &setup("fast"))
+                .await
+                .unwrap_or_else(|error| panic!("{error}"));
+            catalog
+                .update_from_session(agent.clone(), &setup("deep"))
+                .await
+                .unwrap_or_else(|error| panic!("{error}"));
+        },
+        &fixture.spawn,
+        "two session writes",
+    );
     let listed = catalog
         .list(ModelFilter::instance("one"), 0, 100)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -316,7 +332,11 @@ fn close_drains_a_write_accepted_before_it_started() {
     let discover = always(vec![row(&codex, "gpt-6-sol")]);
     let fixture = fixture(vec![codex], storage.clone(), discover);
     let catalog = fixture.catalog.clone();
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     // Accepted, but its task has not run yet: close must wait for it.
     catalog.update_permission_modes(
         "account",

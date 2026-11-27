@@ -32,6 +32,16 @@ impl PendingDeletions {
         self.pending.contains(instance)
     }
 
+    /// Records a deletion a task reported as failed, for the next retry or shutdown.
+    pub fn mark(&mut self, instance: &str) {
+        self.pending.insert(instance.to_owned());
+    }
+
+    /// Records a deletion a task reported as done.
+    pub fn forget(&mut self, instance: &str) {
+        self.pending.remove(instance);
+    }
+
     /// Deletes one row now; a failure stays pending for the next retry.
     pub fn remove(&mut self, instance: &str) -> Result<(), CacheError> {
         if !self.pending.contains(instance) && self.pending.len() >= PENDING_LIMIT {

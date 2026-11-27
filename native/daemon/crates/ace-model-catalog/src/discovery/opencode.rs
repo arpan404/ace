@@ -145,7 +145,7 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
         request: DiscoveryRequest,
         signal: Signal,
         diagnostic: DiagnosticSink,
-    ) -> futures::future::LocalBoxFuture<'static, DiscoverResult> {
+    ) -> futures::future::BoxFuture<'static, DiscoverResult> {
         let http = self.http.clone();
         let clock = self.clock.clone();
         let pause = self.pause.clone();
@@ -240,7 +240,7 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                 let listing = process.run(&command, &aborted).and_then(completed);
                 #[allow(clippy::result_large_err)]
                 match listing.and_then(|listing| {
-                    parse_opencode_listing(&listing, &instance)
+                    crate::discovery::opencode_report::parse_opencode_listing(&listing, &instance)
                         .map_err(|message| failure(FailureCode::ParseFailure, message))
                 }) {
                     Ok(listed) => {
@@ -313,158 +313,6 @@ fn percent_encode(value: &str) -> String {
             _ => format!("%{byte:02X}"),
         })
         .collect()
-}
-
-/// One `opencode models` row, and whether it carried JSON metadata or only the id.
-#[derive(Debug, Clone)]
-pub struct ListedModel {
-    pub model: ace_protocol::generated::CatalogModel,
-    pub id_only: bool,
-}
-
-/// The CLI's `opencode models` listing: a `provider/model` heading, then its JSON object.
-pub fn parse_opencode_listing(
-    output: &str,
-    instance: &ModelInstance,
-) -> Result<Vec<ListedModel>, &'static str> {
-    let mut rows = Vec::new();
-    let mut heading: Option<String> = None;
-    let mut json = String::new();
-    let mut bytes = 0;
-    for line in output.lines() {
-        bytes += line.len() + 1;
-        if bytes > 4 * 1024 * 1024 {
-            return Err("Model metadata output exceeded limit");
-        }
-        let trimmed = line.trim();
-        if heading.is_none() {
-            if trimmed.is_empty() {
-                continue;
-            }
-            let valid = !trimmed.contains(char::is_whitespace)
-                && trimmed
-                    .split_once('/')
-                    .is_some_and(|(provider, model)| !provider.is_empty() && !model.is_empty());
-            if !valid {
-                return Err("Malformed model heading");
-            }
-            heading = Some(trimmed.to_owned());
-            continue;
-        }
-        if !json.is_empty()
-            && !trimmed.is_empty()
-            && !trimmed.starts_with(['{', '}', '"', ']', '['])
-            && trimmed.contains('/')
-        {
-            // A heading with no object after it (the id-only listing).
-            let current = heading.take().unwrap_or_default();
-            push_listing_row(&mut rows, instance, &current, &json)?;
-            json.clear();
-            heading = Some(trimmed.to_owned());
-            continue;
-        }
-        if json.is_empty() && trimmed.contains('/') && !trimmed.starts_with('{') {
-            let current = heading.take().unwrap_or_default();
-            push_listing_row(&mut rows, instance, &current, "")?;
-            heading = Some(trimmed.to_owned());
-            continue;
-        }
-        json.push_str(line);
-        json.push('\n');
-        if line != "}"
-            && !(json.lines().count() == 1 && trimmed.starts_with('{') && trimmed.ends_with('}'))
-        {
-            continue;
-        }
-        let current = heading.take().unwrap_or_default();
-        push_listing_row(&mut rows, instance, &current, &json)?;
-        json.clear();
-        if rows.len() > 512 {
-            return Err("Too many models");
-        }
-    }
-    if let Some(current) = heading.take() {
-        push_listing_row(&mut rows, instance, &current, &json)?;
-    }
-    if rows.len() > 512 {
-        return Err("Too many models");
-    }
-    Ok(rows)
-}
-
-fn push_listing_row(
-    rows: &mut Vec<ListedModel>,
-    instance: &ModelInstance,
-    heading: &str,
-    json: &str,
-) -> Result<(), &'static str> {
-    let (provider, model_id) = heading.split_once('/').ok_or("Malformed model heading")?;
-    if json.trim().is_empty() {
-        let mut model = ace_models::row::base(instance, heading, model_id, &Value::Null);
-        model.native_provider_id = serde_json::from_value(Value::String(provider.to_owned())).ok();
-        rows.push(ListedModel {
-            model,
-            id_only: true,
-        });
-        return Ok(());
-    }
-    let native: Value = serde_json::from_str(json).map_err(|_| "Malformed model metadata")?;
-    let native_provider = native
-        .get("providerID")
-        .and_then(Value::as_str)
-        .unwrap_or(provider);
-    let native_id = native.get("id").and_then(Value::as_str).unwrap_or(model_id);
-    if format!("{native_provider}/{native_id}") != heading {
-        return Err("Model heading mismatch");
-    }
-    let name = native
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or(model_id);
-    let mut model = ace_models::row::base(instance, heading, name, &native);
-    model.native_provider_id =
-        serde_json::from_value(Value::String(native_provider.to_owned())).ok();
-    if let Some(context) = native
-        .get("limit")
-        .and_then(|limit| limit.get("context"))
-        .and_then(Value::as_u64)
-    {
-        model.context_window = serde_json::from_value(Value::from(context)).ok();
-    }
-    if let Some(input) = native
-        .get("capabilities")
-        .and_then(|c| c.get("input"))
-        .and_then(Value::as_object)
-    {
-        let modalities: Vec<Value> = input
-            .iter()
-            .filter(|(_, enabled)| enabled.as_bool() == Some(true))
-            .map(|(id, _)| Value::String(id.clone()))
-            .collect();
-        model.input_modalities =
-            serde_json::from_value(Value::Array(modalities)).unwrap_or_else(|_| Vec::new().into());
-    }
-    let variants: Vec<ace_models::effort::EffortValue<'_>> = native
-        .get("variants")
-        .and_then(Value::as_object)
-        .map(|variants| {
-            variants
-                .keys()
-                .map(|id| ace_models::effort::EffortValue::id(id))
-                .collect()
-        })
-        .unwrap_or_default();
-    model.efforts = ace_models::effort::model_efforts(variants).into();
-    let status = native.get("status").and_then(Value::as_str).unwrap_or("");
-    model.deprecated = (status == "deprecated" || status == "legacy").into();
-    model.legacy = Some(ace_models::metadata::legacy_metadata(&native).into());
-    if ace_models::metadata::chat_metadata(&native) {
-        rows.push(ListedModel {
-            model,
-            id_only: false,
-        });
-    }
-    Ok(())
 }
 
 /// The server an instance talks to: its configured base URL, else OpenCode's default.

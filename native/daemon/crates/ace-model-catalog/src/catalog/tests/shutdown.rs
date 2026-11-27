@@ -154,8 +154,11 @@ fn a_second_close_waits_for_the_first_ones_drain() {
         "a second close waits for the first drain"
     );
     gate.open();
-    let (_, a, b) =
-        futures::executor::block_on(async move { futures::join!(flight, first, second) });
+    let (_, a, b) = settle(
+        async move { futures::join!(flight, first, second) },
+        &fixture.spawn,
+        "two closes",
+    );
     a.unwrap_or_else(|error| panic!("{error}"));
     b.unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(
@@ -186,7 +189,7 @@ fn shutdown_aborts_flights_and_closes_after_they_settle() {
             .await;
     }));
     // Start the work before closing: its flight is registered and running.
-    assert_eq!(fixture.spawn.drain(), 1, "the flight started");
+    fixture.spawn.drain();
     assert_eq!(fixture.discover.calls(), 1, "its discovery is running");
     let mut close = Box::pin(fixture.catalog.close());
     assert!(
@@ -204,7 +207,12 @@ fn shutdown_aborts_flights_and_closes_after_they_settle() {
     closed.unwrap_or_else(|error| panic!("{error}"));
     assert!(fixture.catalog.has_instance("account"));
     assert_eq!(
-        futures::executor::block_on(fixture.catalog.refresh(ModelFilter::default())).err(),
+        settle(
+            fixture.catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the refresh after close",
+        )
+        .err(),
         Some(CatalogError::Closed)
     );
 }
@@ -219,9 +227,17 @@ fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
     let discover = always(vec![row(&codex, "gpt-6-sol")]);
     let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
     let catalog = fixture.catalog.clone();
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     // The first deletion fails, so the revocation cannot claim success.
-    let revoked = futures::executor::block_on(catalog.invalidate(ModelFilter::default()));
+    let revoked = settle(
+        catalog.invalidate(ModelFilter::default()),
+        &fixture.spawn,
+        "the invalidation",
+    );
     assert!(
         revoked.is_err(),
         "a failed deletion is reported, never claimed as revoked"
@@ -241,7 +257,7 @@ fn a_failed_revocation_is_reported_and_the_replacement_row_survives_shutdown() {
         "the replacement login's refresh",
     )
     .unwrap_or_else(|error| panic!("{error}"));
-    futures::executor::block_on(catalog.close()).unwrap_or_else(|error| panic!("{error}"));
+    settle(catalog.close(), &fixture.spawn, "the close").unwrap_or_else(|error| panic!("{error}"));
     let mut storage = storage.clone();
     let stored = storage.load().unwrap_or_default();
     assert!(
@@ -293,7 +309,7 @@ fn a_dropped_close_still_settles_a_later_one() {
                     .await;
             }
         }));
-        assert_eq!(fixture.spawn.drain(), 1, "the flight started");
+        fixture.spawn.drain();
         let mut first = Box::pin(catalog.close());
         assert!(
             poll_once(first.as_mut()).is_pending(),

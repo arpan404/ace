@@ -1,0 +1,1408 @@
+// SPDX-License-Identifier: Apache-2.0
+//! The catalog actor: one thread owns every piece of mutable catalog state and every
+//! decision about it. Work it cannot do inline (discovery, probes, deletions) runs in
+//! spawned tasks that report back with the token they were given.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Arc, Mutex};
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
+
+use ace_models::instance::ModelInstance;
+use ace_protocol::generated::ProviderKind;
+
+use crate::catalog::commands::{Command, Envelope, FlightOutcome, Reply};
+use crate::catalog::flights::Commit;
+use crate::catalog::turns;
+use crate::catalog::{
+    CatalogError, CatalogOptions, DiscoveryDiagnostics, DiscoveryFailure, ErrorReport, Inner,
+    InstanceStatus, ModelFilter, PendingOp, State, empty_status, status_of,
+};
+use crate::failures::{FailureCode, discovery_error};
+use crate::gate::RefreshCause;
+use crate::signals::{Limiter, Signal};
+
+/// What kind of work a spawned task is, so a task that panics or is dropped can be
+/// settled the way that kind requires.
+#[derive(Clone)]
+pub(crate) enum TaskKind {
+    Flight { id: String, token: u64 },
+    Probe { id: String, token: u64 },
+    Removal { id: String, token: u64 },
+    Invalidation { id: String, token: u64 },
+    Permission { id: String, place: u64 },
+    Other,
+}
+
+/// One explicit refresh waiting for its flights.
+pub(crate) struct RefreshBatch {
+    pub(crate) ids: Vec<String>,
+    pub(crate) pending: BTreeSet<String>,
+    pub(crate) reply: Reply<Result<Vec<InstanceStatus>, CatalogError>>,
+}
+
+/// One invalidation pass waiting for its deletions.
+pub(crate) struct InvalidationBatch {
+    pub(crate) remaining: usize,
+    pub(crate) error: Option<crate::cache::CacheError>,
+    pub(crate) reply: Reply<Result<(), CatalogError>>,
+}
+
+/// Reports its task's end on every path, including a panic, a drop before the first poll,
+/// or a normal return. Close waits for these.
+struct TaskGuard {
+    task: u64,
+    commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+}
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        let sender = self
+            .commands
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = sender.send(Envelope {
+            command: Command::TaskSettled { task: self.task },
+            ack: None,
+        });
+    }
+}
+
+pub(crate) struct Actor {
+    pub(crate) inner: Inner,
+    pub(crate) options: Arc<CatalogOptions>,
+    pub(crate) storage: crate::cache::SharedStorage,
+    pub(crate) limiter: Limiter,
+    pub(crate) commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    in_flight: BTreeMap<u64, TaskKind>,
+    next_task: u64,
+    pub(crate) flight_waiters: BTreeMap<u64, Vec<Reply<InstanceStatus>>>,
+    pub(crate) refresh_ok_waiters: BTreeMap<u64, Vec<Reply<Result<(), CatalogError>>>>,
+    pub(crate) refresh_batches: BTreeMap<u64, RefreshBatch>,
+    pub(crate) next_batch: u64,
+    pub(crate) invalidation_batches: BTreeMap<u64, InvalidationBatch>,
+    pub(crate) next_invalidation_batch: u64,
+    pub(crate) invalidation_batch_of: BTreeMap<u64, u64>,
+    pub(crate) probe_waiters: BTreeMap<String, Vec<Reply<Result<(), CatalogError>>>>,
+    pub(crate) probe_signals: BTreeMap<u64, Signal>,
+    pub(crate) probe_cancels: BTreeMap<u64, crate::catalog::Cancel>,
+    flight_cancels: BTreeMap<u64, crate::catalog::Cancel>,
+    timed_out_flights: BTreeSet<u64>,
+    pub(crate) timed_out_probes: BTreeSet<u64>,
+    pub(crate) next_probe: u64,
+    next_listener: u64,
+    pub(crate) next_removal: u64,
+    pub(crate) next_invalidation: u64,
+    pub(crate) refresh_after: BTreeSet<String>,
+    close_waiters: Vec<Reply<Result<(), CatalogError>>>,
+    closing: bool,
+    quiesce_waiters: Vec<Reply<()>>,
+    pub(crate) pending_commits: usize,
+    commit_tokens: BTreeSet<u64>,
+}
+
+impl Actor {
+    pub(crate) fn new(
+        mut inner: Inner,
+        stored: Vec<crate::cache::CacheEntry>,
+        options: Arc<CatalogOptions>,
+        storage: crate::cache::SharedStorage,
+        limiter: Limiter,
+        commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    ) -> Self {
+        for entry in stored {
+            if entry.provider == ProviderKind::Acp {
+                inner.acp_loaded.insert(entry.instance.clone());
+            }
+            let owned: Vec<ace_protocol::generated::CatalogModel> =
+                entry.models.iter().map(|row| (**row).clone()).collect();
+            let models = crate::cleanup::clean_catalog(&owned);
+            let retained = crate::sources::refreshed_sources(
+                models.into_iter().map(Arc::new).collect(),
+                entry.sources.as_deref(),
+                None,
+                entry.refreshed_at,
+            );
+            let mut entry = entry;
+            entry.models = retained.models;
+            entry.sources = Some(retained.sources);
+            inner.persisted_order.push(entry.instance.clone());
+            inner.persisted.insert(entry.instance.clone(), entry);
+        }
+        Self {
+            inner,
+            options,
+            storage,
+            limiter,
+            commands,
+            in_flight: BTreeMap::new(),
+            next_task: 0,
+            flight_waiters: BTreeMap::new(),
+            refresh_ok_waiters: BTreeMap::new(),
+            refresh_batches: BTreeMap::new(),
+            next_batch: 0,
+            invalidation_batches: BTreeMap::new(),
+            next_invalidation_batch: 0,
+            invalidation_batch_of: BTreeMap::new(),
+            probe_waiters: BTreeMap::new(),
+            probe_signals: BTreeMap::new(),
+            probe_cancels: BTreeMap::new(),
+            flight_cancels: BTreeMap::new(),
+            timed_out_flights: BTreeSet::new(),
+            timed_out_probes: BTreeSet::new(),
+            next_probe: 0,
+            next_listener: 0,
+            next_removal: 0,
+            next_invalidation: 0,
+            refresh_after: BTreeSet::new(),
+            close_waiters: Vec::new(),
+            closing: false,
+            quiesce_waiters: Vec::new(),
+            pending_commits: 0,
+            commit_tokens: BTreeSet::new(),
+        }
+    }
+
+    pub(crate) fn run(mut self, receiver: std::sync::mpsc::Receiver<Envelope>) {
+        while let Ok(envelope) = receiver.recv() {
+            self.handle_command(envelope.command);
+            if let Some(ack) = envelope.ack {
+                let _ = ack.send(());
+            }
+        }
+    }
+
+    fn handle_command(&mut self, command: Command) {
+        match command {
+            Command::List {
+                filter,
+                offset,
+                limit,
+                reply,
+            } => self.list(filter, offset, limit, reply),
+            Command::Resolve {
+                spec,
+                cached,
+                reply,
+            } => self.resolve(spec, cached, reply),
+            Command::HasProvider { provider, reply } => {
+                let value = self
+                    .inner
+                    .providers
+                    .get(&provider)
+                    .is_some_and(|ids| !ids.is_empty());
+                let _ = reply.send(value);
+            }
+            Command::HasInstance { id, reply } => {
+                let _ = reply.send(self.inner.states.contains_key(&id));
+            }
+            Command::HasFlight { id, reply } => {
+                let value = self
+                    .inner
+                    .states
+                    .get(&id)
+                    .is_some_and(|state| state.flight.is_some());
+                let _ = reply.send(value);
+            }
+            Command::Registered { id, reply } => {
+                let value = self.inner.states.get(&id).map(|state| state.config.clone());
+                let _ = reply.send(value);
+            }
+            Command::Listen { listener, reply } => {
+                if self.inner.closed {
+                    let _ = reply.send(Err(CatalogError::Closed));
+                } else if self.inner.listeners.len() >= 4096 {
+                    let _ = reply.send(Err(CatalogError::ListenerLimit));
+                } else {
+                    self.next_listener += 1;
+                    let token = self.next_listener;
+                    self.inner.listeners.insert(token, listener);
+                    let _ = reply.send(Ok(token));
+                }
+            }
+            Command::Unlisten { token } => {
+                self.inner.listeners.remove(&token);
+            }
+            Command::MarkStale { filter, reply } => {
+                let result = self.mark_stale(&filter);
+                let _ = reply.send(result);
+            }
+            Command::Register {
+                input,
+                admit,
+                reply,
+            } => {
+                let result = self.register(input, admit);
+                let _ = reply.send(result);
+            }
+            Command::ConfigurationChanged { reply } => {
+                self.configuration_changed();
+                let _ = reply.send(());
+            }
+            Command::InstallationChanged {
+                provider,
+                version,
+                runtime,
+                reply,
+            } => {
+                self.installation_changed(provider, &version, &runtime);
+                let _ = reply.send(());
+            }
+            Command::LoginChanged {
+                instance,
+                revision,
+                sign_in_method,
+                reply,
+            } => {
+                let result = self.login_changed(&instance, &revision, sign_in_method);
+                let _ = reply.send(result);
+            }
+            Command::Remove { instance, reply } => self.remove(instance, reply),
+            Command::Invalidate { filter, reply } => self.invalidate(filter, reply),
+            Command::Refresh {
+                filter,
+                mode,
+                reply,
+            } => self.refresh(filter, mode, reply),
+            Command::RefreshState { id, cause, reply } => self.refresh_state(&id, cause, reply),
+            Command::UpdateSession {
+                input,
+                metadata,
+                reply,
+            } => self.update_session(input, &metadata, reply),
+            Command::UpdateModes {
+                instance,
+                modes,
+                reply,
+            } => {
+                self.update_modes(&instance, modes);
+                let _ = reply.send(());
+            }
+            Command::HoldTurn { id, reply } => {
+                let entry = self.inner.turns.entry(id.clone()).or_default();
+                let (token, granted) = entry.hold();
+                let _ = reply.send((token, granted));
+                self.pump(&id);
+            }
+            Command::ReserveTurn { id, reply } => {
+                let token = self.inner.turns.entry(id).or_default().reserve();
+                let _ = reply.send(token);
+            }
+            Command::SettleTurn { id, token, reply } => {
+                if let Some(entry) = self.inner.turns.get_mut(&id) {
+                    entry.settle(token);
+                }
+                let _ = reply.send(());
+                self.pump(&id);
+            }
+            Command::ResetPause { id, reply } => {
+                if let Some(state) = self.inner.states.get_mut(&id) {
+                    state.probe_retry_at = 0.0;
+                    state.backoff.reset();
+                    state.retry_at = 0.0;
+                }
+                let _ = reply.send(());
+            }
+            Command::Close { reply } => self.close(reply),
+            Command::ReconcileIds { reply } => {
+                let ids = if self.inner.closed {
+                    None
+                } else {
+                    Some(
+                        self.inner
+                            .order
+                            .iter()
+                            .filter(|id| {
+                                self.inner.states.get(*id).is_some_and(|state| {
+                                    matches!(
+                                        state.config.provider,
+                                        ProviderKind::Opencode | ProviderKind::Pi
+                                    ) && self.enabled(&state.config)
+                                })
+                            })
+                            .cloned()
+                            .collect(),
+                    )
+                };
+                let _ = reply.send(ids);
+            }
+            Command::Probe { id, reply } => self.probe(&id, reply),
+            Command::Observe { reply } => {
+                if self.inner.closed || self.options.connection_check_ms.is_none() {
+                    let _ = reply.send(None);
+                } else {
+                    self.inner.observers += 1;
+                    let _ = reply.send(Some(0));
+                }
+            }
+            Command::UnobserveWith { reply } => {
+                self.inner.observers = self.inner.observers.saturating_sub(1);
+                let _ = reply.send(());
+            }
+            Command::PendingWork { reply } => {
+                let _ = reply.send(self.inner.session_writes);
+            }
+            Command::Quiesce { reply } => {
+                if self.in_flight.is_empty() {
+                    let _ = reply.send(());
+                } else {
+                    self.quiesce_waiters.push(reply);
+                }
+            }
+            Command::Inspect { id, reply } => {
+                let facts = self.inner.states.get(&id).map(|state| {
+                    (
+                        state.connection_fingerprint.clone(),
+                        state.error.is_some() || state.error_detail.is_some(),
+                    )
+                });
+                let _ = reply.send(facts.unwrap_or((None, false)));
+            }
+            Command::TaskSettled { task } => self.task_settled(task),
+            Command::Deadline { id, token } => self.deadline(&id, token),
+            Command::ProbeDeadline { id, token } => self.probe_deadline(&id, token),
+            Command::FlightAdmit { id, token, reply } => {
+                let go = self.admit_flight(&id, token);
+                let _ = reply.send(go);
+            }
+            Command::FlightOutcome {
+                id,
+                token,
+                started_at,
+                diagnostics,
+                outcome,
+                ..
+            } => self.flight_outcome(&id, token, started_at, diagnostics, outcome),
+            Command::ProbeOutcome {
+                id,
+                token,
+                generation,
+                revision,
+                started_at,
+                result,
+                ..
+            } => self.probe_outcome(&id, token, generation, &revision, started_at, result),
+            Command::RemovalDone { id, token, result } => self.removal_done(&id, token, result),
+            Command::InvalidationDone { id, token, .. } => self.mark_invalidation_ready(&id, token),
+            Command::PermissionReady { id, place } => {
+                if let Some(turns) = self.inner.turns.get_mut(&id) {
+                    turns.mark_ready(place);
+                }
+                self.pump(&id);
+            }
+        }
+        self.after_event();
+    }
+
+    pub(crate) fn now(&self) -> f64 {
+        self.options.clock.now()
+    }
+
+    pub(crate) fn configuration(
+        &self,
+        config: &ModelInstance,
+    ) -> crate::preferences::ProviderConfig {
+        let rows = self
+            .options
+            .preferences
+            .as_ref()
+            .map(|preferences| preferences())
+            .unwrap_or_default();
+        crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id))
+    }
+
+    pub(crate) fn enabled(&self, config: &ModelInstance) -> bool {
+        self.configuration(config).enabled != Some(false)
+    }
+
+    pub(crate) fn revision(&self, config: &ModelInstance) -> String {
+        let path = self.configuration(config).binary_path;
+        crate::catalog::revision_of(config, path.as_deref())
+    }
+
+    pub(crate) fn status(&self, id: &str) -> Option<InstanceStatus> {
+        self.inner
+            .states
+            .get(id)
+            .map(|state| status_of(&self.options, &self.inner, state))
+    }
+
+    /// Calls every listener, containing a panicking one so the actor keeps running.
+    pub(crate) fn notify(&mut self, config: &ModelInstance) {
+        let listeners: Vec<_> = self.inner.listeners.values().cloned().collect();
+        if listeners.is_empty() {
+            return;
+        }
+        let filter = ModelFilter {
+            provider: Some(config.provider),
+            instance: Some(config.id.clone()),
+            ..ModelFilter::default()
+        };
+        for listener in listeners {
+            let filter = filter.clone();
+            let _ = catch_unwind(AssertUnwindSafe(|| listener(filter)));
+        }
+    }
+
+    pub(crate) fn notify_id(&mut self, id: &str) {
+        if let Some(config) = self.inner.states.get(id).map(|state| state.config.clone()) {
+            self.notify(&config);
+        }
+    }
+
+    /// Spawns one task the actor owns. Its end is reported however it leaves, including a
+    /// panic, so close can always finish.
+    pub(crate) fn spawn(&mut self, kind: TaskKind, future: BoxFuture<'static, ()>) {
+        let task = self.next_task;
+        self.next_task += 1;
+        self.in_flight.insert(task, kind);
+        let commands = self.commands.clone();
+        // The guard is a captured value, so dropping the task before its first poll still
+        // reports it: close never waits on work the spawner threw away.
+        let guard = TaskGuard { task, commands };
+        let guarded = Box::pin(async move {
+            let _guard = guard;
+            let _ = AssertUnwindSafe(future).catch_unwind().await;
+        });
+        self.options.spawn.spawn(guarded);
+    }
+
+    fn task_settled(&mut self, task: u64) {
+        let Some(kind) = self.in_flight.remove(&task) else {
+            return;
+        };
+        match kind {
+            TaskKind::Flight { id, token } => {
+                // A discovery that already reported is waiting for its turn; its task
+                // ending is not the flight ending.
+                if !self.commit_tokens.contains(&token) {
+                    self.abort_flight(&id, token);
+                }
+            }
+            TaskKind::Probe { id, token } => self.abort_probe(&id, token),
+            TaskKind::Removal { id, token } => {
+                self.removal_done(&id, token, Err(crate::cache::CacheError::Malformed));
+            }
+            TaskKind::Invalidation { id, token } => {
+                // A deletion's waiter left without reporting; its place still runs the
+                // delete when its turn comes, so nothing behind it is stranded.
+                self.mark_invalidation_ready(&id, token);
+            }
+            TaskKind::Permission { id, place } => {
+                if let Some(turns) = self.inner.turns.get_mut(&id) {
+                    turns.mark_ready(place);
+                }
+                self.pump(&id);
+            }
+            TaskKind::Other => {}
+        }
+        if self.in_flight.is_empty() {
+            let waiters = std::mem::take(&mut self.quiesce_waiters);
+            for waiter in waiters {
+                let _ = waiter.send(());
+            }
+        }
+    }
+
+    fn after_event(&mut self) {
+        self.finish_close_if_ready();
+    }
+
+    pub(crate) fn all_turn_ids(&self) -> Vec<String> {
+        self.inner.turns.keys().cloned().collect()
+    }
+
+    pub(crate) fn pump(&mut self, id: &str) {
+        loop {
+            let step = match self.inner.turns.get_mut(id) {
+                Some(turns) => turns.step(),
+                None => return,
+            };
+            match step {
+                turns::Step::Run(token, op) => {
+                    self.execute_op(id, token, op);
+                    if let Some(entry) = self.inner.turns.get_mut(id) {
+                        entry.settle(token);
+                    }
+                }
+                turns::Step::Grant(grant) => {
+                    let _ = grant.send(());
+                }
+                turns::Step::Idle => break,
+                turns::Step::Empty => break,
+            }
+        }
+        let empty = self.inner.turns.get(id).is_none_or(turns::Turns::is_empty);
+        if empty {
+            self.inner.turns.remove(id);
+        }
+        self.finish_close_if_ready();
+    }
+
+    fn execute_op(&mut self, id: &str, token: u64, op: PendingOp) {
+        match op {
+            PendingOp::SessionWrite(write) => self.execute_session_write(*write),
+            PendingOp::PermissionWrite(write) => self.execute_permission_write(*write),
+            PendingOp::FlightCommit(commit) => self.execute_commit(commit),
+            PendingOp::Invalidation { token } => self.execute_invalidation(id, token),
+        }
+        let _ = token;
+    }
+
+    fn deadline(&mut self, id: &str, token: u64) {
+        let matches = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.flight.as_ref())
+            .is_some_and(|flight| flight.token == token);
+        if !matches {
+            return;
+        }
+        self.timed_out_flights.insert(token);
+        if let Some(abort) = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.abort.clone())
+        {
+            abort.abort();
+        }
+    }
+
+    pub(crate) fn fail(
+        &mut self,
+        id: &str,
+        failure: Option<DiscoveryFailure>,
+        fallback: FailureCode,
+        report: &FailureReport<'_>,
+    ) {
+        let Some((config, sources)) = self.inner.states.get(id).map(|state| {
+            let sources = state
+                .entry
+                .as_ref()
+                .and_then(|entry| entry.sources.as_ref())
+                .map(|sources| sources.iter().map(|status| status.source.clone()).collect());
+            (state.config.clone(), sources)
+        }) else {
+            return;
+        };
+        let sources: Option<Vec<ace_protocol::generated::ModelSource>> =
+            if config.provider == ProviderKind::Opencode {
+                None
+            } else {
+                sources.or_else(|| report.diagnostics.sources.clone())
+            };
+        let placeholder = DiscoveryFailure::default();
+        let named = failure
+            .as_ref()
+            .or(if report.diagnostics.source_failures.is_empty() {
+                None
+            } else {
+                Some(&placeholder)
+            });
+        let detail = discovery_error(
+            named,
+            fallback,
+            &crate::failures::ErrorContext {
+                provider: Some(&config.provider.to_string()),
+                source: sources
+                    .as_ref()
+                    .filter(|sources| sources.len() == 1)
+                    .and_then(|sources| sources.first())
+                    .map(|source| source.id.0.as_str()),
+                backend: config.backend.map(|_| "cursor-sdk"),
+            },
+        );
+        let now = self.now();
+        let unconfigured = matches!(
+            detail.code,
+            FailureCode::NotConfigured | FailureCode::NotInstalled
+        );
+        let terminal = matches!(
+            detail.code,
+            FailureCode::NoModels
+                | FailureCode::ParseFailure
+                | FailureCode::CliTooOld
+                | FailureCode::CliUnsupported
+        );
+        let schedule = terminal.then(|| {
+            (
+                if detail.code == FailureCode::NoModels {
+                    "info"
+                } else {
+                    "warn"
+                },
+                self.options.ttl_ms,
+            )
+        });
+        let mut report_sources: Vec<Option<ace_protocol::generated::ModelSource>> = sources
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(Some)
+            .collect();
+        if report_sources.is_empty() {
+            report_sources.push(None);
+        }
+        let mut logs: Vec<ReportLog> = Vec::new();
+        let mutated = {
+            let Some(state) = self.inner.states.get_mut(id) else {
+                return;
+            };
+            if let Some(revision) = report.revision
+                && state.probe_revision.as_deref() != Some(revision)
+            {
+                return;
+            }
+            if let Some(token) = report.token
+                && state.flight_token != Some(token)
+            {
+                return;
+            }
+            state.error_detail = Some(detail.clone());
+            if unconfigured {
+                let first = state.unconfigured_at.is_none();
+                state.unconfigured_at = Some(now);
+                state.dirty = false;
+                state.error = None;
+                state.entry = None;
+                state.view = None;
+                state.backoff.reset();
+                state.retry_at = 0.0;
+                if state.config.provider == ProviderKind::Acp {
+                    self.inner.acp_loaded.insert(id.to_owned());
+                }
+                if first {
+                    logs.push((None, None, None));
+                }
+                true
+            } else {
+                state.unconfigured_at = None;
+                if let Some((_, retry_in)) = schedule {
+                    state.backoff.reset();
+                    state.retry_at = now + retry_in;
+                } else {
+                    let keys: Vec<String> = report_sources
+                        .iter()
+                        .flatten()
+                        .map(|source| source.id.0.clone())
+                        .collect();
+                    state.backoff.retain(keys);
+                }
+                for source in &report_sources {
+                    let schedule_now = schedule.or_else(|| {
+                        state
+                            .backoff
+                            .fail(
+                                source
+                                    .as_ref()
+                                    .map(|source| source.id.0.as_str())
+                                    .unwrap_or(""),
+                                detail.code,
+                                now,
+                                self.options.retry_ms,
+                                (self.options.random)(),
+                            )
+                            .ok()
+                            .map(|schedule| {
+                                (
+                                    if schedule.warn { "warn" } else { "debug" },
+                                    schedule.retry_in_ms,
+                                )
+                            })
+                    });
+                    logs.push((
+                        source.as_ref().map(|source| source.id.0.clone()),
+                        source.as_ref().map(|source| source.label.0.clone()),
+                        schedule_now,
+                    ));
+                }
+                if schedule.is_none() {
+                    state.retry_at = state.backoff.retry_at();
+                }
+                state.error = Some(match fallback {
+                    FailureCode::Timeout => crate::catalog::StatusError::Timeout,
+                    FailureCode::PersistenceFailed => {
+                        crate::catalog::StatusError::PersistenceFailed
+                    }
+                    _ => crate::catalog::StatusError::DiscoveryFailed,
+                });
+                true
+            }
+        };
+        if !mutated {
+            return;
+        }
+        for (source, label, schedule) in logs {
+            report_line(
+                &self.options,
+                &config,
+                &detail,
+                source,
+                label,
+                now - report.started_at,
+                schedule,
+                report.diagnostics,
+            );
+        }
+        self.notify_id(id);
+    }
+
+    pub(crate) fn settle_flight(&mut self, id: &str, token: u64) {
+        // The gate belongs to the flight, not to whichever row replaced it: an
+        // invalidate or remove waiting on it must never hang.
+        let gate = self.inner.row_flights.get(id).and_then(|flights| {
+            flights
+                .iter()
+                .find(|flight| flight.token == token)
+                .map(|flight| flight.done.clone())
+        });
+        if let Some(state) = self.inner.states.get_mut(id)
+            && state
+                .flight
+                .as_ref()
+                .is_some_and(|flight| flight.token == token)
+        {
+            state.flight = None;
+            if let Some(abort) = state.abort.take() {
+                abort.abort();
+            }
+            state.flight_token = None;
+            state.probe_revision = None;
+        }
+        self.inner.row_flights.retain(|_, flights| {
+            flights.retain(|flight| flight.token != token);
+            !flights.is_empty()
+        });
+        if gate.is_some() {
+            self.inner.active_flights = self.inner.active_flights.saturating_sub(1);
+        }
+        if let Some(cancel) = self.flight_cancels.remove(&token) {
+            cancel();
+        }
+        self.timed_out_flights.remove(&token);
+        if let Some(gate) = &gate {
+            gate.open();
+        }
+        let status = self.status(id).unwrap_or_else(|| empty_status(id));
+        for waiter in self.flight_waiters.remove(&token).unwrap_or_default() {
+            let _ = waiter.send(status.clone());
+        }
+        for waiter in self.refresh_ok_waiters.remove(&token).unwrap_or_default() {
+            let _ = waiter.send(Ok(()));
+        }
+        self.complete_refresh(id, status);
+        self.notify_id(id);
+        if self.refresh_after.remove(id) && !self.inner.closed && self.inner.states.contains_key(id)
+        {
+            self.start_flight(id, RefreshCause::Background);
+        }
+    }
+
+    fn abort_flight(&mut self, id: &str, token: u64) {
+        self.settle_flight(id, token);
+    }
+
+    fn complete_refresh(&mut self, id: &str, status: InstanceStatus) {
+        let batches: Vec<u64> = self
+            .refresh_batches
+            .iter()
+            .filter(|(_, batch)| batch.pending.contains(id))
+            .map(|(token, _)| *token)
+            .collect();
+        for token in batches {
+            let done = {
+                let Some(batch) = self.refresh_batches.get_mut(&token) else {
+                    continue;
+                };
+                batch.pending.remove(id);
+                batch.pending.is_empty()
+            };
+            if done && let Some(batch) = self.refresh_batches.remove(&token) {
+                let statuses = batch
+                    .ids
+                    .iter()
+                    .filter_map(|known| {
+                        self.status(known)
+                            .or_else(|| (known == id).then(|| status.clone()))
+                    })
+                    .collect();
+                let _ = batch.reply.send(Ok(statuses));
+            }
+        }
+    }
+
+    fn admit_flight(&mut self, id: &str, token: u64) -> bool {
+        let facts = self.inner.states.get(id).and_then(|state| {
+            state
+                .flight
+                .as_ref()
+                .filter(|flight| flight.token == token)
+                .map(|_| (state.generation, state.config.clone()))
+        });
+        let Some((generation, config)) = facts else {
+            self.settle_flight(id, token);
+            return false;
+        };
+        let aborted = self
+            .inner
+            .states
+            .get(id)
+            .and_then(|state| state.abort.as_ref())
+            .is_some_and(Signal::is_aborted);
+        if self.inner.closed || aborted {
+            self.settle_flight(id, token);
+            return false;
+        }
+        let revision = self.revision(&config);
+        let current = self.inner.states.get(id).is_some_and(|state| {
+            state.generation == generation && state.probe_revision.as_deref() == Some(&revision)
+        });
+        if !current {
+            self.settle_flight(id, token);
+            return false;
+        }
+        if let Some(cli) = crate::cli::provider_cli(&config.provider.to_string())
+            && let Err(too_old) =
+                crate::cli::require_minimum(cli, config.installation_version.as_deref())
+        {
+            let failure = DiscoveryFailure {
+                code: Some(FailureCode::CliTooOld.as_str().to_owned()),
+                too_old: Some(too_old),
+                ..DiscoveryFailure::default()
+            };
+            self.fail(
+                id,
+                Some(failure),
+                FailureCode::CliTooOld,
+                &FailureReport {
+                    started_at: self.now(),
+                    diagnostics: &DiscoveryDiagnostics::default(),
+                    revision: Some(&revision),
+                    token: Some(token),
+                },
+            );
+            self.settle_flight(id, token);
+            return false;
+        }
+        self.arm_flight_deadline(id, token);
+        true
+    }
+
+    pub(crate) fn arm_flight_deadline(&mut self, id: &str, token: u64) {
+        if self.flight_cancels.contains_key(&token) {
+            return;
+        }
+        let commands = self.commands.clone();
+        let deadline_id = id.to_owned();
+        let cancel = self.options.deadline.arm(
+            self.options.timeout_ms,
+            Box::new(move || {
+                let sender = commands
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let _ = sender.send(Envelope {
+                    command: Command::Deadline {
+                        id: deadline_id.clone(),
+                        token,
+                    },
+                    ack: None,
+                });
+            }),
+        );
+        self.flight_cancels.insert(token, cancel);
+    }
+
+    fn flight_outcome(
+        &mut self,
+        id: &str,
+        token: u64,
+        started_at: f64,
+        diagnostics: DiscoveryDiagnostics,
+        outcome: FlightOutcome,
+    ) {
+        let Some((generation, revision, aborted)) = self.inner.states.get(id).and_then(|state| {
+            state
+                .flight
+                .as_ref()
+                .filter(|flight| flight.token == token)
+                .map(|_| {
+                    (
+                        state.generation,
+                        state.probe_revision.clone().unwrap_or_default(),
+                        state.abort.as_ref().is_some_and(Signal::is_aborted),
+                    )
+                })
+        }) else {
+            return;
+        };
+        let fired = self.timed_out_flights.contains(&token);
+        let report = FailureReport {
+            started_at,
+            diagnostics: &diagnostics,
+            revision: Some(&revision),
+            token: Some(token),
+        };
+        if aborted || matches!(&outcome, FlightOutcome::None) {
+            if fired {
+                self.fail(id, None, FailureCode::Timeout, &report);
+            }
+            self.settle_flight(id, token);
+            return;
+        }
+        match outcome {
+            FlightOutcome::None => {
+                self.settle_flight(id, token);
+            }
+            FlightOutcome::Admission(error) => {
+                let current = self.with_state(id, |state| {
+                    state.entry = None;
+                    state.view = None;
+                    state.dirty = true;
+                });
+                if current {
+                    let _ = self.deletions_remove(id);
+                }
+                self.fail(
+                    id,
+                    Some(DiscoveryFailure::new(&error)),
+                    FailureCode::DiscoveryFailed,
+                    &report,
+                );
+                self.settle_flight(id, token);
+            }
+            FlightOutcome::Failed(failure) => {
+                let failure = *failure;
+                let code = failure
+                    .code
+                    .as_deref()
+                    .and_then(|code| {
+                        crate::failures::DISCOVERY_FAILURE_CODES
+                            .iter()
+                            .copied()
+                            .find(|known| known.as_str() == code)
+                    })
+                    .unwrap_or(FailureCode::DiscoveryFailed);
+                self.fail(id, Some(failure), code, &report);
+                self.settle_flight(id, token);
+            }
+            FlightOutcome::Discovered(outcome) => {
+                if outcome.models.is_empty() && outcome.sources.is_none() {
+                    self.fail(
+                        id,
+                        Some(DiscoveryFailure::new("The CLI returned no model choices")),
+                        FailureCode::DiscoveryFailed,
+                        &report,
+                    );
+                    self.settle_flight(id, token);
+                    return;
+                }
+                let commit = Commit {
+                    id: id.to_owned(),
+                    token,
+                    generation,
+                    revision,
+                    started_at,
+                    diagnostics,
+                    outcome,
+                };
+                self.inner
+                    .turns
+                    .entry(id.to_owned())
+                    .or_default()
+                    .accept(PendingOp::FlightCommit(Box::new(commit)));
+                self.pending_commits += 1;
+                self.commit_tokens.insert(token);
+                self.pump(id);
+            }
+        }
+    }
+
+    fn with_state(&mut self, id: &str, change: impl FnOnce(&mut State)) -> bool {
+        match self.inner.states.get_mut(id) {
+            Some(state) => {
+                change(state);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether a flight may still write: it owns its row and token, was not aborted, and
+    /// the row's effective revision is still the one it started under.
+    pub(crate) fn flight_current(
+        &self,
+        id: &str,
+        token: u64,
+        generation: u64,
+        revision: &str,
+    ) -> bool {
+        let Some(state) = self.inner.states.get(id) else {
+            return false;
+        };
+        if self.inner.closed
+            || state.generation != generation
+            || state.flight_token != Some(token)
+            || state.abort.as_ref().is_some_and(Signal::is_aborted)
+        {
+            return false;
+        }
+        self.revision(&state.config) == revision
+    }
+
+    fn execute_commit(&mut self, commit: Box<Commit>) {
+        let Commit {
+            id,
+            token,
+            generation,
+            revision,
+            started_at,
+            diagnostics,
+            outcome,
+        } = *commit;
+        self.pending_commits = self.pending_commits.saturating_sub(1);
+        self.commit_tokens.remove(&token);
+        let report = FailureReport {
+            started_at,
+            diagnostics: &diagnostics,
+            revision: Some(&revision),
+            token: Some(token),
+        };
+        let fired = self.timed_out_flights.contains(&token);
+        if !self.flight_current(&id, token, generation, &revision) {
+            if fired {
+                self.fail(&id, None, FailureCode::Timeout, &report);
+            }
+            self.settle_flight(&id, token);
+            return;
+        }
+        let Some(config) = self.inner.states.get(&id).map(|state| state.config.clone()) else {
+            self.settle_flight(&id, token);
+            return;
+        };
+        let pending_deletion = self.inner.deletions.has(&id);
+        if pending_deletion && self.deletions_remove(&id).is_err() {
+            self.commit_failed(&id, &report, generation);
+            self.settle_flight(&id, token);
+            return;
+        }
+        let previous = self
+            .inner
+            .states
+            .get(&id)
+            .and_then(|state| state.entry.as_ref())
+            .map(|entry| Arc::new((**entry).clone()));
+        let now = self.now();
+        let combined = crate::sources::refreshed_sources(
+            crate::cleanup::clean_catalog(&outcome.models)
+                .into_iter()
+                .map(Arc::new)
+                .collect(),
+            outcome.sources.as_deref(),
+            previous.as_deref(),
+            now,
+        );
+        let permission_modes = outcome.permission_modes.clone().or_else(|| {
+            self.inner.states.get(&id).and_then(|state| {
+                state.permission_modes.clone().or_else(|| {
+                    state
+                        .entry
+                        .as_ref()
+                        .and_then(|entry| entry.permission_modes.clone())
+                })
+            })
+        });
+        let entry = crate::cache::CacheEntry {
+            provider: config.provider,
+            instance: config.id.clone(),
+            login_revision: Some(config.login_revision.clone()),
+            revision: revision.clone(),
+            refreshed_at: now,
+            models: combined.models,
+            sources: Some(combined.sources),
+            permission_modes,
+            identity_revision: Some(crate::catalog::identity_revision(&config)),
+            connection_revision: Some(crate::catalog::flights_connection_revision(
+                config.provider,
+                &outcome.models,
+                outcome.sources.as_deref(),
+            )),
+        };
+        let row_error = entry
+            .models
+            .iter()
+            .any(|row| ace_models::row::validate_row(row).is_err())
+            || crate::cache::validate_entry(&entry).is_err();
+        if row_error {
+            self.commit_failed(&id, &report, generation);
+            self.settle_flight(&id, token);
+            return;
+        }
+        if let Err(error) = self.storage_replace(&entry) {
+            let _ = error;
+            self.commit_failed(&id, &report, generation);
+            self.settle_flight(&id, token);
+            return;
+        }
+        let entry = Arc::new(entry);
+        let failing: Vec<String> = entry
+            .sources
+            .as_ref()
+            .map(|sources| {
+                sources
+                    .iter()
+                    .filter(|status| crate::sources::source_failed(status))
+                    .map(|status| status.source.id.0.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut no_models = BTreeSet::new();
+        let mut new_no_models = Vec::new();
+        if let Some(sources) = &entry.sources {
+            for source in sources {
+                if let Some(error) = &source.error
+                    && matches!(
+                        error.code,
+                        FailureCode::NoModels | FailureCode::NotConfigured
+                    )
+                {
+                    no_models.insert(source.source.id.0.clone());
+                    new_no_models.push(source.clone());
+                }
+            }
+        }
+        let previous_no_models = self
+            .inner
+            .states
+            .get(&id)
+            .and_then(|state| state.no_model_sources.clone());
+        let changed = self.with_state(&id, |state| {
+            state.entry = Some(entry.clone());
+            state.dirty = false;
+            state.error = None;
+            state.error_detail = None;
+            state.unconfigured_at = None;
+            state.view = None;
+            state.no_model_sources = Some(no_models.clone());
+            state.backoff.retain(failing);
+            state.connection_fingerprint = entry.connection_revision.clone();
+            state.retry_at = state.backoff.retry_at();
+        });
+        if !changed {
+            self.settle_flight(&id, token);
+            return;
+        }
+        for source in new_no_models {
+            let seen = previous_no_models
+                .as_ref()
+                .is_some_and(|seen| seen.contains(&source.source.id.0));
+            if seen {
+                continue;
+            }
+            let detail = source.error.clone().unwrap_or_else(|| {
+                discovery_error(
+                    None,
+                    FailureCode::NoModels,
+                    &crate::failures::ErrorContext::default(),
+                )
+            });
+            report_line(
+                &self.options,
+                &config,
+                &detail,
+                Some(source.source.id.0.clone()),
+                Some(source.source.label.0.clone()),
+                self.now() - started_at,
+                Some(("info", self.options.ttl_ms)),
+                &diagnostics,
+            );
+        }
+        if let Some(sources) = &entry.sources {
+            for source in sources {
+                if let Some(error) = &source.error
+                    && crate::sources::source_failed(source)
+                {
+                    report_line(
+                        &self.options,
+                        &config,
+                        error,
+                        Some(source.source.id.0.clone()),
+                        Some(source.source.label.0.clone()),
+                        self.now() - started_at,
+                        None,
+                        &diagnostics,
+                    );
+                }
+            }
+        }
+        self.settle_flight(&id, token);
+    }
+
+    fn commit_failed(&mut self, id: &str, report: &FailureReport<'_>, generation: u64) {
+        let mutated = self.inner.states.get_mut(id).is_some_and(|state| {
+            if state.generation != generation {
+                return false;
+            }
+            state.dirty = true;
+            state.error = Some(crate::catalog::StatusError::PersistenceFailed);
+            true
+        });
+        if mutated {
+            self.fail(
+                id,
+                None,
+                FailureCode::PersistenceFailed,
+                &FailureReport {
+                    started_at: report.started_at,
+                    diagnostics: report.diagnostics,
+                    revision: report.revision,
+                    token: report.token,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn storage_replace(
+        &mut self,
+        entry: &crate::cache::CacheEntry,
+    ) -> Result<(), crate::cache::CacheError> {
+        crate::catalog::storage::replace(&mut self.storage, entry)
+    }
+
+    pub(crate) fn deletions_remove(&mut self, id: &str) -> Result<(), crate::cache::CacheError> {
+        match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.remove(id))) {
+            Ok(result) => result,
+            Err(_) => Err(crate::cache::CacheError::Malformed),
+        }
+    }
+
+    pub(crate) fn deletions_retry(&mut self) -> Option<crate::cache::CacheError> {
+        match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.retry())) {
+            Ok(results) => results.into_iter().find_map(Result::err),
+            Err(_) => Some(crate::cache::CacheError::Malformed),
+        }
+    }
+
+    fn finish_close_if_ready(&mut self) {
+        if !self.closing {
+            return;
+        }
+        if !self.in_flight.is_empty()
+            || self.inner.session_writes > 0
+            || self.inner.invalidations > 0
+            || !self.inner.removals.is_empty()
+            || self.pending_commits > 0
+        {
+            return;
+        }
+        let result = self.finish_close();
+        self.closing = false;
+        self.inner.close_result = Some(result.clone());
+        for waiter in self.close_waiters.drain(..) {
+            let _ = waiter.send(result.clone());
+        }
+    }
+
+    fn finish_close(&mut self) -> Result<(), CatalogError> {
+        let flushed = match catch_unwind(AssertUnwindSafe(|| self.inner.deletions.flush())) {
+            Ok(result) => result,
+            Err(_) => Err(crate::cache::CacheError::Malformed),
+        };
+        flushed?;
+        crate::catalog::storage::close(&mut self.storage)?;
+        Ok(())
+    }
+
+    fn close(&mut self, reply: Reply<Result<(), CatalogError>>) {
+        if let Some(result) = &self.inner.close_result {
+            if result.is_ok() {
+                let _ = reply.send(Ok(()));
+                return;
+            }
+            // Storage was never closed: a later close retries the deletions.
+            self.inner.close_result = None;
+        }
+        self.close_waiters.push(reply);
+        if self.closing {
+            return;
+        }
+        self.inner.closed = true;
+        self.inner.listeners.clear();
+        let signals: Vec<Signal> = self.probe_signals.values().cloned().collect();
+        for signal in signals {
+            signal.abort();
+        }
+        let aborts: Vec<Signal> = self
+            .inner
+            .states
+            .values()
+            .filter_map(|state| state.abort.clone())
+            .collect();
+        for abort in aborts {
+            abort.abort();
+        }
+        // A discovery result that has not taken its place yet never writes after close.
+        let ids = self.all_turn_ids();
+        for id in ids {
+            let discarded = self
+                .inner
+                .turns
+                .get_mut(&id)
+                .map(turns::Turns::discard_flight_commits)
+                .unwrap_or_default();
+            for (commit_id, token) in discarded {
+                self.pending_commits = self.pending_commits.saturating_sub(1);
+                self.commit_tokens.remove(&token);
+                self.settle_flight(&commit_id, token);
+            }
+            self.pump(&id);
+        }
+        self.closing = true;
+        self.finish_close_if_ready();
+    }
+}
+
+/// One per-source log line: its source, its label and its schedule.
+type ReportLog = (Option<String>, Option<String>, Option<(&'static str, f64)>);
+
+/// One flight's local report of a failure.
+pub(crate) struct FailureReport<'a> {
+    pub(crate) started_at: f64,
+    pub(crate) diagnostics: &'a DiscoveryDiagnostics,
+    pub(crate) revision: Option<&'a str>,
+    pub(crate) token: Option<u64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn report_line(
+    options: &CatalogOptions,
+    config: &ModelInstance,
+    detail: &crate::failures::DiscoveryError,
+    source: Option<String>,
+    source_label: Option<String>,
+    duration_ms: f64,
+    schedule: Option<(&str, f64)>,
+    diagnostics: &DiscoveryDiagnostics,
+) {
+    let Some(on_error) = &options.on_error else {
+        return;
+    };
+    let report = ErrorReport {
+        provider: config.provider,
+        instance: config.id.clone(),
+        error: detail.clone(),
+        source,
+        source_label,
+        duration_ms: duration_ms.max(0.0),
+        cli_version: diagnostics.cli_version.clone(),
+        stage: diagnostics.stage.clone(),
+        level: schedule.map(|(level, _)| level.to_owned()),
+        retry_in_ms: schedule.map(|(_, retry_in)| retry_in),
+        reason: None,
+        model_index: None,
+    };
+    let _ = catch_unwind(AssertUnwindSafe(|| on_error(report)));
+}

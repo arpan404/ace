@@ -15,7 +15,7 @@ impl crate::catalog::ConnectionProbe for GatedProbe {
         &self,
         _request: crate::catalog::DiscoveryRequest,
         signal: crate::signals::Signal,
-    ) -> futures::future::LocalBoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+    ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
     {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let gate = self.gate.clone();
@@ -35,18 +35,26 @@ impl crate::catalog::ConnectionProbe for GatedProbe {
     }
 }
 
-fn probe_fixture(gate: crate::signals::Gate, calls: Arc<AtomicUsize>, fails: bool) -> Catalog {
+fn probe_fixture(
+    gate: crate::signals::Gate,
+    calls: Arc<AtomicUsize>,
+    fails: bool,
+) -> (Catalog, Arc<TestSpawn>) {
     let account = instance(ProviderKind::Opencode, "account");
+    let spawn = TestSpawn::new();
     let mut options = CatalogOptions::new(
         SharedStorage::new(MemoryStorage::new()),
         always(Vec::new()),
         TestClock::new(1_000.0),
         TestDeadlines::new(),
-        TestSpawn::new(),
+        spawn.clone(),
     );
     options.instances = vec![account];
     options.revision_probe = Some(Arc::new(GatedProbe { gate, calls, fails }));
-    Catalog::new(options).unwrap_or_else(|error| panic!("{error}"))
+    (
+        Catalog::new(options).unwrap_or_else(|error| panic!("{error}")),
+        spawn,
+    )
 }
 
 #[test]
@@ -62,7 +70,7 @@ fn a_live_accounts_connection_probe_settles_the_catalog() {
                         &self,
                         _request: crate::catalog::DiscoveryRequest,
                         _signal: crate::signals::Signal,
-                    ) -> futures::future::LocalBoxFuture<
+                    ) -> futures::future::BoxFuture<
                         'static,
                         Result<String, crate::failures::DiscoveryFailure>,
                     > {
@@ -77,32 +85,26 @@ fn a_live_accounts_connection_probe_settles_the_catalog() {
                     }
                 }
                 let account = instance(ProviderKind::Opencode, "account");
+                let spawn = TestSpawn::new();
                 let mut options = CatalogOptions::new(
                     SharedStorage::new(MemoryStorage::new()),
                     always(vec![row(&account, "opencode/gpt-6")]),
                     TestClock::new(1_000.0),
                     TestDeadlines::new(),
-                    TestSpawn::new(),
+                    spawn.clone(),
                 );
                 options.instances = vec![account];
                 options.revision_probe = Some(Arc::new(Probe { succeeds }));
                 let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
-                futures::executor::block_on(catalog.reconcile_connections())
-                    .unwrap_or_else(|error| panic!("{error}"));
-                let fingerprint = catalog.with_inner(|inner| {
-                    inner
-                        .states
-                        .get("account")
-                        .and_then(|state| state.connection_fingerprint.clone())
-                });
-                let reported_error = catalog.with_inner(|inner| {
-                    inner
-                        .states
-                        .get("account")
-                        .is_some_and(|state| state.error.is_some() || state.error_detail.is_some())
-                });
+                settle(
+                    catalog.reconcile_connections(),
+                    &spawn,
+                    "the connection probe",
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
+                let (fingerprint, reported_error) = catalog.inspect_row("account");
                 let listed = catalog.list(ModelFilter::default(), 0, 100).is_ok();
-                let closed = futures::executor::block_on(catalog.close()).is_ok();
+                let closed = settle(catalog.close(), &spawn, "the close").is_ok();
                 (fingerprint, reported_error, listed, closed)
             });
         if succeeds {
@@ -129,10 +131,8 @@ fn a_dropped_connection_poll_never_strands_close() {
             &self,
             _request: crate::catalog::DiscoveryRequest,
             signal: crate::signals::Signal,
-        ) -> futures::future::LocalBoxFuture<
-            'static,
-            Result<String, crate::failures::DiscoveryFailure>,
-        > {
+        ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+        {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 signal.wait().await;
@@ -179,10 +179,8 @@ fn close_aborts_a_waiting_probe_instead_of_waiting_on_it() {
             &self,
             _request: crate::catalog::DiscoveryRequest,
             signal: crate::signals::Signal,
-        ) -> futures::future::LocalBoxFuture<
-            'static,
-            Result<String, crate::failures::DiscoveryFailure>,
-        > {
+        ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+        {
             Box::pin(async move {
                 signal.wait().await;
                 Err(crate::failures::DiscoveryFailure::with_code(
@@ -225,10 +223,8 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
             &self,
             _request: crate::catalog::DiscoveryRequest,
             _signal: crate::signals::Signal,
-        ) -> futures::future::LocalBoxFuture<
-            'static,
-            Result<String, crate::failures::DiscoveryFailure>,
-        > {
+        ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+        {
             let gate = self.gate.clone();
             Box::pin(async move {
                 gate.wait().await;
@@ -238,12 +234,13 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
     }
     let codex = instance(ProviderKind::Opencode, "account");
     let gate = crate::signals::Gate::new();
+    let spawn = TestSpawn::new();
     let mut options = CatalogOptions::new(
         SharedStorage::new(MemoryStorage::new()),
         always(Vec::new()),
         TestClock::new(1_000.0),
         TestDeadlines::new(),
-        TestSpawn::new(),
+        spawn.clone(),
     );
     options.instances = vec![codex.clone()];
     options.revision_probe = Some(std::sync::Arc::new(Probe { gate: gate.clone() }));
@@ -260,13 +257,8 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
         )
         .unwrap_or_else(|error| panic!("{error}"));
     gate.open();
-    futures::executor::block_on(probing).unwrap_or_else(|error| panic!("{error}"));
-    let fingerprint = catalog.with_inner(|inner| {
-        inner
-            .states
-            .get("account")
-            .and_then(|state| state.connection_fingerprint.clone())
-    });
+    settle(probing, &spawn, "the probe").unwrap_or_else(|error| panic!("{error}"));
+    let fingerprint = catalog.inspect_row("account").0;
     assert_eq!(
         fingerprint, None,
         "the old login's probe result is fenced off"
@@ -277,7 +269,7 @@ fn a_connection_probe_result_for_an_old_login_is_fenced_off() {
 fn overlapping_connection_polls_share_one_probe() {
     let gate = crate::signals::Gate::new();
     let calls = Arc::new(AtomicUsize::new(0));
-    let catalog = probe_fixture(gate.clone(), calls.clone(), false);
+    let (catalog, spawn) = probe_fixture(gate.clone(), calls.clone(), false);
     let mut first = Box::pin(catalog.reconcile_connections());
     assert!(poll_once(first.as_mut()).is_pending(), "the probe waits");
     let mut second = Box::pin(catalog.reconcile_connections());
@@ -286,7 +278,11 @@ fn overlapping_connection_polls_share_one_probe() {
         "the second poll shares the probe"
     );
     gate.open();
-    let (left, right) = futures::executor::block_on(async move { futures::join!(first, second) });
+    let (left, right) = settle(
+        async move { futures::join!(first, second) },
+        &spawn,
+        "two polls",
+    );
     assert!(left.is_ok() && right.is_ok());
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -301,12 +297,13 @@ fn a_connection_probe_that_times_out_reports_it_and_backs_off() {
     let calls = Arc::new(AtomicUsize::new(0));
     let account = instance(ProviderKind::Opencode, "account");
     let deadlines = TestDeadlines::new();
+    let spawn = TestSpawn::new();
     let mut options = CatalogOptions::new(
         SharedStorage::new(MemoryStorage::new()),
         always(Vec::new()),
         TestClock::new(1_000.0),
         deadlines.clone(),
-        TestSpawn::new(),
+        spawn.clone(),
     );
     options.instances = vec![account];
     options.timeout_ms = 1_000.0;
@@ -320,7 +317,7 @@ fn a_connection_probe_that_times_out_reports_it_and_backs_off() {
     assert!(poll_once(probing.as_mut()).is_pending(), "the probe waits");
     deadlines.fire(1_000.0 + 1_000.0);
     gate.open();
-    futures::executor::block_on(probing).unwrap_or_else(|error| panic!("{error}"));
+    settle(probing, &spawn, "the probe").unwrap_or_else(|error| panic!("{error}"));
     let status = catalog
         .list(ModelFilter::instance("account"), 0, 100)
         .map(|result| result.instances.into_iter().next())
@@ -334,7 +331,7 @@ fn a_connection_probe_that_times_out_reports_it_and_backs_off() {
     );
     // The failed probe waits out its pause before another one starts.
     let _ = catalog.list(ModelFilter::default(), 0, 100);
-    let _ = futures::executor::block_on(catalog.reconcile_connections());
+    let _ = settle(catalog.reconcile_connections(), &spawn, "the second poll");
     assert_eq!(calls.load(Ordering::SeqCst), 1, "the pause holds");
 }
 
@@ -343,8 +340,8 @@ fn a_failed_connection_probe_schedules_its_own_retry() {
     let gate = crate::signals::Gate::new();
     gate.open();
     let calls = Arc::new(AtomicUsize::new(0));
-    let catalog = probe_fixture(gate, calls.clone(), true);
-    futures::executor::block_on(catalog.reconcile_connections())
+    let (catalog, spawn) = probe_fixture(gate, calls.clone(), true);
+    settle(catalog.reconcile_connections(), &spawn, "the probe")
         .unwrap_or_else(|error| panic!("{error}"));
     let status = catalog
         .list(ModelFilter::instance("account"), 0, 100)
@@ -357,7 +354,7 @@ fn a_failed_connection_probe_schedules_its_own_retry() {
         status.error_detail.is_some(),
         "the failure carries its fixed detail"
     );
-    futures::executor::block_on(catalog.reconcile_connections())
+    settle(catalog.reconcile_connections(), &spawn, "the probe")
         .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -377,7 +374,7 @@ impl crate::catalog::ConnectionProbe for RecordingProbe {
         &self,
         request: crate::catalog::DiscoveryRequest,
         signal: crate::signals::Signal,
-    ) -> futures::future::LocalBoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
+    ) -> futures::future::BoxFuture<'static, Result<String, crate::failures::DiscoveryFailure>>
     {
         self.calls
             .lock()
@@ -401,12 +398,13 @@ fn a_reconciliation_loop_that_outlives_close_never_starts_another_account() {
     within(15, "a reconciliation loop across close", || {
         let gate = crate::signals::Gate::new();
         let calls = Arc::new(Mutex::new(Vec::new()));
+        let spawn = TestSpawn::new();
         let mut options = CatalogOptions::new(
             SharedStorage::new(MemoryStorage::new()),
             always(Vec::new()),
             TestClock::new(1_000.0),
             TestDeadlines::new(),
-            TestSpawn::new(),
+            spawn.clone(),
         );
         options.instances = vec![
             instance(ProviderKind::Opencode, "one"),
@@ -422,6 +420,7 @@ fn a_reconciliation_loop_that_outlives_close_never_starts_another_account() {
             poll_once(reconciling.as_mut()).is_pending(),
             "the first account's probe runs"
         );
+        spawn.drain();
         assert_eq!(
             calls
                 .lock()
@@ -438,7 +437,7 @@ fn a_reconciliation_loop_that_outlives_close_never_starts_another_account() {
         gate.open();
         let (reconciled, closed) = settle(
             async move { futures::join!(reconciling, close) },
-            &TestSpawn::new(),
+            &spawn,
             "a reconciliation loop and close",
         );
         reconciled.unwrap_or_else(|error| panic!("{error}"));

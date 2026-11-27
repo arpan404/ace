@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Writes that come from a session (`catalog.ts` `updateFromSession`,
-//! `updatePermissionModes`): one queue per instance, so a write is built on the entry
-//! the write before it left.
+//! `updatePermissionModes`), queued in the instance's turn order.
 //!
-//! A writer takes its place in the queue when the write is accepted, before any await,
-//! and re-checks that its row and login are still current after the wait, so a write
-//! accepted for one login never lands on its replacement.
+//! The actor computes what the write will store when it accepts it, takes the write's
+//! place in the queue, and runs it when its place is front. A dropped caller only drops
+//! its reply; the write still runs on what the write before it left.
 
 use std::sync::Arc;
 
@@ -13,77 +12,96 @@ use ace_models::instance::ModelInstance;
 use serde_json::Value;
 
 use crate::cache::CacheEntry;
-use crate::catalog::turns::Turn;
-use crate::catalog::{
-    Capacity, CapacitySlot, Catalog, CatalogError, identity_revision, owns, validate_instance,
-};
-use crate::signals::Gate;
+use crate::catalog::actor::Actor;
+use crate::catalog::commands::{Command, Reply};
+use crate::catalog::writes;
+use crate::catalog::{CatalogError, PendingOp, identity_revision, owns, validate_instance};
 
-/// An accepted write close waits for: it leaves the registry and settles close's gate
-/// when the write finishes, or when the task carrying it never ran.
-struct AcceptedWrite {
-    catalog: Catalog,
-    gate: Gate,
+/// One accepted session write, waiting for its place.
+pub(crate) struct SessionWrite {
+    pub(crate) input: ModelInstance,
+    pub(crate) generation: u64,
+    pub(crate) rows: Vec<ace_protocol::generated::CatalogModel>,
+    pub(crate) permission_modes: Vec<Value>,
+    pub(crate) revision: String,
+    pub(crate) identity: String,
+    pub(crate) refreshed_at: f64,
+    pub(crate) reply: Reply<Result<(), CatalogError>>,
 }
 
-impl Drop for AcceptedWrite {
-    fn drop(&mut self) {
-        self.catalog.with_inner(|inner| {
-            inner
-                .accepted_writes
-                .retain(|known| !known.same(&self.gate));
-        });
-        self.gate.open();
-    }
+/// One accepted permission-mode write, waiting for its place.
+pub(crate) struct PermissionWrite {
+    pub(crate) instance: String,
+    pub(crate) modes: Vec<Value>,
+    pub(crate) generation: Option<u64>,
 }
 
-/// What one session write learned before it took its place in the queue.
-struct SessionWrite {
-    generation: u64,
+/// The entry one session write stores, from the rows the actor kept.
+pub(crate) fn entry(
+    write: &SessionWrite,
     rows: Vec<ace_protocol::generated::CatalogModel>,
-    permission_modes: Vec<Value>,
-    revision: String,
-    identity: String,
-    refreshed_at: f64,
+    previous: Option<&Arc<CacheEntry>>,
+) -> CacheEntry {
+    let combined = crate::sources::refreshed_sources(
+        crate::cleanup::clean_catalog(&rows)
+            .into_iter()
+            .map(Arc::new)
+            .collect(),
+        None,
+        previous.map(|entry| entry.as_ref()),
+        write.refreshed_at,
+    );
+    CacheEntry {
+        provider: write.input.provider,
+        instance: write.input.id.clone(),
+        login_revision: Some(write.input.login_revision.clone()),
+        revision: write.revision.clone(),
+        refreshed_at: write.refreshed_at,
+        models: combined.models,
+        sources: Some(combined.sources),
+        permission_modes: Some(write.permission_modes.clone()),
+        identity_revision: Some(write.identity.clone()),
+        connection_revision: None,
+    }
 }
 
-impl Catalog {
-    /// Whether the row still is the registration and login a write was accepted for.
-    fn still_current(&self, input: &ModelInstance, generation: u64) -> bool {
-        self.with_inner(|inner| {
-            inner.states.get(&input.id).is_some_and(|state| {
-                state.generation == generation
-                    && state.config.login_revision == input.login_revision
-                    && self.cache_revision(&state.config) == self.cache_revision(input)
-            })
-        })
-    }
-
+impl Actor {
     /// Metadata from an already authorized session. No process or inference starts.
-    pub async fn update_from_session(
-        &self,
+    pub(crate) fn update_session(
+        &mut self,
         input: ModelInstance,
         metadata: &Value,
-    ) -> Result<(), CatalogError> {
-        if self.with_inner(|inner| inner.closed) {
-            return Err(CatalogError::Closed);
+        reply: Reply<Result<(), CatalogError>>,
+    ) {
+        if self.inner.closed {
+            let _ = reply.send(Err(CatalogError::Closed));
+            return;
         }
-        if self.with_inner(|inner| inner.session_writes) >= 64 {
-            return Err(CatalogError::SessionActivityCapacity);
+        if self.inner.session_writes >= 64 {
+            let _ = reply.send(Err(CatalogError::SessionActivityCapacity));
+            return;
         }
-        validate_instance(&input)?;
-        let generation = self.with_inner(|inner| {
-            inner.states.get(&input.id).and_then(|state| {
-                (state.config.login_revision == input.login_revision
-                    && self.cache_revision(&state.config) == self.cache_revision(&input))
-                .then_some(state.generation)
-            })
+        if let Err(error) = validate_instance(&input) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        let generation = self.inner.states.get(&input.id).and_then(|state| {
+            (state.config.login_revision == input.login_revision
+                && crate::catalog::cache_revision(&state.config)
+                    == crate::catalog::cache_revision(&input))
+            .then_some(state.generation)
         });
         let Some(generation) = generation else {
-            return Err(CatalogError::SessionGenerationChanged);
+            let _ = reply.send(Err(CatalogError::SessionGenerationChanged));
+            return;
         };
-        let rows = ace_models::acp::normalize_acp(metadata, &input)
-            .map_err(|_| CatalogError::InvalidInstance)?;
+        let rows = match ace_models::acp::normalize_acp(metadata, &input) {
+            Ok(rows) => rows,
+            Err(_) => {
+                let _ = reply.send(Err(CatalogError::InvalidInstance));
+                return;
+            }
+        };
         let profile = input
             .acp_agent_id
             .as_deref()
@@ -94,205 +112,164 @@ impl Catalog {
         let revision = self.revision(&input);
         let identity = identity_revision(&input);
         let refreshed_at = self.now();
-        let slot = CapacitySlot::take(self, Capacity::SessionWrites);
-        let mut hold = self.reserve_turn(&input.id);
-        hold.wait().await;
-        let result = self
-            .commit_session_write(
-                &input,
-                SessionWrite {
-                    generation,
-                    rows,
-                    permission_modes,
-                    revision,
-                    identity,
-                    refreshed_at,
-                },
-            )
-            .await;
-        drop(hold);
-        drop(slot);
-        result
-    }
-
-    async fn commit_session_write(
-        &self,
-        input: &ModelInstance,
-        write: SessionWrite,
-    ) -> Result<(), CatalogError> {
-        let SessionWrite {
+        self.inner.session_writes += 1;
+        let write = SessionWrite {
+            input,
             generation,
             rows,
             permission_modes,
             revision,
             identity,
             refreshed_at,
-        } = write;
-        if !self.still_current(input, generation) {
-            return Err(CatalogError::SessionGenerationChanged);
-        }
-        let pending = self.with_inner(|inner| inner.deletions.has(&input.id));
-        if pending {
-            self.with_inner(|inner| inner.deletions.remove(&input.id))?;
-        }
-        if !self.still_current(input, generation) {
-            return Err(CatalogError::SessionGenerationChanged);
-        }
-        self.finish_deletion(&input.id)?;
-        let (models, previous) = self.with_inner(|inner| {
-            let state = inner.states.get(&input.id);
-            (
-                crate::learned::keep_learned_options(
-                    rows,
-                    state
-                        .and_then(|state| state.entry.as_ref())
-                        .map(|entry| entry.models.as_slice()),
-                ),
-                state.and_then(|state| state.entry.clone()),
-            )
-        });
-        let combined = crate::sources::refreshed_sources(
-            crate::cleanup::clean_catalog(&models)
-                .into_iter()
-                .map(Arc::new)
-                .collect(),
-            None,
-            previous.as_deref(),
-            refreshed_at,
-        );
-        let entry = CacheEntry {
-            provider: input.provider,
-            instance: input.id.clone(),
-            login_revision: Some(input.login_revision.clone()),
-            revision,
-            refreshed_at,
-            models: combined.models,
-            sources: Some(combined.sources),
-            permission_modes: Some(permission_modes),
-            identity_revision: Some(identity),
-            connection_revision: None,
+            reply,
         };
-        // Storage is the last step, so a login that changed while the write waited is
-        // never overwritten by the login it replaced.
-        if !self.still_current(input, generation) {
+        let id = write.input.id.clone();
+        self.inner
+            .turns
+            .entry(id.clone())
+            .or_default()
+            .accept(PendingOp::SessionWrite(Box::new(write)));
+        self.pump(&id);
+    }
+
+    fn still_current(&self, input: &ModelInstance, generation: u64) -> bool {
+        self.inner.states.get(&input.id).is_some_and(|state| {
+            state.generation == generation
+                && state.config.login_revision == input.login_revision
+                && crate::catalog::cache_revision(&state.config)
+                    == crate::catalog::cache_revision(input)
+        })
+    }
+
+    pub(crate) fn execute_session_write(&mut self, write: SessionWrite) {
+        let result = self.run_session_write(&write);
+        self.inner.session_writes = self.inner.session_writes.saturating_sub(1);
+        let _ = write.reply.send(result);
+    }
+
+    fn run_session_write(&mut self, write: &SessionWrite) -> Result<(), CatalogError> {
+        if !self.still_current(&write.input, write.generation) {
             return Err(CatalogError::SessionGenerationChanged);
         }
-        let mut storage = self.storage.clone();
-        storage.replace(&entry)?;
-        let entry = Arc::new(entry);
-        self.with_inner(|inner| {
-            if let Some(state) = inner.states.get_mut(&input.id)
-                && state.generation == generation
-            {
-                state.entry = Some(entry);
-                state.dirty = false;
-                state.error = None;
-                state.error_detail = None;
-                state.unconfigured_at = None;
-                state.view = None;
-            }
-        });
-        if let Some(config) = self.registered(&input.id) {
-            self.notify_config(&config);
+        let pending = self.inner.deletions.has(&write.input.id);
+        if pending {
+            self.deletions_remove(&write.input.id)?;
         }
+        if !self.still_current(&write.input, write.generation) {
+            return Err(CatalogError::SessionGenerationChanged);
+        }
+        let previous = self
+            .inner
+            .states
+            .get(&write.input.id)
+            .and_then(|state| state.entry.clone());
+        let models = crate::learned::keep_learned_options(
+            write.rows.clone(),
+            previous.as_ref().map(|entry| entry.models.as_slice()),
+        );
+        let entry = writes::entry(write, models, previous.as_ref());
+        if !self.still_current(&write.input, write.generation) {
+            return Err(CatalogError::SessionGenerationChanged);
+        }
+        self.storage_replace(&entry)?;
+        let entry = Arc::new(entry);
+        if let Some(state) = self.inner.states.get_mut(&write.input.id)
+            && state.generation == write.generation
+        {
+            state.entry = Some(entry);
+            state.dirty = false;
+            state.error = None;
+            state.error_detail = None;
+            state.unconfigured_at = None;
+            state.view = None;
+        }
+        self.notify_id(&write.input.id);
         Ok(())
     }
 
     /// A session's reported modes survive a restart: written onto the cached entry.
-    pub fn update_permission_modes(&self, instance: &str, modes: Vec<Value>) {
-        if self.with_inner(|inner| inner.closed) {
+    pub(crate) fn update_modes(&mut self, instance: &str, modes: Vec<Value>) {
+        if self.inner.closed {
             return;
         }
-        let generation =
-            self.with_inner(|inner| inner.states.get(instance).map(|state| state.generation));
-        let needs_write = self.with_inner(|inner| {
-            let Some(state) = inner.states.get_mut(instance) else {
-                return false;
-            };
+        let generation = self
+            .inner
+            .states
+            .get(instance)
+            .map(|state| state.generation);
+        let needs_write = self.inner.states.get_mut(instance).is_some_and(|state| {
             state.permission_modes = Some(modes.clone());
-            inner.turns.contains_key(instance) || state.entry.is_some()
+            self.inner.turns.contains_key(instance) || state.entry.is_some()
         });
-        if let Some(config) = self.registered(instance) {
-            self.notify_config(&config);
-        }
+        self.notify_id(instance);
         if !needs_write {
             return;
         }
-        // The slot, the place and close's gate are all taken before the task exists, so a
-        // task dropped before it ever ran leaves nothing held.
-        let admitted = self.with_inner(|inner| {
-            if inner.session_writes >= 64 {
-                return false;
-            }
-            inner.session_writes += 1;
-            true
-        });
-        if !admitted {
+        if self.inner.session_writes >= 64 {
             return;
         }
-        let slot = CapacitySlot::claim(self, Capacity::SessionWrites, 1);
-        // The write takes its place now, so a session write accepted later builds on it.
-        let hold = self.reserve_turn(instance);
-        let catalog = self.clone();
-        let instance = instance.to_owned();
-        let gate = Gate::new();
-        self.with_inner(|inner| inner.accepted_writes.push(gate.clone()));
-        let accepted = AcceptedWrite {
-            catalog: self.clone(),
-            gate,
-        };
-        let token = generation;
-        self.options.spawn.spawn(Box::pin(async move {
-            let _accepted = accepted;
-            let _slot = slot;
-            catalog
-                .persist_permission_modes(&instance, modes, token, hold)
-                .await;
-        }));
+        self.inner.session_writes += 1;
+        let id = instance.to_owned();
+        let place = self
+            .inner
+            .turns
+            .entry(id.clone())
+            .or_default()
+            .accept_when_ready(PendingOp::PermissionWrite(Box::new(PermissionWrite {
+                instance: id.clone(),
+                modes,
+                generation,
+            })));
+        // The write runs from its place, once its task reports; a task dropped before it
+        // runs still lets the write (and close) settle.
+        let commands = self.commands.clone();
+        let task_id = id.clone();
+        let task: futures::future::BoxFuture<'static, ()> = Box::pin(async move {
+            let sender = commands
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _ = sender.send(crate::catalog::commands::Envelope {
+                command: Command::PermissionReady { id: task_id, place },
+                ack: None,
+            });
+        });
+        self.spawn(
+            crate::catalog::actor::TaskKind::Permission { id, place },
+            task,
+        );
     }
 
-    async fn persist_permission_modes(
-        &self,
-        instance: &str,
-        modes: Vec<Value>,
-        token: Option<u64>,
-        mut hold: Turn,
-    ) {
-        hold.wait().await;
-        // The row may have been replaced while this write waited behind another.
-        let current = match token {
-            Some(token) => self.with_inner(|inner| {
-                if !owns(inner, instance, token) {
-                    return None;
-                }
-                let state = inner.states.get_mut(instance)?;
-                state
-                    .entry
-                    .clone()
-                    .map(|entry| (entry, state.permission_modes.clone()))
-            }),
-            None => None,
+    pub(crate) fn execute_permission_write(&mut self, write: PermissionWrite) {
+        self.inner.session_writes = self.inner.session_writes.saturating_sub(1);
+        let Some(generation) = write.generation else {
+            return;
         };
-        if let Some((current, _)) = current
-            && current.permission_modes.as_deref() != Some(modes.as_slice())
-        {
-            let mut next = (*current).clone();
-            next.permission_modes = Some(modes);
-            let mut storage = self.storage.clone();
-            if storage.replace(&next).is_ok() {
-                let next = Arc::new(next);
-                self.with_inner(|inner| {
-                    if let Some(state) = inner.states.get_mut(instance)
-                        && state
-                            .entry
-                            .as_ref()
-                            .is_some_and(|entry| Arc::ptr_eq(entry, &current))
-                    {
-                        state.entry = Some(next);
-                    }
-                });
+        if !owns(&self.inner, &write.instance, generation) {
+            return;
+        }
+        let current = self
+            .inner
+            .states
+            .get(&write.instance)
+            .and_then(|state| state.entry.clone());
+        let Some(current) = current else {
+            return;
+        };
+        if current.permission_modes.as_deref() == Some(write.modes.as_slice()) {
+            return;
+        }
+        let mut next = (*current).clone();
+        next.permission_modes = Some(write.modes);
+        if self.storage_replace(&next).is_ok() {
+            let next = Arc::new(next);
+            if let Some(state) = self.inner.states.get_mut(&write.instance)
+                && state
+                    .entry
+                    .as_ref()
+                    .is_some_and(|entry| Arc::ptr_eq(entry, &current))
+            {
+                state.entry = Some(next);
             }
         }
-        drop(hold);
     }
 }

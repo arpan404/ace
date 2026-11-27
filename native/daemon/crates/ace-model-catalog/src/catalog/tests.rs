@@ -12,16 +12,17 @@
 //! frees capacity", and "shutdown aborts discovery and closes only after pending
 //! flights settle".
 
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ace_models::instance::ModelInstance;
 use ace_protocol::generated::{CatalogModel, ProviderKind};
-use futures::future::LocalBoxFuture;
+use futures::future::BoxFuture;
 use serde_json::{Value, json};
 
+mod actor;
 mod probes;
+mod queries;
 mod shutdown;
 mod writes;
 
@@ -107,7 +108,8 @@ impl Deadlines for TestDeadlines {
 #[allow(clippy::arc_with_non_send_sync)]
 #[derive(Default)]
 struct TestSpawn {
-    tasks: Mutex<Vec<futures::future::LocalBoxFuture<'static, ()>>>,
+    tasks: Mutex<Vec<BoxFuture<'static, ()>>>,
+    driving: AtomicBool,
 }
 
 impl TestSpawn {
@@ -126,14 +128,25 @@ impl TestSpawn {
 
     /// Polls every queued task until all settle; returns how many tasks ran.
     fn drain(&self) -> usize {
+        if self.driving.swap(true, Ordering::SeqCst) {
+            return 0;
+        }
         let mut ran = 0;
-        for _pass in 0..1_000 {
+        let mut idle = 0;
+        let mut stalled_for = 0;
+        for _pass in 0..100_000 {
             let batch: Vec<_> = {
                 let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
                 std::mem::take(&mut *tasks)
             };
             if batch.is_empty() {
-                return ran;
+                // The actor thread may be about to spawn the next step of a flight.
+                idle += 1;
+                if idle >= 50 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
             }
             let mut pending = Vec::new();
             let mut completed = 0;
@@ -149,27 +162,40 @@ impl TestSpawn {
             }
             let stalled = completed == 0;
             let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
-            let held = pending.len();
             tasks.extend(pending);
-            if stalled && tasks.len() == held {
-                return ran;
+            if stalled {
+                idle += 1;
+                stalled_for += 1;
+                if stalled_for >= 50 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            } else {
+                idle = 0;
             }
         }
+        self.driving.store(false, Ordering::SeqCst);
         ran
     }
 }
 
 impl Spawn for TestSpawn {
-    fn spawn(&self, task: LocalBoxFuture<'static, ()>) {
+    fn spawn(&self, task: BoxFuture<'static, ()>) {
         self.tasks
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .push(task);
     }
+
+    fn drive(&self) {
+        // The actor may spawn the next step of a flight after any message; draining here
+        // lets a blocking caller see the same progress a runtime would.
+        self.drain();
+    }
 }
 
 type DiscoverFn =
-    dyn Fn(DiscoveryRequest, Signal) -> LocalBoxFuture<'static, DiscoverResult> + Send + Sync;
+    dyn Fn(DiscoveryRequest, Signal) -> BoxFuture<'static, DiscoverResult> + Send + Sync;
 
 struct FakeDiscover {
     calls: AtomicUsize,
@@ -178,7 +204,7 @@ struct FakeDiscover {
 
 impl FakeDiscover {
     fn new(
-        run: impl Fn(DiscoveryRequest, Signal) -> LocalBoxFuture<'static, DiscoverResult>
+        run: impl Fn(DiscoveryRequest, Signal) -> BoxFuture<'static, DiscoverResult>
         + Send
         + Sync
         + 'static,
@@ -200,7 +226,7 @@ impl super::CatalogDiscover for FakeDiscover {
         request: DiscoveryRequest,
         signal: Signal,
         _diagnostic: DiagnosticSink,
-    ) -> LocalBoxFuture<'static, DiscoverResult> {
+    ) -> BoxFuture<'static, DiscoverResult> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         (self.run)(request, signal)
     }
@@ -379,7 +405,11 @@ fn a_rejected_admission_revokes_rows_without_launching_discovery() {
         SharedStorage::new(MemoryStorage::new()),
         discover.clone(),
     );
-    let _ = futures::executor::block_on(fixture.catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        fixture.catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     let calls = fixture.discover.calls();
     let admit: super::Admit =
         std::sync::Arc::new(|| Box::pin(async { Err("home identity changed".to_owned()) }));
@@ -388,10 +418,12 @@ fn a_rejected_admission_revokes_rows_without_launching_discovery() {
         .register_instance(codex, Some(admit))
         .unwrap_or_else(|error| panic!("{error}"));
     fixture.clock.advance(super::DEFAULT_TTL_MS + 1.0);
-    let after = futures::executor::block_on(
+    let after = settle(
         fixture
             .catalog
             .refresh_state("account", RefreshCause::Background),
+        &fixture.spawn,
+        "the refresh",
     );
     assert_eq!(after.error, Some(StatusError::DiscoveryFailed));
     assert_eq!(fixture.discover.calls(), calls, "discovery never launched");
@@ -408,10 +440,12 @@ fn a_cli_below_its_minimum_is_refused_before_discovery() {
         SharedStorage::new(MemoryStorage::new()),
         discover.clone(),
     );
-    let after = futures::executor::block_on(
+    let after = settle(
         fixture
             .catalog
             .refresh_state("account", RefreshCause::Background),
+        &fixture.spawn,
+        "the refresh",
     );
     assert_eq!(
         after.error_detail.as_ref().map(|detail| detail.code),
@@ -434,7 +468,7 @@ fn an_acp_rows_load_only_when_its_probe_is_configured() {
             SharedStorage::new(MemoryStorage::new()),
             discover.clone(),
         );
-        let statuses = futures::executor::block_on(fixture.catalog.load("agent"))
+        let statuses = settle(fixture.catalog.load("agent"), &fixture.spawn, "the load")
             .unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(statuses.len(), 1);
         assert_eq!(fixture.discover.calls(), expected_calls, "{probe:?}");
@@ -501,9 +535,17 @@ fn an_invalidate_of_one_instance_leaves_another_alone() {
         discover,
     );
     let catalog = fixture.catalog.clone();
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
-    futures::executor::block_on(catalog.invalidate(ModelFilter::instance("a")))
-        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
+    settle(
+        catalog.invalidate(ModelFilter::instance("a")),
+        &fixture.spawn,
+        "the invalidation",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     let a = catalog
         .list(ModelFilter::instance("a"), 0, 100)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -549,11 +591,15 @@ fn an_old_logins_admission_result_never_revokes_the_new_login() {
             Some(passing),
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(listed(&catalog).models.len(), 1);
     gate.open();
-    let _ = futures::executor::block_on(old);
+    let _ = settle(old, &fixture.spawn, "the old flight");
     assert_eq!(
         listed(&catalog).models.len(),
         1,
@@ -599,8 +645,11 @@ fn an_invalidate_waits_out_a_refresh_whose_row_was_replaced() {
     );
     assert!(poll_once(invalidating.as_mut()).is_pending());
     gate.open();
-    let (_, invalidated) =
-        futures::executor::block_on(async move { futures::join!(flight, invalidating) });
+    let (_, invalidated) = settle(
+        async move { futures::join!(flight, invalidating) },
+        &fixture.spawn,
+        "an invalidation and its flight",
+    );
     invalidated.unwrap_or_else(|error| panic!("{error}"));
     assert!(catalog.has_instance("account"));
 }
@@ -642,7 +691,11 @@ fn a_removal_waits_out_a_refresh_whose_row_was_replaced() {
     );
     assert!(poll_once(removing.as_mut()).is_pending());
     gate.open();
-    let (_, removed) = futures::executor::block_on(async move { futures::join!(flight, removing) });
+    let (_, removed) = settle(
+        async move { futures::join!(flight, removing) },
+        &fixture.spawn,
+        "a removal and its flight",
+    );
     removed.unwrap_or_else(|error| panic!("{error}"));
     assert!(!catalog.has_instance("account"));
 }
@@ -677,7 +730,7 @@ fn a_removal_never_waits_on_a_flight_queued_behind_another_rows_discovery() {
     );
     // "account" queues its flight behind the held discovery.
     let _ = catalog.list(ModelFilter::instance("account"), 0, 100);
-    assert_eq!(fixture.spawn.drain(), 1, "the row's flight is queued");
+    fixture.spawn.drain();
     assert_eq!(fixture.discover.calls(), 1);
     let removed = settle(
         catalog.remove_instance("account"),
@@ -692,7 +745,7 @@ fn a_removal_never_waits_on_a_flight_queued_behind_another_rows_discovery() {
         "the removed row's queued flight never launched discovery"
     );
     gate.open();
-    let _ = futures::executor::block_on(holder);
+    let _ = settle(holder, &fixture.spawn, "the held row's flight");
 }
 
 #[test]
@@ -723,7 +776,7 @@ fn an_invalidation_never_waits_on_a_flight_queued_behind_another_rows_discovery(
         "the only discovery slot is taken"
     );
     let _ = catalog.list(ModelFilter::instance("account"), 0, 100);
-    assert_eq!(fixture.spawn.drain(), 1, "the row's flight is queued");
+    fixture.spawn.drain();
     assert_eq!(fixture.discover.calls(), 1);
     let invalidated = settle(
         catalog.invalidate(ModelFilter::instance("account")),
@@ -741,7 +794,7 @@ fn an_invalidation_never_waits_on_a_flight_queued_behind_another_rows_discovery(
     );
     assert_eq!(fixture.discover.calls(), 1);
     gate.open();
-    let _ = futures::executor::block_on(holder);
+    let _ = settle(holder, &fixture.spawn, "the held row's flight");
 }
 
 #[test]
@@ -798,8 +851,10 @@ fn concurrent_explicit_refreshes_share_one_discovery_result() {
     let mut right = Box::pin(catalog.refresh(ModelFilter::default()));
     assert!(poll_once(right.as_mut()).is_pending());
     gate.open();
-    let left = futures::executor::block_on(left).unwrap_or_else(|error| panic!("{error}"));
-    let right = futures::executor::block_on(right).unwrap_or_else(|error| panic!("{error}"));
+    let left =
+        settle(left, &fixture.spawn, "the left refresh").unwrap_or_else(|error| panic!("{error}"));
+    let right = settle(right, &fixture.spawn, "the right refresh")
+        .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(left.len(), 1);
     assert_eq!(right.len(), 1);
     assert_eq!(fixture.discover.calls(), 1);
@@ -827,10 +882,18 @@ fn a_failed_refresh_retains_stale_rows_and_waits_out_its_pause() {
         discover.clone(),
     );
     let catalog = &fixture.catalog;
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     fixture.clock.advance(super::DEFAULT_TTL_MS + 1.0);
-    let after = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
+    let after = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(after[0].error, Some(StatusError::DiscoveryFailed));
     assert_eq!(
         after[0].error_detail.as_ref().map(|detail| detail.code),
@@ -890,18 +953,23 @@ fn a_login_change_clears_the_old_account_and_ignores_its_late_refresh() {
         poll_once(flight.as_mut()).is_pending(),
         "discovery waits on the gate"
     );
-    futures::executor::block_on(async {
-        catalog
-            .login_changed("account", "2", None)
-            .await
-            .unwrap_or_else(|error| panic!("{error}"));
-    });
+    fixture.spawn.drain();
+    settle(
+        async {
+            catalog
+                .login_changed("account", "2", None)
+                .await
+                .unwrap_or_else(|error| panic!("{error}"));
+        },
+        &fixture.spawn,
+        "the login change",
+    );
     assert!(
         dropped.load(Ordering::SeqCst) >= 1,
         "the old flight's discovery was aborted and dropped"
     );
     gate.open();
-    let _ = futures::executor::block_on(flight);
+    let _ = settle(flight, &fixture.spawn, "the flight");
     let listed = catalog
         .list(ModelFilter::default(), 0, 100)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -938,10 +1006,18 @@ fn a_row_that_does_not_belong_to_its_instance_never_replaces_the_cache() {
         discover.clone(),
     );
     let catalog = &fixture.catalog;
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    );
     fixture.clock.advance(super::DEFAULT_TTL_MS + 1.0);
-    let after = futures::executor::block_on(catalog.refresh(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
+    let after = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(after[0].error, Some(StatusError::PersistenceFailed));
     let listed = catalog
         .list(ModelFilter::default(), 0, 100)
@@ -954,355 +1030,6 @@ fn a_row_that_does_not_belong_to_its_instance_never_replaces_the_cache() {
     assert_eq!(ids, ["gpt-6-sol"]);
 }
 
-#[test]
-fn filters_page_only_their_own_instances() {
-    let codex = instance(ProviderKind::Codex, "codex");
-    let claude = instance(ProviderKind::Claude, "claude");
-    let discover = FakeDiscover::new(|request, _signal| {
-        Box::pin(async move {
-            let ids: &[&str] = if request.instance.provider == ProviderKind::Codex {
-                &["gpt-6-sol", "gpt-6"]
-            } else {
-                &["claude-opus-5", "claude-sonnet-5"]
-            };
-            Ok(models(&request.instance, ids))
-        })
-    });
-    let fixture = fixture(
-        vec![codex, claude],
-        SharedStorage::new(MemoryStorage::new()),
-        discover,
-    );
-    let catalog = &fixture.catalog;
-    // Every row is read once, which is what asks each instance for its models.
-    let _ = listed(catalog);
-    fixture.spawn.drain();
-    let _ = listed(catalog);
-    let codex_page = catalog
-        .list(ModelFilter::provider(ProviderKind::Codex), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(codex_page.models.len(), 2);
-    assert!(
-        codex_page
-            .models
-            .iter()
-            .all(|model| model.provider == ProviderKind::Codex)
-    );
-    assert_eq!(codex_page.instances.len(), 1);
-    let page = catalog
-        .list(ModelFilter::default(), 1, 1)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(page.models.len(), 1);
-    assert_eq!(page.next_offset, Some(2));
-    let only = catalog
-        .list(ModelFilter::instance("claude"), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(only.instances.len(), 1);
-    assert_eq!(only.instances[0].instance, "claude");
-}
-
-#[test]
-fn picker_results_cannot_mutate_the_shared_cached_row() {
-    let codex = instance(ProviderKind::Codex, "account");
-    let discover = always(vec![row(&codex, "gpt-6-sol")]);
-    let fixture = fixture(
-        vec![codex],
-        SharedStorage::new(MemoryStorage::new()),
-        discover,
-    );
-    let catalog = &fixture.catalog;
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
-    let mut first = catalog
-        .list(ModelFilter::default(), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    first.models[0].display_name = "Mutated".to_owned().into();
-    let second = catalog
-        .list(ModelFilter::default(), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_ne!(second.models[0].display_name.0, "Mutated");
-}
-
-#[test]
-fn removing_an_instance_cancels_its_refresh_and_deletes_its_cached_rows() {
-    let codex = instance(ProviderKind::Codex, "account");
-    let storage = MemoryStorage::new();
-    let shared = SharedStorage::new(storage);
-    let discover = always(vec![row(&codex, "gpt-6-sol")]);
-    let fixture = fixture(vec![codex], shared.clone(), discover);
-    let catalog = &fixture.catalog;
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
-    futures::executor::block_on(async { catalog.remove_instance("account").await })
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert!(!catalog.has_instance("account"));
-    assert!(listed(catalog).models.is_empty());
-    let mut storage = shared.clone();
-    assert!(
-        storage
-            .load()
-            .unwrap_or_else(|error| panic!("{error}"))
-            .is_empty()
-    );
-}
-
-#[test]
-fn instance_admission_is_bounded_per_kind_and_a_removal_frees_capacity() {
-    let codex = instance(ProviderKind::Codex, "first");
-    let fixture = fixture(
-        vec![codex],
-        SharedStorage::new(MemoryStorage::new()),
-        always(Vec::new()),
-    );
-    let catalog = &fixture.catalog;
-    for index in 1..crate::cache::CLI_INSTANCE_LIMIT {
-        catalog
-            .register_instance(instance(ProviderKind::Codex, &format!("cli-{index}")), None)
-            .unwrap_or_else(|error| panic!("{error}"));
-    }
-    assert_eq!(
-        catalog.register_instance(instance(ProviderKind::Codex, "over"), None),
-        Err(CatalogError::InstanceLimit)
-    );
-    // ACP rows have their own capacity.
-    catalog
-        .register_instance(instance(ProviderKind::Acp, "agent"), None)
-        .unwrap_or_else(|error| panic!("{error}"));
-    futures::executor::block_on(async { catalog.remove_instance("cli-1").await })
-        .unwrap_or_else(|error| panic!("{error}"));
-    catalog
-        .register_instance(instance(ProviderKind::Codex, "fresh"), None)
-        .unwrap_or_else(|error| panic!("{error}"));
-}
-
-#[test]
-fn a_timeout_leaves_another_instances_models_immediately_available() {
-    let slow = instance(ProviderKind::Codex, "slow");
-    let quick = instance(ProviderKind::Claude, "quick");
-    let discover = FakeDiscover::new(|request, signal| {
-        Box::pin(async move {
-            if request.instance.id == "slow" {
-                signal.wait().await;
-                return Err(DiscoveryFailure::with_code(FailureCode::Timeout));
-            }
-            Ok(models(&request.instance, &["claude-opus-5"]))
-        })
-    });
-    let fixture = fixture(
-        vec![slow, quick],
-        SharedStorage::new(MemoryStorage::new()),
-        discover.clone(),
-    );
-    let catalog = fixture.catalog.clone();
-    // The slow flight starts and waits for the deadline; the quick one settles.
-    let mut slow_flight = Box::pin(catalog.refresh(ModelFilter::instance("slow")));
-    assert!(poll_once(slow_flight.as_mut()).is_pending());
-    futures::executor::block_on(catalog.refresh(ModelFilter::instance("quick")))
-        .unwrap_or_else(|error| panic!("{error}"));
-    let quick_page = catalog
-        .list(ModelFilter::instance("quick"), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(quick_page.models.len(), 1);
-    assert!(!quick_page.instances[0].stale);
-    // The timeout aborts the slow flight; its row reports a timeout, never a stale pick.
-    fixture.deadlines.fire(1_000.0 + 1_000.0);
-    let timed_out =
-        futures::executor::block_on(slow_flight).unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(timed_out[0].error, Some(StatusError::Timeout));
-    let slow_page = catalog
-        .list(ModelFilter::instance("slow"), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert!(slow_page.models.is_empty());
-}
-
-#[test]
-fn a_source_that_authoritatively_has_no_models_drops_its_rows() {
-    let codex = instance(ProviderKind::Codex, "account");
-    let mut findings = models(&codex, &["gpt-6-sol"]);
-    let mut source = ace_models::source::provider_source("codex");
-    source.id = "codex".to_owned().into();
-    findings.sources = Some(vec![SourceStatus {
-        source,
-        status: SourceState::Fresh,
-        last_refreshed_at: None,
-        error: Some(crate::failures::discovery_error(
-            None,
-            FailureCode::NoModels,
-            &crate::failures::ErrorContext::default(),
-        )),
-    }]);
-    let discover = always(findings.models);
-    let fixture = fixture(
-        vec![codex],
-        SharedStorage::new(MemoryStorage::new()),
-        discover,
-    );
-    // The rows are usable until the source says it has none; the port above reports the
-    // reply's statuses through the outcome.
-    let outcome = futures::executor::block_on(fixture.catalog.refresh(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(outcome.len(), 1);
-}
-
-fn statuses_by_id(catalog: &Catalog) -> BTreeMap<String, InstanceStatus> {
-    catalog
-        .list(ModelFilter::default(), 0, 100)
-        .map(|result| {
-            result
-                .instances
-                .into_iter()
-                .map(|status| (status.instance.clone(), status))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[test]
-fn an_invalidated_account_keeps_its_place_but_not_its_choices() {
-    let codex = instance(ProviderKind::Codex, "account");
-    let discover = always(vec![row(&codex, "gpt-6-sol")]);
-    let fixture = fixture(
-        vec![codex],
-        SharedStorage::new(MemoryStorage::new()),
-        discover,
-    );
-    let catalog = fixture.catalog.clone();
-    let _ = futures::executor::block_on(catalog.refresh(ModelFilter::default()));
-    futures::executor::block_on(catalog.invalidate(ModelFilter::default()))
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert!(catalog.has_instance("account"));
-    let listed = catalog
-        .list(ModelFilter::default(), 0, 100)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert!(listed.models.is_empty(), "revoked choices are gone");
-    let _ = statuses_by_id(&catalog);
-}
-
-#[test]
-fn a_re_registered_row_keeps_its_pending_invalidation() {
-    within(15, "a revocation across a re-registration", || {
-        let codex = instance(ProviderKind::Codex, "account");
-        let gate = crate::signals::Gate::new();
-        let held = gate.clone();
-        let discover = FakeDiscover::new(move |request, _signal| {
-            let held = held.clone();
-            Box::pin(async move {
-                held.wait().await;
-                Ok(models(&request.instance, &["gpt-6-sol"]))
-            })
-        });
-        let fixture = fixture(
-            vec![codex.clone()],
-            SharedStorage::new(MemoryStorage::new()),
-            discover.clone(),
-        );
-        let catalog = fixture.catalog.clone();
-        let mut old = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
-        assert!(poll_once(old.as_mut()).is_pending());
-        let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
-        assert!(
-            poll_once(invalidating.as_mut()).is_pending(),
-            "the deletion is pending"
-        );
-        // The same id is registered again by a new login while the delete is pending.
-        catalog
-            .register_instance(
-                ModelInstance {
-                    login_revision: "2".to_owned(),
-                    ..codex
-                },
-                None,
-            )
-            .unwrap_or_else(|error| panic!("{error}"));
-        let mut replacement = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
-        assert!(
-            poll_once(replacement.as_mut()).is_pending(),
-            "the replacement still waits for the pending delete"
-        );
-        assert_eq!(
-            fixture.discover.calls(),
-            1,
-            "no discovery runs before the pending delete finished"
-        );
-        gate.open();
-        let (_, revoked) = settle(
-            async move { futures::join!(old, invalidating) },
-            &fixture.spawn,
-            "the revocation and the flight it drained",
-        );
-        revoked.unwrap_or_else(|error| panic!("{error}"));
-        let _ = settle(replacement, &fixture.spawn, "the replacement flight");
-        assert_eq!(fixture.discover.calls(), 2, "the replacement discovered");
-        assert_eq!(listed(&catalog).models.len(), 1);
-    })
-}
-
-#[test]
-fn a_replacement_refresh_waits_for_a_pending_invalidations_delete() {
-    let codex = instance(ProviderKind::Codex, "account");
-    let gate = crate::signals::Gate::new();
-    let held = gate.clone();
-    let discover = FakeDiscover::new(move |request, _signal| {
-        let held = held.clone();
-        Box::pin(async move {
-            held.wait().await;
-            Ok(models(&request.instance, &["gpt-6-sol"]))
-        })
-    });
-    let fixture = fixture(
-        vec![codex],
-        SharedStorage::new(MemoryStorage::new()),
-        discover.clone(),
-    );
-    let catalog = fixture.catalog.clone();
-    let mut old = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
-    assert!(poll_once(old.as_mut()).is_pending());
-    let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
-    assert!(
-        poll_once(invalidating.as_mut()).is_pending(),
-        "delete is pending"
-    );
-    let mut replacement = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
-    assert!(poll_once(replacement.as_mut()).is_pending());
-    assert_eq!(
-        fixture.discover.calls(),
-        1,
-        "the replacement waited for the delete"
-    );
-    gate.open();
-    let (_, _, _) =
-        futures::executor::block_on(async move { futures::join!(old, invalidating, replacement) });
-    assert_eq!(fixture.discover.calls(), 2);
-    assert!(!listed(&catalog).models.is_empty());
-}
-
-#[test]
-fn a_sign_in_method_is_held_to_128_code_points() {
-    let catalog = fixture(
-        Vec::new(),
-        SharedStorage::new(MemoryStorage::new()),
-        always(Vec::new()),
-    )
-    .catalog;
-    for (index, (method, accepted)) in [
-        ("m".repeat(128), true),
-        ("m".repeat(129), false),
-        ("🌍".repeat(128), true),
-        ("🌍".repeat(129), false),
-        (String::new(), false),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let mut account = instance(ProviderKind::Codex, &format!("account-{index}"));
-        account.sign_in_method = Some(method);
-        assert_eq!(
-            catalog.register_instance(account, None).is_ok(),
-            accepted,
-            "case {index}"
-        );
-    }
-}
-
-/// Storage whose next `remove` calls fail, as a locked cache file would.
 #[test]
 fn a_discovery_that_reports_success_after_its_timeout_never_commits() {
     let codex = instance(ProviderKind::Codex, "account");
@@ -1323,9 +1050,10 @@ fn a_discovery_that_reports_success_after_its_timeout_never_commits() {
         poll_once(flight.as_mut()).is_pending(),
         "the discovery waits"
     );
+    fixture.spawn.drain();
     // The deadline fires, and the discovery answers success on the same poll anyway.
     fixture.deadlines.fire(1_000.0 + 1_000.0);
-    let status = futures::executor::block_on(flight);
+    let status = settle(flight, &fixture.spawn, "the flight");
     assert_eq!(status.error, Some(StatusError::Timeout));
     assert_eq!(fixture.discover.calls(), 1);
     let listed = catalog
@@ -1355,6 +1083,7 @@ fn a_commit_held_past_its_deadline_never_writes_and_reports_a_timeout() {
             poll_once(flight.as_mut()).is_pending(),
             "the commit waits for the queue"
         );
+        fixture.spawn.drain();
         assert_eq!(
             fixture.discover.calls(),
             1,
@@ -1404,10 +1133,11 @@ fn a_deadline_fired_before_the_discovery_arms_one_leaves_it_whole() {
         poll_once(flight.as_mut()).is_pending(),
         "admission is pending"
     );
+    fixture.spawn.drain();
     // No timer is armed while admission runs, so this one belongs to no discovery.
     fixture.deadlines.fire(1_000.0 + 1_000.0);
     gate.open();
-    let status = futures::executor::block_on(flight);
+    let status = settle(flight, &fixture.spawn, "the flight");
     assert_eq!(status.error, None, "the admission's own discovery is whole");
     assert_eq!(fixture.discover.calls(), 1);
     assert_eq!(listed(&catalog).models.len(), 1);
@@ -1440,6 +1170,7 @@ fn a_revocation_during_admission_launches_no_discovery() {
         poll_once(flight.as_mut()).is_pending(),
         "admission is pending"
     );
+    fixture.spawn.drain();
     catalog
         .register_instance(
             ModelInstance {
@@ -1450,7 +1181,7 @@ fn a_revocation_during_admission_launches_no_discovery() {
         )
         .unwrap_or_else(|error| panic!("{error}"));
     gate.open();
-    let _ = futures::executor::block_on(flight);
+    let _ = settle(flight, &fixture.spawn, "the flight");
     assert_eq!(
         fixture.discover.calls(),
         0,
