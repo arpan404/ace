@@ -79,8 +79,11 @@ pub(crate) struct Shared {
     pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
 }
 mod durable;
+mod shutdown;
+mod task_control;
 use durable::CloseStage;
 pub(crate) use durable::{DeleteWait, SessionWritePlan, StorageWait};
+use task_control::TaskControl;
 
 pub(crate) struct Actor {
     pub(crate) inner: Inner,
@@ -98,8 +101,9 @@ pub(crate) struct Actor {
     terminate: bool,
     close_result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
     pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
-    in_flight: BTreeMap<u64, TaskKind>,
+    in_flight: BTreeMap<u64, (TaskKind, TaskControl)>,
     next_task: u64,
+    next_place: u64,
     pub(crate) flight_waiters: BTreeMap<u64, Vec<Reply<InstanceStatus>>>,
     pub(crate) refresh_ok_waiters: BTreeMap<u64, Vec<Reply<Result<(), CatalogError>>>>,
     pub(crate) refresh_batches: BTreeMap<u64, RefreshBatch>,
@@ -122,6 +126,7 @@ pub(crate) struct Actor {
     flight_cancels: BTreeMap<u64, Timer>,
     flight_deadlines: BTreeMap<u64, f64>,
     pub(crate) flight_tasks: usize,
+    pub(crate) removal_tasks: usize,
     pub(crate) timed_out_probes: BTreeSet<u64>,
     pub(crate) next_probe: u64,
     next_listener: u64,
@@ -186,6 +191,7 @@ impl Actor {
             instance_ids: shared.instance_ids,
             in_flight: BTreeMap::new(),
             next_task: 0,
+            next_place: 0,
             flight_waiters: BTreeMap::new(),
             refresh_ok_waiters: BTreeMap::new(),
             refresh_batches: BTreeMap::new(),
@@ -207,6 +213,7 @@ impl Actor {
             flight_cancels: BTreeMap::new(),
             flight_deadlines: BTreeMap::new(),
             flight_tasks: 0,
+            removal_tasks: 0,
             timed_out_probes: BTreeSet::new(),
             next_probe: 0,
             next_listener: 0,
@@ -398,13 +405,21 @@ impl Actor {
                 let _ = reply.send(());
             }
             Command::HoldTurn { id, reply } => {
+                if !self.test_turn_allowed() {
+                    return;
+                }
+                let token = self.next_place();
                 let entry = self.inner.turns.entry(id.clone()).or_default();
-                let (token, granted) = entry.hold();
+                let granted = entry.hold(token);
                 let _ = reply.send((token, granted));
                 self.pump(&id);
             }
             Command::ReserveTurn { id, reply } => {
-                let token = self.inner.turns.entry(id).or_default().reserve();
+                if !self.test_turn_allowed() {
+                    return;
+                }
+                let token = self.next_place();
+                self.inner.turns.entry(id).or_default().reserve(token);
                 let _ = reply.send(token);
             }
             Command::SettleTurn { id, token, reply } => {
@@ -510,13 +525,6 @@ impl Actor {
                 result,
                 ..
             } => self.probe_outcome(&id, token, generation, &revision, started_at, result),
-            Command::InvalidationDone { id, token, .. } => self.mark_invalidation_ready(&id, token),
-            Command::PermissionReady { id, place } => {
-                if let Some(turns) = self.inner.turns.get_mut(&id) {
-                    turns.mark_ready(place);
-                }
-                self.pump(&id);
-            }
         }
         self.after_event();
     }
@@ -587,7 +595,9 @@ impl Actor {
     pub(crate) fn spawn(&mut self, kind: TaskKind, future: BoxFuture<'static, ()>) {
         let task = self.next_task;
         self.next_task += 1;
-        self.in_flight.insert(task, kind);
+        let control = TaskControl::default();
+        self.in_flight.insert(task, (kind, control.clone()));
+        let start = control.clone();
         // The guard is a captured value, so dropping the task before its first poll still
         // reports it: close never waits on work the spawner threw away.
         let guard = TaskGuard {
@@ -596,14 +606,21 @@ impl Actor {
         };
         let guarded = Box::pin(async move {
             let _guard = guard;
-            let _ = AssertUnwindSafe(future).catch_unwind().await;
+            if start.start() {
+                let _ = AssertUnwindSafe(future).catch_unwind().await;
+            }
         });
         let spawn = self.options.spawn.clone();
-        self.dispatch.submit(move || spawn.spawn(guarded));
+        self.dispatch.submit(move || {
+            if !control.cancelled() {
+                spawn.spawn(guarded);
+                control.submitted();
+            }
+        });
     }
 
     fn task_settled(&mut self, task: u64) {
-        let Some(kind) = self.in_flight.remove(&task) else {
+        let Some((kind, _)) = self.in_flight.remove(&task) else {
             return;
         };
         match kind {
@@ -620,6 +637,7 @@ impl Actor {
                 self.abort_probe(&id, token);
             }
             TaskKind::Removal { id, token } => {
+                self.removal_tasks -= 1;
                 // A removal that reached the storage lane settles from its reply; the
                 // task ending right after reporting that is not a failure.
                 let awaiting = self
@@ -689,8 +707,18 @@ impl Actor {
         self.finish_close_if_ready();
     }
 
-    pub(crate) fn all_turn_ids(&self) -> Vec<String> {
-        self.inner.turns.keys().cloned().collect()
+    pub(crate) fn next_place(&mut self) -> u64 {
+        self.next_place += 1;
+        self.next_place
+    }
+
+    fn test_turn_allowed(&self) -> bool {
+        self.inner
+            .turns
+            .values()
+            .map(turns::Turns::len)
+            .sum::<usize>()
+            < 2048
     }
 
     pub(crate) fn pump(&mut self, id: &str) {
@@ -740,12 +768,17 @@ impl Actor {
     }
 
     fn deadline(&mut self, id: &str, token: u64) {
-        let Some(state) = self.inner.states.get(id) else {
+        let Some(state) = self
+            .inner
+            .states
+            .get(id)
+            .filter(|state| state.flight_token == Some(token))
+        else {
+            if self.commit_tokens.contains(&token) {
+                self.cancel_commit(id, token);
+            }
             return;
         };
-        if state.flight_token != Some(token) {
-            return;
-        }
         let revision = state.probe_revision.clone();
         let started_at = self
             .flight_deadlines
@@ -765,6 +798,27 @@ impl Actor {
             },
         );
         self.cancel_commit(id, token);
+    }
+
+    pub(crate) fn cancel_obsolete_commits(&mut self, id: &str) {
+        let current = self.inner.states.get(id).and_then(|state| {
+            state.abort.as_ref().filter(|signal| !signal.is_aborted())?;
+            state.flight_token
+        });
+        let obsolete: Vec<_> = self
+            .inner
+            .row_flights
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|flight| {
+                Some(flight.token) != current && self.commit_tokens.contains(&flight.token)
+            })
+            .map(|flight| flight.token)
+            .collect();
+        for token in obsolete {
+            self.cancel_commit(id, token);
+        }
     }
 
     pub(crate) fn cancel_commit(&mut self, id: &str, token: u64) {
@@ -1271,11 +1325,12 @@ impl Actor {
                     diagnostics,
                     outcome,
                 };
+                let place = self.next_place();
                 self.inner
                     .turns
                     .entry(id.to_owned())
                     .or_default()
-                    .accept(PendingOp::FlightCommit(Box::new(commit)));
+                    .accept(place, PendingOp::FlightCommit(Box::new(commit)));
                 self.pending_commits += 1;
                 self.commit_tokens.insert(token);
                 self.pump(id);
@@ -1317,75 +1372,6 @@ impl Actor {
             return false;
         }
         self.revision(&state.config) == revision
-    }
-
-    fn close(&mut self, reply: Reply<Result<(), CatalogError>>) {
-        let recorded = self
-            .close_result
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if let Some(result) = recorded {
-            if result.is_ok() {
-                let _ = reply.send(Ok(()));
-                return;
-            }
-            // Storage was never closed: a later close retries the deletions.
-            *self
-                .close_result
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        }
-        self.close_waiters.retain(|waiter| !waiter.is_canceled());
-        if self.close_waiters.len() >= crate::catalog::WAITER_LIMIT {
-            let _ = reply.send(Err(CatalogError::Busy));
-            return;
-        }
-        self.close_waiters.push(reply);
-        if self.closing {
-            return;
-        }
-        if let Some(ingress) = self.commands.upgrade() {
-            ingress.close();
-        }
-        self.inner.closed = true;
-        self.inner.listeners.clear();
-        let probes: Vec<(String, u64)> = self
-            .probe_rows
-            .iter()
-            .map(|(token, id)| (id.clone(), *token))
-            .collect();
-        for (id, token) in probes {
-            self.abort_probe(&id, token);
-        }
-        let aborts: Vec<Signal> = self
-            .inner
-            .states
-            .values()
-            .filter_map(|state| state.abort.clone())
-            .collect();
-        for abort in aborts {
-            abort.abort();
-        }
-        for id in self.all_turn_ids() {
-            self.cancel_replace(&id);
-        }
-        let queued: Vec<_> = self
-            .inner
-            .row_flights
-            .iter()
-            .flat_map(|(id, flights)| {
-                flights
-                    .iter()
-                    .filter(|flight| self.commit_tokens.contains(&flight.token))
-                    .map(|flight| (id.clone(), flight.token))
-            })
-            .collect();
-        for (id, token) in queued {
-            self.cancel_commit(&id, token);
-        }
-        self.closing = true;
-        self.finish_close_if_ready();
     }
 }
 

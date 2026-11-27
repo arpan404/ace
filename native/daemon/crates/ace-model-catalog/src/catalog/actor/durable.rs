@@ -34,7 +34,6 @@ pub(crate) enum DeleteWait {
 
 /// One attempt owns the marker and every continuation waiting on it.
 pub(crate) struct Deletion {
-    pub(crate) key: u64,
     pub(crate) waiters: Vec<DeleteWait>,
 }
 
@@ -123,12 +122,13 @@ impl Actor {
         );
     }
 
-    pub(crate) fn cancel_replace(&mut self, id: &str) -> bool {
+    pub(crate) fn has_replace(&self, id: &str) -> bool {
+        self.replace_owners.contains_key(id)
+    }
+
+    pub(crate) fn cancel_replace(&self, id: &str) {
         if let Some(owner) = self.replace_owners.get(id) {
             owner.cancel.cancel();
-            true
-        } else {
-            false
         }
     }
 
@@ -185,10 +185,10 @@ impl Actor {
                     instance: id.to_owned(),
                 },
             );
+            self.inner.deletions.start(id, key);
             self.deletion_jobs.insert(
                 id.to_owned(),
                 Deletion {
-                    key,
                     waiters: Vec::new(),
                 },
             );
@@ -211,15 +211,16 @@ impl Actor {
     }
 
     fn deletion_done(&mut self, id: &str, key: u64, outcome: Outcome) {
-        if self.deletion_jobs.get(id).is_none_or(|job| job.key != key) {
+        if !self
+            .inner
+            .deletions
+            .finish(id, key, matches!(outcome, Outcome::Done))
+        {
             return;
         }
         let Some(job) = self.deletion_jobs.remove(id) else {
             return;
         };
-        if matches!(outcome, Outcome::Done) {
-            self.inner.deletions.forget(id);
-        }
         for waiter in job.waiters {
             self.resume_delete(id, waiter, outcome.clone());
         }

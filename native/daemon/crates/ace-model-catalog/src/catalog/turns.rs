@@ -28,7 +28,6 @@ pub(crate) enum Step {
 #[derive(Default)]
 pub(crate) struct Turns {
     places: VecDeque<Place>,
-    next: u64,
 }
 
 pub(crate) struct Place {
@@ -41,6 +40,7 @@ pub(crate) struct Place {
     pub(crate) op: Option<PendingOp>,
     /// Whether the op may run once it reaches the front.
     pub(crate) ready: bool,
+    external: bool,
     pub(crate) settled: bool,
 }
 
@@ -50,46 +50,68 @@ impl Turns {
     }
 
     /// Takes a place for an external holder, which the actor grants once it is front.
-    pub(crate) fn hold(&mut self) -> (u64, futures::channel::oneshot::Receiver<()>) {
+    pub(crate) fn hold(&mut self, token: u64) -> futures::channel::oneshot::Receiver<()> {
         let (grant, receiver) = futures::channel::oneshot::channel();
-        let (token, _gate) = self.push(None, false);
+        self.push(token, None, false);
         if let Some(place) = self.places.back_mut() {
             place.grant = Some(grant);
         }
-        (token, receiver)
+        receiver
     }
 
-    /// Takes a place with no grant and no work: `reserve_turn` only reserves order.
-    pub(crate) fn reserve(&mut self) -> u64 {
-        let (token, _gate) = self.push(None, false);
-        token
+    pub(crate) fn reserve(&mut self, token: u64) {
+        self.push(token, None, false);
     }
 
-    /// Takes a place for catalog-owned work that is ready as soon as it is accepted.
-    pub(crate) fn accept(&mut self, op: PendingOp) -> u64 {
-        let (token, _gate) = self.push(Some(op), true);
-        token
+    pub(crate) fn accept(&mut self, token: u64, op: PendingOp) {
+        self.push(token, Some(op), true);
     }
 
-    /// Takes a place for catalog-owned work that becomes ready on a later message.
-    pub(crate) fn accept_when_ready(&mut self, op: PendingOp) -> u64 {
-        let (token, _gate) = self.push(Some(op), false);
-        token
+    pub(crate) fn accept_when_ready(&mut self, token: u64, op: PendingOp) {
+        self.push(token, Some(op), false);
     }
 
-    fn push(&mut self, op: Option<PendingOp>, ready: bool) -> (u64, Gate) {
-        self.next += 1;
-        let token = self.next;
-        let gate = Gate::new();
+    fn push(&mut self, token: u64, op: Option<PendingOp>, ready: bool) {
         self.places.push_back(Place {
             token,
-            done: gate.clone(),
+            done: Gate::new(),
             grant: None,
+            external: op.is_none(),
             op,
             ready,
             settled: false,
         });
-        (token, gate)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.places.len()
+    }
+
+    pub(crate) fn cancel_queued_writes(&mut self) -> (Vec<crate::catalog::SessionWrite>, usize) {
+        let mut sessions = Vec::new();
+        let mut permissions = 0;
+        for (index, place) in self.places.iter_mut().enumerate() {
+            match &place.op {
+                Some(PendingOp::SessionWrite(_)) => {
+                    if let Some(PendingOp::SessionWrite(write)) = place.op.take() {
+                        sessions.push(*write);
+                    }
+                    place.settled = true;
+                }
+                // Close drains the permission report that already owns the front place.
+                Some(PendingOp::PermissionWrite(_)) if index != 0 => {
+                    place.op = None;
+                    place.settled = true;
+                    permissions += 1;
+                }
+                None if place.external => {
+                    place.grant = None;
+                    place.settled = true;
+                }
+                _ => {}
+            }
+        }
+        (sessions, permissions)
     }
 
     /// Marks a place ready (a deletion's flight settled) without changing its order.

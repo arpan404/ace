@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use crate::cache::CacheEntry;
 use crate::catalog::actor::{Actor, DeleteWait, SessionWritePlan, StorageWait};
-use crate::catalog::commands::{Command, Reply};
+use crate::catalog::commands::Reply;
 use crate::catalog::storage_lane::{Cancel, Outcome};
 use crate::catalog::writes;
 use crate::catalog::{
@@ -180,11 +180,12 @@ impl Actor {
             reply,
         };
         let id = write.input.id.clone();
+        let place = self.next_place();
         self.inner
             .turns
             .entry(id.clone())
             .or_default()
-            .accept(PendingOp::SessionWrite(Box::new(write)));
+            .accept(place, PendingOp::SessionWrite(Box::new(write)));
         self.pump(&id);
     }
 
@@ -219,28 +220,25 @@ impl Actor {
         }
         self.inner.session_writes += 1;
         let id = instance.to_owned();
-        let place = self
-            .inner
+        let place = self.next_place();
+        self.inner
             .turns
             .entry(id.clone())
             .or_default()
-            .accept_when_ready(PendingOp::PermissionWrite(Box::new(PermissionWrite {
-                instance: id.clone(),
-                modes,
-                generation: token.0,
-                revision,
-                place: 0,
-            })));
-        // The write runs from its place, once its task reports; a task dropped before it
-        // runs still lets the write (and close) settle.
-        let reporter = self.reporter.clone();
-        let task_id = id.clone();
-        let task: futures::future::BoxFuture<'static, ()> = Box::pin(async move {
-            reporter.report(Command::PermissionReady { id: task_id, place });
-        });
+            .accept_when_ready(
+                place,
+                PendingOp::PermissionWrite(Box::new(PermissionWrite {
+                    instance: id.clone(),
+                    modes,
+                    generation: token.0,
+                    revision,
+                    place,
+                })),
+            );
+        // The task's settlement makes this place ready, including if it was dropped.
         self.spawn(
             crate::catalog::actor::TaskKind::Permission { id, place },
-            task,
+            Box::pin(async {}),
         );
     }
 
@@ -255,6 +253,10 @@ impl Actor {
 
     /// Accepts one session write into the durable path; `true` means it settled here.
     pub(crate) fn begin_session_write(&mut self, write: SessionWrite, place: u64) -> bool {
+        if self.inner.closed {
+            self.finish_session(write, Err(CatalogError::Closed));
+            return true;
+        }
         if !self.still_current(&write.input, write.generation) {
             self.finish_session(write, Err(CatalogError::SessionGenerationChanged));
             return true;
@@ -305,6 +307,7 @@ impl Actor {
     pub(crate) fn session_deleted(&mut self, plan: SessionWritePlan, outcome: Outcome) {
         let id = plan.write.input.id.clone();
         if matches!(outcome, Outcome::Done)
+            && !self.inner.closed
             && self.write_current(&id, plan.write.generation, &plan.write.revision)
         {
             self.dispatch_session_replace(plan);
@@ -359,7 +362,7 @@ impl Actor {
         if !self.write_current(&write.instance, write.generation, &write.revision)
             || self.inner.deletions.has(&write.instance)
         {
-            self.finish_permission(&write);
+            self.inner.session_writes -= 1;
             return true;
         }
         let current = self
@@ -368,13 +371,13 @@ impl Actor {
             .get(&write.instance)
             .and_then(|state| state.entry.clone());
         let Some(current) = current else {
-            self.finish_permission(&write);
+            self.inner.session_writes -= 1;
             return true;
         };
         if current.revision != write.revision
             || current.permission_modes.as_deref() == Some(write.modes.as_slice())
         {
-            self.finish_permission(&write);
+            self.inner.session_writes -= 1;
             return true;
         }
         let entry = permission_entry(&write, &current);

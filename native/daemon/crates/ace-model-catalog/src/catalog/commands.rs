@@ -269,15 +269,6 @@ pub(crate) enum Command {
         key: u64,
         outcome: crate::catalog::storage_lane::Outcome,
     },
-    InvalidationDone {
-        id: String,
-        token: u64,
-    },
-    /// A queued permission-mode write's place may run.
-    PermissionReady {
-        id: String,
-        place: u64,
-    },
 }
 
 impl Command {

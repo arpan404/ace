@@ -120,3 +120,44 @@ fn replacing_probes_does_not_release_their_slots_before_tasks_exit() {
         settle(catalog.close(), &spawn, "close").unwrap_or_else(|error| panic!("{error}"));
     });
 }
+
+struct ClosingSpawner {
+    catalog: Mutex<Option<Catalog>>,
+    close: std::sync::mpsc::Sender<Result<(), CatalogError>>,
+}
+
+impl Spawn for ClosingSpawner {
+    fn spawn(&self, _: BoxFuture<'static, ()>) {
+        let catalog = self.catalog.lock().unwrap().clone().unwrap();
+        let _ = self
+            .close
+            .send(futures::executor::block_on(catalog.close()));
+    }
+}
+
+#[test]
+fn a_spawner_can_close_before_submitting_its_task() {
+    within(5, "close from the spawner", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let (close, closed) = std::sync::mpsc::channel();
+        let spawn = Arc::new(ClosingSpawner {
+            catalog: Mutex::new(None),
+            close,
+        });
+        let discover = always(vec![row(&account, "model")]);
+        let mut options = CatalogOptions::new(
+            SharedStorage::new(MemoryStorage::new()),
+            discover.clone(),
+            TestClock::new(0.0),
+            TestDeadlines::new(),
+            spawn.clone(),
+        );
+        options.instances = vec![account];
+        let catalog = Catalog::new(options).unwrap();
+        *spawn.catalog.lock().unwrap() = Some(catalog.clone());
+        let _ = futures::executor::block_on(catalog.load("account"));
+        assert_eq!(closed.recv().unwrap(), Ok(()));
+        assert_eq!(discover.calls(), 0);
+        spawn.catalog.lock().unwrap().take();
+    });
+}

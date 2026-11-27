@@ -8,7 +8,7 @@
 //! catalog can name (64 CLI accounts and 512 ACP agents' rows, registered or cached), so
 //! a restart that finds every cached row out of date deletes them all.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 /// The most rows waiting to be deleted.
 pub const PENDING_LIMIT: usize = 2 * (64 + 512);
@@ -16,7 +16,7 @@ pub const PENDING_LIMIT: usize = 2 * (64 + 512);
 /// The deletions that have not durably completed.
 #[derive(Debug, Clone, Default)]
 pub struct PendingDeletions {
-    pending: BTreeSet<String>,
+    pending: BTreeMap<String, Option<u64>>,
 }
 
 impl PendingDeletions {
@@ -25,7 +25,7 @@ impl PendingDeletions {
     }
 
     pub fn has(&self, instance: &str) -> bool {
-        self.pending.contains(instance)
+        self.pending.contains_key(instance)
     }
 
     pub fn len(&self) -> usize {
@@ -39,34 +39,44 @@ impl PendingDeletions {
     /// Reserves the marker before any removal runs. `false` means the set is full and
     /// this id may not be deleted, so its row must not be withdrawn either.
     pub fn reserve(&mut self, instance: &str) -> bool {
-        if self.pending.contains(instance) {
+        if self.pending.contains_key(instance) {
             return true;
         }
         if self.pending.len() >= PENDING_LIMIT {
             return false;
         }
-        self.pending.insert(instance.to_owned());
+        self.pending.insert(instance.to_owned(), None);
         true
     }
 
-    /// Records a deletion that failed, if the set has room for it.
-    pub fn mark(&mut self, instance: &str) -> bool {
-        self.reserve(instance)
+    /// Claims the reserved marker for an attempt.
+    pub(crate) fn start(&mut self, instance: &str, token: u64) {
+        if let Some(owner) = self.pending.get_mut(instance) {
+            *owner = Some(token);
+        }
     }
 
-    /// Records a deletion that durably completed.
-    pub fn forget(&mut self, instance: &str) {
-        self.pending.remove(instance);
+    /// A late reply cannot clear a marker that another attempt now owns.
+    pub(crate) fn finish(&mut self, instance: &str, token: u64, removed: bool) -> bool {
+        if self.pending.get(instance) != Some(&Some(token)) {
+            return false;
+        }
+        if removed {
+            self.pending.remove(instance);
+        } else if let Some(owner) = self.pending.get_mut(instance) {
+            *owner = None;
+        }
+        true
     }
 
     /// The rows a shutdown must still remove, in a stable order.
     pub fn pending_ids(&self) -> Vec<String> {
-        self.pending.iter().cloned().collect()
+        self.pending.keys().cloned().collect()
     }
 
     /// Keeps only the rows whose removal is still outstanding.
     pub fn retain(&mut self, kept: &[String]) {
-        self.pending.retain(|id| kept.contains(id));
+        self.pending.retain(|id, _| kept.contains(id));
     }
 
     pub fn clear(&mut self) {
@@ -85,9 +95,13 @@ mod tests {
     fn a_failed_deletion_stays_pending_until_a_retry_completes_it() {
         let mut deletions = PendingDeletions::new();
         assert!(deletions.reserve("account"), "the marker is taken first");
-        // A failed removal leaves the marker in place; a successful retry clears it.
+        deletions.start("account", 1);
+        assert!(deletions.finish("account", 1, false));
         assert!(deletions.has("account"));
-        deletions.forget("account");
+        deletions.start("account", 2);
+        assert!(!deletions.finish("account", 1, true));
+        assert!(deletions.has("account"));
+        assert!(deletions.finish("account", 2, true));
         assert!(!deletions.has("account"));
         assert!(deletions.is_empty());
     }

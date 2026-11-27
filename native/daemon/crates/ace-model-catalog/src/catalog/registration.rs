@@ -64,7 +64,12 @@ impl Actor {
         if self.inner.removals.contains_key(&config.id) {
             return Err(CatalogError::RemovalDraining);
         }
-        let old_exists = self.inner.states.contains_key(&config.id);
+        let old_provider = self
+            .inner
+            .states
+            .get(&config.id)
+            .map(|old| old.config.provider);
+        let old_exists = old_provider.is_some();
         let live = self
             .inner
             .providers
@@ -76,7 +81,9 @@ impl Actor {
         } else {
             self.inner.states.len() - live
         };
-        if !old_exists && of_kind >= kind_limit(config.provider) {
+        if of_kind >= kind_limit(config.provider)
+            && old_provider.is_none_or(|provider| is_acp(provider) != is_acp(config.provider))
+        {
             return Err(CatalogError::InstanceLimit);
         }
         let old_entry = self
@@ -104,12 +111,13 @@ impl Actor {
             .states
             .get(&config.id)
             .is_some_and(|old| identity_revision(&old.config) != identity);
-        let replacing_write = self.cancel_replace(&config.id);
+        let replacing_write = self.has_replace(&config.id);
         if (entry.is_some() && !compatible || replacing_write && identity_changed)
             && !self.begin_delete(&config.id)
         {
             return Err(CatalogError::Busy);
         }
+        self.cancel_replace(&config.id);
         let old_entry_acp = self
             .inner
             .states
@@ -128,9 +136,6 @@ impl Actor {
         }
         if old_entry_acp {
             self.inner.acp_loaded.insert(config.id.clone());
-        }
-        if let Some(ids) = self.inner.providers.get_mut(&config.provider) {
-            ids.retain(|id| id != &config.id);
         }
         // A full kind evicts its own oldest cached row, never the other kind's.
         if !old_exists && !self.inner.persisted.contains_key(&config.id) {
@@ -153,6 +158,7 @@ impl Actor {
                     return Err(CatalogError::Busy);
                 }
                 self.inner.persisted.remove(&evicted);
+                self.inner.acp_loaded.remove(&evicted);
                 self.inner.persisted_order.retain(|id| id != &evicted);
             }
         }
@@ -196,6 +202,11 @@ impl Actor {
             view: None,
         };
         self.inner.states.insert(config.id.clone(), state);
+        if let Some(provider) = old_provider
+            && let Some(ids) = self.inner.providers.get_mut(&provider)
+        {
+            ids.retain(|id| id != &config.id);
+        }
         self.inner.order.retain(|id| id != &config.id);
         self.inner.order.push(config.id.clone());
         self.instance_ids
@@ -209,6 +220,7 @@ impl Actor {
             .push(config.id.clone());
         self.inner.persisted.remove(&config.id);
         self.inner.persisted_order.retain(|id| id != &config.id);
+        self.cancel_obsolete_commits(&config.id);
         if restored {
             // A restored CLI row is served as it is and replaced in the background.
             self.start_flight(&config.id.clone(), RefreshCause::Background);
@@ -291,6 +303,7 @@ impl Actor {
             self.cancel_stale_replace(&id);
             self.notify_id(&id);
             self.refresh_after.insert(id.clone());
+            self.cancel_obsolete_commits(&id);
             if self
                 .inner
                 .states
@@ -309,6 +322,9 @@ impl Actor {
         version: &str,
         runtime: &str,
     ) {
+        if !matches!(runtime, "cli" | "cursor-sdk") || version.chars().count() > 4096 {
+            return;
+        }
         self.inner
             .installations
             .insert(format!("{runtime}:{provider}"), version.to_owned());
@@ -346,6 +362,7 @@ impl Actor {
             self.cancel_stale_replace(&id);
             self.notify_id(&id);
             self.refresh_after.insert(id.clone());
+            self.cancel_obsolete_commits(&id);
             if self
                 .inner
                 .states
@@ -412,7 +429,11 @@ impl Actor {
             }
             return;
         }
-        if self.inner.removals.len() >= 128 {
+        if !(1..=256).contains(&instance.chars().count()) {
+            let _ = reply.send(Err(CatalogError::InvalidInstance));
+            return;
+        }
+        if self.inner.removals.len() >= 128 || self.removal_tasks >= 128 {
             let _ = reply.send(Err(CatalogError::InstanceRemovalCapacity));
             return;
         }
@@ -424,6 +445,7 @@ impl Actor {
         }
         self.cancel_replace(&instance);
         self.next_removal += 1;
+        self.removal_tasks += 1;
         let token = self.next_removal;
         // Every flight this instance ever started, not only its current row's.
         let mut flights: Vec<Gate> = self
@@ -464,6 +486,7 @@ impl Actor {
             ids.retain(|id| id != &instance);
         }
         self.inner.states.remove(&instance);
+        self.refresh_after.remove(&instance);
         self.inner.order.retain(|id| id != &instance);
         self.instance_ids
             .lock()
@@ -481,6 +504,7 @@ impl Actor {
                 waiters: vec![reply],
             },
         );
+        self.cancel_obsolete_commits(&instance);
         let reporter = self.reporter.clone();
         let id = instance.clone();
         let task: BoxFuture<'static, ()> = Box::pin(async move {
@@ -567,7 +591,6 @@ impl Actor {
             let _ = reply.send(Err(CatalogError::InvalidationCapacity));
             return;
         }
-        self.inner.invalidations += selected.len();
         self.next_invalidation_batch += 1;
         let batch = self.next_invalidation_batch;
         self.invalidation_batches.insert(
@@ -595,7 +618,6 @@ impl Actor {
                 ))
             });
             let Some((config, admit, flight, previous)) = captured else {
-                self.inner.invalidations = self.inner.invalidations.saturating_sub(1);
                 continue;
             };
             if let Some(state) = self.inner.states.get_mut(&id) {
@@ -603,26 +625,25 @@ impl Actor {
                 state.view = None;
             }
             if let Err(error) = self.register(config, admit) {
-                self.inner.invalidations = self.inner.invalidations.saturating_sub(1);
                 let remaining = self
                     .invalidation_batches
                     .remove(&batch)
                     .map(|batch| batch.reply);
-                let _ = self.inner.invalidations.saturating_sub(0);
                 if let Some(reply) = remaining {
                     let _ = reply.send(Err(error));
                 }
                 return;
             }
+            self.inner.invalidations += 1;
             self.next_invalidation += 1;
             let token = self.next_invalidation;
             let done = Gate::new();
-            let place = self
-                .inner
+            let place = self.next_place();
+            self.inner
                 .turns
                 .entry(id.clone())
                 .or_default()
-                .accept_when_ready(PendingOp::Invalidation { token });
+                .accept_when_ready(place, PendingOp::Invalidation { token });
             self.inner
                 .invalidating
                 .entry(id.clone())
@@ -636,8 +657,6 @@ impl Actor {
             if let Some(batch) = self.invalidation_batches.get_mut(&batch) {
                 batch.remaining += 1;
             }
-            let reporter = self.reporter.clone();
-            let task_id = id.clone();
             let task: BoxFuture<'static, ()> = Box::pin(async move {
                 if let Some(flight) = flight {
                     flight.wait().await;
@@ -645,7 +664,6 @@ impl Actor {
                 if let Some(previous) = previous {
                     previous.wait().await;
                 }
-                reporter.report(Command::InvalidationDone { id: task_id, token });
             });
             self.spawn(
                 TaskKind::Invalidation {

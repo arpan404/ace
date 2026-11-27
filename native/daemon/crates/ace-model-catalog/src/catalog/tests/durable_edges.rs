@@ -408,3 +408,63 @@ fn a_stalled_removal_and_close_refuse_excess_waiters() {
         );
     });
 }
+
+#[test]
+fn close_refuses_ingress_and_cancels_session_writes_waiting_for_storage() {
+    within(5, "close during staged session I/O", || {
+        let control = ControlledStorage::default();
+        let storage = control.shared();
+        let account = instance(ProviderKind::Acp, "account");
+        let fixture = fixture(vec![account.clone()], storage.clone(), discovery());
+        let catalog = &fixture.catalog;
+        let registration = token(catalog, "account");
+        let metadata = super::writes::acp_metadata("session-model");
+
+        let (started, release) = control.pause_next(Operation::Replace);
+        let mut staged =
+            Box::pin(catalog.update_from_session(account.clone(), registration, &metadata));
+        assert!(poll_once(staged.as_mut()).is_pending());
+        observe_entry(&fixture.spawn, started);
+        let mut queued = Box::pin(catalog.update_from_session(account, registration, &metadata));
+        assert!(poll_once(queued.as_mut()).is_pending());
+
+        let mut close = Box::pin(catalog.close());
+        assert!(poll_once(close.as_mut()).is_pending());
+        assert_eq!(
+            catalog.list(ModelFilter::default(), 0, 100).err(),
+            Some(CatalogError::Closed)
+        );
+        assert_eq!(
+            poll_once(queued.as_mut()),
+            std::task::Poll::Ready(Err(CatalogError::Closed))
+        );
+        release.send(Ok(())).unwrap();
+        assert!(settle(staged, &fixture.spawn, "cancelled session").is_err());
+        settle(close, &fixture.spawn, "close after active I/O").unwrap();
+        assert!(storage.load().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn reregistering_under_a_different_provider_withdraws_the_old_provider() {
+    within(3, "provider index replacement", || {
+        let fixture = fixture(
+            vec![instance(ProviderKind::Codex, "account")],
+            SharedStorage::new(MemoryStorage::new()),
+            discovery(),
+        );
+        let catalog = &fixture.catalog;
+        catalog
+            .register_instance(instance(ProviderKind::Claude, "account"), None)
+            .unwrap();
+        assert!(!catalog.has_provider(ProviderKind::Codex));
+        assert!(catalog.has_provider(ProviderKind::Claude));
+        assert!(
+            catalog
+                .list(ModelFilter::provider(ProviderKind::Codex), 0, 100)
+                .unwrap()
+                .instances
+                .is_empty()
+        );
+    });
+}
