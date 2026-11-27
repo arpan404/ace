@@ -34,6 +34,7 @@ fn a_queued_write_for_the_old_login_never_lands_on_the_new_one() {
     // Accepted, then a new login registers and loads its own row before the queued task runs.
     catalog.update_permission_modes(
         "account",
+        token(&catalog, "account"),
         vec![serde_json::json!({
             "id": "plan", "label": "Plan", "description": "", "risk": "low"
         })],
@@ -80,6 +81,7 @@ fn a_session_write_queued_across_a_login_change_never_lands_on_the_new_login() {
             login_revision: "1".to_owned(),
             ..agent.clone()
         },
+        token(&catalog, "account"),
         &metadata,
     ));
     assert!(
@@ -122,19 +124,21 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
     let catalog = fixture.catalog.clone();
     let metadata = acp_metadata("session-model");
     let _ = settle(
-        catalog.update_from_session(agent.clone(), &metadata),
+        catalog.update_from_session(agent.clone(), token(&catalog, "account"), &metadata),
         &fixture.spawn,
         "the session write",
     );
     // Accepted but not started: its place in the queue is already taken.
     catalog.update_permission_modes(
         "account",
+        token(&catalog, "account"),
         vec![
             serde_json::json!({ "id": "plan", "label": "Plan", "description": "", "risk": "low" }),
         ],
     );
     // A session write accepted afterwards waits for it, then replaces its entry.
-    let mut session = Box::pin(catalog.update_from_session(agent.clone(), &metadata));
+    let mut session =
+        Box::pin(catalog.update_from_session(agent.clone(), token(&catalog, "account"), &metadata));
     assert!(
         poll_once(session.as_mut()).is_pending(),
         "the later write waits for the earlier permission write"
@@ -192,7 +196,11 @@ fn a_dropped_session_write_releases_its_capacity_slot() {
     let metadata = acp_metadata("session-model");
     // Every slot is taken by a write whose caller goes away before its turn comes.
     for index in 0..64 {
-        let mut queued = Box::pin(catalog.update_from_session(agent.clone(), &metadata));
+        let mut queued = Box::pin(catalog.update_from_session(
+            agent.clone(),
+            token(&catalog, "account"),
+            &metadata,
+        ));
         assert!(
             poll_once(queued.as_mut()).is_pending(),
             "write {index} is queued"
@@ -204,7 +212,7 @@ fn a_dropped_session_write_releases_its_capacity_slot() {
     // The slots are free again once every queued write and its storage job settled.
     settle(catalog.quiesce(), &fixture.spawn, "the queued writes");
     settle(
-        catalog.update_from_session(agent.clone(), &metadata),
+        catalog.update_from_session(agent.clone(), token(&catalog, "account"), &metadata),
         &fixture.spawn,
         "the session write",
     )
@@ -259,11 +267,11 @@ fn a_session_reports_levels_for_the_model_it_runs_without_erasing_others() {
     settle(
         async {
             catalog
-                .update_from_session(agent.clone(), &setup("fast"))
+                .update_from_session(agent.clone(), token(catalog, "one"), &setup("fast"))
                 .await
                 .unwrap_or_else(|error| panic!("{error}"));
             catalog
-                .update_from_session(agent.clone(), &setup("deep"))
+                .update_from_session(agent.clone(), token(catalog, "one"), &setup("deep"))
                 .await
                 .unwrap_or_else(|error| panic!("{error}"));
         },
@@ -310,6 +318,7 @@ fn a_permission_write_dropped_before_it_runs_does_not_hold_close() {
         // Accepted, then its task is dropped before it first runs.
         catalog.update_permission_modes(
             "account",
+            token(&catalog, "account"),
             vec![serde_json::json!({
                 "id": "plan",
                 "label": "Plan",
@@ -342,6 +351,7 @@ fn close_drains_a_write_accepted_before_it_started() {
     // Accepted, but its task has not run yet: close must wait for it.
     catalog.update_permission_modes(
         "account",
+        token(&catalog, "account"),
         vec![serde_json::json!({
             "id": "plan",
             "label": "Plan",
@@ -369,5 +379,151 @@ fn close_drains_a_write_accepted_before_it_started() {
             .and_then(|mode| mode.get("id"))
             .and_then(|id| id.as_str()),
         Some("plan")
+    );
+}
+
+#[test]
+fn a_session_token_from_before_an_invalidation_never_lands_on_the_replacement() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+    let catalog = fixture.catalog.clone();
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the login's refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let before = token(&catalog, "account");
+    settle(
+        catalog.invalidate(ModelFilter::instance("account")),
+        &fixture.spawn,
+        "the invalidation",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let after = token(&catalog, "account");
+    assert_ne!(before, after, "the revocation registered a new row");
+    let refused = settle(
+        catalog.update_from_session(codex, before, &acp_metadata("session-model")),
+        &fixture.spawn,
+        "an old session report",
+    );
+    assert_eq!(refused, Err(CatalogError::SessionGenerationChanged));
+    let mut storage = storage.clone();
+    assert!(
+        storage.load().unwrap_or_default().is_empty(),
+        "the old session's report never reached storage"
+    );
+}
+
+#[test]
+fn a_session_token_from_before_a_home_change_is_refused_even_with_the_same_login() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let fixture = fixture(vec![agent.clone()], storage.clone(), always(Vec::new()));
+    let catalog = fixture.catalog.clone();
+    let before = token(&catalog, "account");
+    catalog
+        .register_instance(
+            ModelInstance {
+                home_dir: Some("/another/home".to_owned()),
+                ..agent.clone()
+            },
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_ne!(before, token(&catalog, "account"));
+    let refused = settle(
+        catalog.update_from_session(agent, before, &acp_metadata("session-model")),
+        &fixture.spawn,
+        "the old home's session report",
+    );
+    assert_eq!(refused, Err(CatalogError::SessionGenerationChanged));
+    let mut storage = storage.clone();
+    assert!(storage.load().unwrap_or_default().is_empty());
+}
+
+#[test]
+fn a_permission_write_from_before_a_replacement_is_ignored() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let storage = SharedStorage::new(MemoryStorage::new());
+    let discover = always(vec![row(&codex, "gpt-6-sol")]);
+    let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+    let catalog = fixture.catalog.clone();
+    let _ = settle(
+        catalog.refresh(ModelFilter::default()),
+        &fixture.spawn,
+        "the refresh",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let before = token(&catalog, "account");
+    catalog
+        .register_instance(codex, None)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_ne!(before, token(&catalog, "account"));
+    catalog.update_permission_modes(
+        "account",
+        before,
+        vec![serde_json::json!({
+            "id": "plan", "label": "Plan", "description": "", "risk": "low"
+        })],
+    );
+    fixture.spawn.drain();
+    assert_eq!(
+        catalog.pending_session_writes(),
+        0,
+        "a replaced registration's permission write is never accepted"
+    );
+}
+
+#[test]
+fn a_write_behind_a_held_turn_refuses_a_revision_settings_changed_under_it() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let preferences = Arc::new(Mutex::new(vec![crate::preferences::ProviderConfig::new(
+        ProviderKind::Acp,
+    )]));
+    let spawn = TestSpawn::new();
+    let mut options = CatalogOptions::new(
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+        TestClock::new(1_000.0),
+        TestDeadlines::new(),
+        spawn.clone(),
+    );
+    options.instances = vec![agent.clone()];
+    options.preferences = Some(Arc::new({
+        let preferences = preferences.clone();
+        move || {
+            preferences
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+        }
+    }));
+    let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+    let registration = token(&catalog, "account");
+    let held = futures::executor::block_on(catalog.hold_turn("account"));
+    let metadata = acp_metadata("session-model");
+    let mut write = Box::pin(catalog.update_from_session(agent.clone(), registration, &metadata));
+    assert!(
+        poll_once(write.as_mut()).is_pending(),
+        "the write is queued"
+    );
+    // The person changes the executable while the write waits behind the held turn.
+    preferences
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .push(crate::preferences::ProviderConfig {
+            instance: Some("account".to_owned()),
+            binary_path: Some("/another/agent".to_owned()),
+            ..crate::preferences::ProviderConfig::new(ProviderKind::Acp)
+        });
+    drop(held);
+    let result = settle(write, &spawn, "the queued write");
+    assert_eq!(
+        result,
+        Err(CatalogError::SessionGenerationChanged),
+        "the write refuses a revision the row no longer has"
     );
 }

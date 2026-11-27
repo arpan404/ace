@@ -58,6 +58,12 @@ pub const DEFAULT_CONCURRENCY: usize = 4;
 /// Commands that may wait for the actor before a caller blocks.
 const COMMAND_CAPACITY: usize = 256;
 
+/// A row registration's token. A session reports metadata under the token it saw, so a
+/// replacement registration (even with the same login) cannot adopt an old session's
+/// report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RegistrationToken(pub u64);
+
 /// A monotonic millisecond clock, injected.
 pub trait Clock: Send + Sync {
     fn now(&self) -> f64;
@@ -815,6 +821,16 @@ impl Catalog {
         .flatten()
     }
 
+    /// The instance as registered now, with the token that owns this registration. A
+    /// session carries the token so its report can never land on a replacement row.
+    pub fn registration(&self, id: &str) -> Option<(ModelInstance, RegistrationToken)> {
+        self.ask(|reply| Command::Registration {
+            id: id.to_owned(),
+            reply,
+        })
+        .flatten()
+    }
+
     /// Subscribes to row changes. The limit is 4096 listeners.
     pub fn listen(
         &self,
@@ -1001,10 +1017,12 @@ impl Catalog {
     pub async fn update_from_session(
         &self,
         input: ModelInstance,
+        token: RegistrationToken,
         metadata: &Value,
     ) -> Result<(), CatalogError> {
         self.request(|reply| Command::UpdateSession {
             input,
+            token,
             metadata: metadata.clone(),
             reply,
         })
@@ -1013,9 +1031,15 @@ impl Catalog {
     }
 
     /// A session's reported modes survive a restart: written onto the cached entry.
-    pub fn update_permission_modes(&self, instance: &str, modes: Vec<Value>) {
+    pub fn update_permission_modes(
+        &self,
+        instance: &str,
+        token: RegistrationToken,
+        modes: Vec<Value>,
+    ) {
         self.tell(|reply| Command::UpdateModes {
             instance: instance.to_owned(),
+            token,
             modes,
             reply,
         });

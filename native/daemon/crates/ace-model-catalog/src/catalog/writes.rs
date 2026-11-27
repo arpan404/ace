@@ -16,7 +16,9 @@ use crate::catalog::actor::{Actor, SessionWritePlan, StorageWait};
 use crate::catalog::commands::{Command, Reply};
 use crate::catalog::storage_lane::{Cancel, Job, Outcome};
 use crate::catalog::writes;
-use crate::catalog::{CatalogError, PendingOp, identity_revision, owns, validate_instance};
+use crate::catalog::{
+    CatalogError, PendingOp, RegistrationToken, identity_revision, owns, validate_instance,
+};
 
 /// One accepted session write, waiting for its place.
 pub(crate) struct SessionWrite {
@@ -73,6 +75,7 @@ impl Actor {
     pub(crate) fn update_session(
         &mut self,
         input: ModelInstance,
+        token: RegistrationToken,
         metadata: &Value,
         reply: Reply<Result<(), CatalogError>>,
     ) {
@@ -88,8 +91,11 @@ impl Actor {
             let _ = reply.send(Err(error));
             return;
         }
+        // The report binds to the registration the session saw, never to whichever
+        // registration happens to share its login and cache revision afterwards.
         let generation = self.inner.states.get(&input.id).and_then(|state| {
-            (state.config.login_revision == input.login_revision
+            (state.generation == token.0
+                && state.config.login_revision == input.login_revision
                 && crate::catalog::cache_revision(&state.config)
                     == crate::catalog::cache_revision(&input))
             .then_some(state.generation)
@@ -136,8 +142,22 @@ impl Actor {
     }
 
     /// A session's reported modes survive a restart: written onto the cached entry.
-    pub(crate) fn update_modes(&mut self, instance: &str, modes: Vec<Value>) {
+    pub(crate) fn update_modes(
+        &mut self,
+        instance: &str,
+        token: RegistrationToken,
+        modes: Vec<Value>,
+    ) {
         if self.inner.closed {
+            return;
+        }
+        // Modes written under a replaced registration belong to the row that saw them.
+        if self
+            .inner
+            .states
+            .get(instance)
+            .is_none_or(|state| state.generation != token.0)
+        {
             return;
         }
         let generation = self

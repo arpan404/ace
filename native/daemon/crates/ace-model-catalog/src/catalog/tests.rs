@@ -277,6 +277,14 @@ fn within<T: Send + 'static>(
 }
 
 /// The rows the catalog serves now.
+/// The token that owns a row's current registration.
+fn token(catalog: &Catalog, id: &str) -> super::RegistrationToken {
+    catalog
+        .registration(id)
+        .map(|(_, token)| token)
+        .unwrap_or_else(|| panic!("{id} is registered"))
+}
+
 fn listed(catalog: &Catalog) -> ModelListResult {
     catalog
         .list(ModelFilter::default(), 0, 100)

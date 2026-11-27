@@ -268,7 +268,11 @@ fn dropping_a_queued_session_write_never_grows_pending_work_past_capacity() {
         let mut accepted = 0;
         let mut refused = 0;
         for _ in 0..200 {
-            let mut write = Box::pin(catalog.update_from_session(agent.clone(), &metadata));
+            let mut write = Box::pin(catalog.update_from_session(
+                agent.clone(),
+                token(&catalog, "account"),
+                &metadata,
+            ));
             match poll_once(write.as_mut()) {
                 std::task::Poll::Pending => accepted += 1,
                 std::task::Poll::Ready(result) => {
@@ -288,7 +292,7 @@ fn dropping_a_queued_session_write_never_grows_pending_work_past_capacity() {
         drop(held);
         fixture.spawn.drain();
         settle(
-            catalog.update_from_session(agent, &metadata),
+            catalog.update_from_session(agent, token(&catalog, "account"), &metadata),
             &fixture.spawn,
             "a write after the queue drained",
         )

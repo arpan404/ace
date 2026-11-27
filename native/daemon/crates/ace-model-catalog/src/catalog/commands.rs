@@ -86,6 +86,10 @@ pub(crate) enum Command {
         id: String,
         reply: Reply<Option<ModelInstance>>,
     },
+    Registration {
+        id: String,
+        reply: Reply<Option<(ModelInstance, crate::catalog::RegistrationToken)>>,
+    },
     HasFlight {
         id: String,
         reply: Reply<bool>,
@@ -146,11 +150,13 @@ pub(crate) enum Command {
     },
     UpdateSession {
         input: ModelInstance,
+        token: crate::catalog::RegistrationToken,
         metadata: Value,
         reply: Reply<Result<(), CatalogError>>,
     },
     UpdateModes {
         instance: String,
+        token: crate::catalog::RegistrationToken,
         modes: Vec<Value>,
         reply: Reply<()>,
     },

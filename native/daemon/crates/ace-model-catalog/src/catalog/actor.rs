@@ -316,6 +316,15 @@ impl Actor {
                 let value = self.inner.states.get(&id).map(|state| state.config.clone());
                 let _ = reply.send(value);
             }
+            Command::Registration { id, reply } => {
+                let value = self.inner.states.get(&id).map(|state| {
+                    (
+                        state.config.clone(),
+                        crate::catalog::RegistrationToken(state.generation),
+                    )
+                });
+                let _ = reply.send(value);
+            }
             Command::Listen { listener, reply } => {
                 if self.inner.closed {
                     let _ = reply.send(Err(CatalogError::Closed));
@@ -375,15 +384,17 @@ impl Actor {
             Command::RefreshState { id, cause, reply } => self.refresh_state(&id, cause, reply),
             Command::UpdateSession {
                 input,
+                token,
                 metadata,
                 reply,
-            } => self.update_session(input, &metadata, reply),
+            } => self.update_session(input, token, &metadata, reply),
             Command::UpdateModes {
                 instance,
+                token,
                 modes,
                 reply,
             } => {
-                self.update_modes(&instance, modes);
+                self.update_modes(&instance, token, modes);
                 let _ = reply.send(());
             }
             Command::HoldTurn { id, reply } => {

@@ -256,10 +256,30 @@ is wrapped so a panic or a dropped task is reported as a failure and settled. Li
 and storage calls are contained too, so neither can unwind the actor.
 
 Close is a command: it sets the closed flag, refuses every new admission (removals
-included), aborts flights and probes, waits for every task it spawned to report, then
-flushes deletions and closes storage last before replying to every close caller. The
-command channel and each instance's pending work are bounded; capacity counts accepted
-operations until the actor settles them, never released early by a dropped caller.
+included), aborts flights and probes, waits for every task it spawned and every storage
+job to report, then deletes pending rows and closes storage last before replying to every
+close caller. A successful close is final: the actor thread ends, the handle joins it,
+and a repeated close answers the recorded result. A failed close (a deletion or the
+storage's own close failing) keeps its deletion markers and allows a later call to retry;
+it is the only case where closing is not final. The command channel and each instance's
+pending work are bounded; capacity counts accepted operations until the actor settles
+them, never released early by a dropped caller.
+
+Storage never runs on the actor. Replaces, removes and close are dispatched to one
+storage-lane worker in arrival order and answered as messages; a row's queue place stays
+open until its durable write answers, so its next write cannot overtake it. Each write
+carries the token that owns it and the lane checks that token immediately before touching
+storage, so a deadline or a replaced row means the write never starts. The actor rechecks
+the token, the generation and the effective revision on the reply and installs nothing
+over a row that moved on. Listener callbacks run on their own lane, never on the actor, so
+a listener that reads the catalog cannot deadlock it; notifications are hints whose
+overflow is dropped.
+
+A session's metadata and permission modes bind to the registration token it saw
+(`Catalog.registration`), not to whichever registration later shares its login and cache
+revision. A report under a superseded token is refused with the session-generation error,
+even when the replacement has the same login, and a write still queued when settings
+change is refused if its effective revision no longer matches.
 
 ## Intended differences from the TypeScript
 
