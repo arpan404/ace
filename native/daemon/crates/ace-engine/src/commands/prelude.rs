@@ -203,8 +203,38 @@ pub fn handle(
     if matches!(kind, "thread.switch" | "thread.merge" | "thread.fork") {
         return Err(EngineError::not_ported("a thread transition", "E5.9"));
     }
+    // A native mode by name is an access change: the same ceiling check and acknowledgement.
     if matches!(kind, "thread.permission.set" | "thread.mode.set") {
-        return Err(EngineError::not_ported("an access change", "E5.7"));
+        let capabilities = row
+            .as_ref()
+            .and_then(|row| {
+                row.get("effectiveCapabilities")
+                    .or_else(|| row.get("capabilities"))
+            })
+            .cloned()
+            .or_else(|| {
+                let thread = thread?;
+                let provider = row
+                    .as_ref()
+                    .and_then(|row| row.get("provider"))
+                    .and_then(Value::as_str)?
+                    .to_owned();
+                let backend = state.backend(&core.store, thread).ok().flatten();
+                state
+                    .registry
+                    .capabilities(&provider, backend.as_deref())
+                    .ok()
+                    .and_then(|text| ace_json::parse(&text).ok())
+            });
+        let at = core.store.now();
+        let result = if kind == "thread.mode.set" {
+            state.permission_accept_native(&core.store, command, capabilities.as_ref(), at)?
+        } else {
+            state.permission_accept(&core.store, command, capabilities.as_ref(), at)?
+        };
+        return Ok(Some(
+            result.unwrap_or_else(|| error(&id, "not_implemented")),
+        ));
     }
     if thread.is_some()
         && let Some(details) = row.as_ref().and_then(|row| row.get("details"))

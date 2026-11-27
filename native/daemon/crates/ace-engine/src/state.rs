@@ -29,12 +29,13 @@ pub struct State {
     pub actors: actor::Actors, // E5.2
     /// A live-buffer flush task is queued on the pump (E5.2 step 16): the coalescing flag.
     pub live_flush: std::rc::Rc<std::cell::Cell<bool>>,
-    pub repo: repository::Repo,                // E5.3
-    pub commands: commands::Commands,          // E5.4
-    pub sessions: sessions::Sessions,          // E5.6
-    pub recovery: recovery::Recovery,          // E5.8
-    pub transitions: transitions::Transitions, // E5.9
-    pub liveness: liveness::Liveness,          // E5.10
+    pub repo: repository::Repo,                  // E5.3
+    pub permissions: crate::access::Permissions, // E5.7
+    pub commands: commands::Commands,            // E5.4
+    pub sessions: sessions::Sessions,            // E5.6
+    pub recovery: recovery::Recovery,            // E5.8
+    pub transitions: transitions::Transitions,   // E5.9
+    pub liveness: liveness::Liveness,            // E5.10
     /// The engine this state belongs to, so the fold's collaborators reach the store without a
     /// trait signature change (E5.4a). A bare `State` in a unit test has none.
     pub(crate) engine: std::rc::Weak<Core>,
@@ -54,6 +55,7 @@ impl Default for State {
             actors: actor::Actors::default(),
             live_flush: std::rc::Rc::new(std::cell::Cell::new(false)),
             repo: repository::Repo::default(),
+            permissions: crate::access::Permissions::default(),
             commands: commands::Commands,
             sessions: sessions::Sessions,
             recovery: recovery::Recovery::default(),
