@@ -208,7 +208,7 @@ pub fn hold_interrupted(core: &Core, thread: &str) -> Result<(), EngineError> {
     core.with_state(|state| hold_interrupted_in(core, state, thread))?
 }
 
-pub(super) fn hold_interrupted_in(
+pub(crate) fn hold_interrupted_in(
     core: &Core,
     state: &mut State,
     thread: &str,
@@ -319,7 +319,7 @@ pub fn discard_holding(core: &Core, thread: &str, hold: QueueHold) -> Result<(),
     crate::queue::holds::schedule(core)
 }
 
-pub(super) fn discard_holding_in(
+pub(crate) fn discard_holding_in(
     core: &Core,
     state: &mut State,
     thread: &str,

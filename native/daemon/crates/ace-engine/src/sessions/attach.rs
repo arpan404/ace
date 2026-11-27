@@ -9,7 +9,6 @@ use ace_adapter_api::{
 use ace_json::Value;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::Poll;
 
 use crate::actor::deps::ActorTranslator;
 use crate::actor::intake::{self, FrameInput, Measure};
@@ -73,7 +72,7 @@ pub trait SessionOpener {
 
 /// One attached session, as the engine holds it.
 pub struct Attached {
-    pub session: Box<dyn Session>,
+    pub session: Rc<dyn Session>,
     pub inbox: Arc<Inbox>,
     pub native_session_id: String,
     pub generation: u64,
@@ -243,7 +242,7 @@ pub fn attach(
         state.sessions.attached.insert(
             thread.clone(),
             Attached {
-                session: opened.session,
+                session: Rc::from(opened.session),
                 inbox: Arc::clone(&inbox),
                 native_session_id: opened.native_session_id,
                 generation,
@@ -265,15 +264,18 @@ pub fn attach(
 async fn drain(core: Rc<Core>, thread: ThreadId, inbox: Arc<Inbox>) {
     loop {
         let events = crate::futures::future::poll_fn(|cx| {
-            let batch = inbox.poll();
-            if matches!(batch, Poll::Pending) {
-                inbox.register(cx.waker());
-            }
-            batch
+            inbox.register(cx.waker());
+            inbox.poll()
         })
         .await;
+        if events.is_empty() {
+            return;
+        }
         let mut exited = false;
         for event in events {
+            if !current_session(&core, &thread, &inbox) {
+                return;
+            }
             match event {
                 crate::sessions::observer::Event::Frame(frame) => {
                     intake_native(&core, &thread, frame);
@@ -285,7 +287,10 @@ async fn drain(core: Rc<Core>, thread: ThreadId, inbox: Arc<Inbox>) {
                     failure::fail(&core, &thread, EngineError::Port(PortError::Threw(message)));
                 }
                 crate::sessions::observer::Event::Exit(exit) => {
-                    settle(&core, &thread, &exit);
+                    let closing = core.with_state(|state| state.sessions.is_closing(&thread));
+                    if matches!(closing, Ok(false)) {
+                        settle(&core, &thread, &exit);
+                    }
                     exited = true;
                 }
             }
@@ -294,6 +299,45 @@ async fn drain(core: Rc<Core>, thread: ThreadId, inbox: Arc<Inbox>) {
             return;
         }
     }
+}
+
+fn current_session(core: &Core, thread: &str, inbox: &Arc<Inbox>) -> bool {
+    core.with_state(|state| {
+        state
+            .sessions
+            .attached
+            .get(thread)
+            .is_some_and(|session| Arc::ptr_eq(&session.inbox, inbox))
+    })
+    .unwrap_or(false)
+}
+
+/// Close only the session selected before the await. The caller decides whether its stop
+/// still owns the thread before it publishes any terminal facts.
+pub(crate) async fn close_for_settle(
+    core: &Rc<Core>,
+    thread: &ThreadId,
+) -> Result<(), EngineError> {
+    let selected = core.with_state(|state| {
+        let attached = state.sessions.attached.get(thread)?;
+        state
+            .sessions
+            .closing
+            .insert(thread.clone())
+            .then(|| (Rc::clone(&attached.session), Arc::clone(&attached.inbox)))
+    })?;
+    let Some((session, inbox)) = selected else {
+        return Ok(());
+    };
+    let outcome = session.close(ace_adapter_api::CloseReason::User).await;
+    // Give the session's drain a turn to hand off its last frames before detaching.
+    crate::actor::yield_once().await;
+    if outcome.is_ok() && current_session(core, thread, &inbox) {
+        inbox.finish();
+        detach(core, thread);
+    }
+    core.with_state(|state| state.sessions.closing.remove(thread))?;
+    outcome.map_err(|error| EngineError::Records(error.to_string()))
 }
 
 /// One frame through the same intake a JavaScript session's frames take.

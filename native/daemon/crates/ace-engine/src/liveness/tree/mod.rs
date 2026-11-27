@@ -36,7 +36,8 @@ pub fn thread_tree(core: &Core, state: &mut State, id: &str) -> Result<Vec<Strin
             continue;
         };
         let children: Vec<String> = {
-            let borrowed = snapshot.borrow();
+            let mut borrowed = snapshot.borrow_mut();
+            borrowed.hydrate_agents()?;
             borrowed
                 .state
                 .agents

@@ -41,19 +41,22 @@ pub fn native_runs(key: &str) -> String {
 pub const NATIVE_RUNS_PREFIX: &str = "nativeRuns:";
 
 impl Snapshot {
+    pub(crate) fn hydrate_agents(&mut self) -> Result<(), EngineError> {
+        for key in self.agents.keys()? {
+            if !self.state.agents.contains_key(&key)
+                && let Some(record) = self.agents.read(&key)?
+            {
+                self.state.agents.insert(key, record);
+            }
+        }
+        Ok(())
+    }
+
     /// Load a restarted thread's live tree (E5.8): every agent record, and the runs those agents
     /// point at, so `lostWorkLines` sees the work a crash cut short. Records are the bound: an
     /// agent's historical runs stay in their section.
     pub fn hydrate_recovery(&mut self) -> Result<(), EngineError> {
-        let agents = self.agents.keys()?;
-        for key in agents {
-            if self.state.agents.contains_key(&key) {
-                continue;
-            }
-            if let Some(record) = self.agents.read(&key)? {
-                self.state.agents.insert(key, record);
-            }
-        }
+        self.hydrate_agents()?;
         let runs: Vec<String> = self
             .state
             .agents

@@ -70,7 +70,7 @@ impl Default for State {
             sessions: sessions::Sessions::default(),
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions::default(),
-            liveness: liveness::Liveness,
+            liveness: liveness::Liveness::default(),
             cursor: cursor_reconcile::CursorReconciles::default(),
             steering: crate::steering::Steering::default(),
             engine: std::rc::Weak::new(),

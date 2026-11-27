@@ -292,7 +292,7 @@ fn a_session_queue_with_events_is_work_a_flush_waits_for() {
     state.sessions.attached.insert(
         "t".to_owned(),
         Attached {
-            session: Box::new(Idle),
+            session: std::rc::Rc::new(Idle),
             inbox: Arc::clone(&inbox),
             native_session_id: "native".to_owned(),
             generation: 0,

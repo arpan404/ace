@@ -2498,11 +2498,16 @@ with its journalled input and truncated summaries). The archive's fence is compl
 `workChangedSince` (`commands/receipt.rs`) reads one cached statement per tree thread and merges
 them in sequence order, so a child's newer run refuses the archive like the thread's own.
 
-Waiting on E5.6 (sessions) and E5.8 (`lost-work`, `session-bound-tasks`):
-`ThreadLiveness`'s `reconcile`, `reconcileTree` and `stop`; `SettledTrees.stop`'s flights (its
-pure `settledHold` and `retireLiveIntents` are ported); `reconcileStoppedThread`. `live`'s `sessions.isClosing` arrives as the caller's `closing`
-closure, and `unfinished` uses `ace_projection::attention::queue_attention` for the queue's
-branch.
+The Rust engine reconciles local trees children first. Restart recovery follows the child's
+indexed parent link even when a stale done status excluded the parent from the startup candidates.
+Settling closes native sessions and cancels their pending requests, with newer delivery checked
+after each wait. The fence includes already completed deliveries. TypeScript checks only
+outstanding headers, so a delivery that finishes while a session closes could escape that check.
+The Rust regression is
+`a_delivery_completed_during_provider_close_fences_off_the_old_settles_exit`.
+The Rust facade can stop a committed settle directly, and the idle sweep picks up settles written
+by the organizer for resident work. The TypeScript facade's liveness calls still need their
+production Rust entry points.
 
 `worktree-title.ts` stays TypeScript (git branch naming); the engine calls it through the
 `worktreeGit` port.

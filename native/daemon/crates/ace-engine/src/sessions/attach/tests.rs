@@ -132,7 +132,12 @@ mod engine {
         }
     }
 
-    struct SilentSession;
+    type ClosingAction = Box<dyn FnOnce(&dyn SessionObserver)>;
+
+    struct SilentSession {
+        observer: Arc<dyn SessionObserver>,
+        on_close: RefCell<Option<ClosingAction>>,
+    }
 
     impl Session for SilentSession {
         fn native_session_id(&self) -> &str {
@@ -176,7 +181,13 @@ mod engine {
             Box::pin(async { Ok(()) })
         }
         fn close(&self, _reason: CloseReason) -> LocalBoxFuture<'_, Result<(), AdapterApiError>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                crate::actor::yield_once().await;
+                if let Some(action) = self.on_close.take() {
+                    action(self.observer.as_ref());
+                }
+                Ok(())
+            })
         }
     }
 
@@ -209,6 +220,7 @@ mod engine {
         calls: Cell<u32>,
         failure: Option<String>,
         observer: RefCell<Option<Arc<dyn SessionObserver>>>,
+        on_close: RefCell<Option<ClosingAction>>,
     }
 
     impl FakeOpener {
@@ -217,6 +229,7 @@ mod engine {
                 calls: Cell::new(0),
                 failure: None,
                 observer: RefCell::new(None),
+                on_close: RefCell::new(None),
             }
         }
     }
@@ -240,10 +253,11 @@ mod engine {
                 channel: "stdio".to_owned(),
                 data: Raw::from_json("{\"kind\":\"turn\"}").expect("json"),
             });
-            *self.observer.borrow_mut() = Some(observer);
+            *self.observer.borrow_mut() = Some(Arc::clone(&observer));
+            let on_close = RefCell::new(self.on_close.take());
             Box::pin(async move {
                 Ok(Opened {
-                    session: Box::new(SilentSession),
+                    session: Box::new(SilentSession { observer, on_close }),
                     translator: Box::new(TurnTranslator),
                     native_session_id: "native-1".to_owned(),
                 })
@@ -460,6 +474,74 @@ mod engine {
     }
 
     #[test]
+    fn a_delivery_completed_during_provider_close_fences_off_the_old_settles_exit() {
+        let conn = home("t", &header("t"));
+        let (engine, _shell) = engine_on(&conn);
+        let engine = Rc::new(engine);
+        pump(&engine);
+        assert!(engine.is_ready());
+        install_actor(engine.core());
+
+        let opener = FakeOpener::ok();
+        let database = Arc::clone(&conn);
+        opener.on_close.replace(Some(Box::new(move |observer| {
+            database
+                .exec(
+                    "INSERT INTO intents (command_id,thread_id,kind,payload,status)
+                 VALUES ('new-work','t','thread.send','{}','done')",
+                )
+                .expect("a new delivery completed");
+            observer.exit(SessionExit {
+                deliberate: true,
+                message: "closed old session".to_owned(),
+            });
+        })));
+        let view = ready_view();
+        let steps = OpenSteps {
+            view: &view,
+            prepare_workspace: None,
+            writable: None,
+            recheck: None,
+        };
+        crate::futures::executor::block_on(super::super::open(
+            engine.core(),
+            &opener,
+            request(),
+            &steps,
+        ))
+        .expect("open");
+        pump(&engine);
+        conn.exec(r#"UPDATE threads SET client='{"settledAt":5}' WHERE id='t'"#)
+            .expect("commit settle");
+
+        let outcome = Rc::new(RefCell::new(None));
+        let result = Rc::clone(&outcome);
+        let owner = Rc::clone(&engine);
+        let task = engine
+            .core()
+            .executor
+            .spawn(crate::executor::Lane::Control, async move {
+                result.replace(Some(owner.stop_settled("t").await));
+            });
+        task.detach();
+        pump(&engine);
+        assert!(
+            outcome.borrow().as_ref().is_some_and(Result::is_ok),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            crate::intents::store::command_status(&conn, "new-work")
+                .unwrap()
+                .as_deref(),
+            Some("done")
+        );
+        assert!(
+            thread_state(&conn).get("processExit").is_none(),
+            "the old settle must not publish an exit over the new delivery"
+        );
+    }
+
+    #[test]
     fn a_failed_provider_open_leaves_no_session_and_no_open_mark() {
         let conn = home("t", &header("t"));
         let (engine, _shell) = engine_on(&conn);
@@ -469,6 +551,7 @@ mod engine {
             calls: Cell::new(0),
             failure: Some("spawn failed".to_owned()),
             observer: RefCell::new(None),
+            on_close: RefCell::new(None),
         };
         let view = ready_view();
         let steps = OpenSteps {

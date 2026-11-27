@@ -31,6 +31,7 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
     })?;
     let processes_unverified = core.ports.previous_processes_unverified();
     let mut interrupted = Interrupted::new();
+    let mut settled = std::collections::HashSet::new();
 
     let mut scan = Scan::new(String::new());
     loop {
@@ -43,8 +44,17 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
             break;
         }
         for thread in step.threads {
+            let mut root = None;
             isolated(core, &thread, || {
-                first_pass(core, &thread, &mut interrupted, processes_unverified)
+                root = crate::settle::settled_root(core, &thread)?;
+                Ok(())
+            })?;
+            if let Some(root) = root.filter(|root| settled.insert(root.clone())) {
+                crate::settle::stop_tree(core, &root).await?;
+            }
+            isolated(core, &thread, || {
+                first_pass(core, &thread, &mut interrupted, processes_unverified)?;
+                repair_parent_status(core, &thread)
             })?;
             crate::actor::yield_once().await;
         }
@@ -90,7 +100,8 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
         }
         for thread in step.threads {
             isolated(core, &thread, || {
-                second_pass(core, &thread, &mut interrupted)
+                second_pass(core, &thread, &mut interrupted)?;
+                repair_parent_status(core, &thread)
             })?;
             crate::actor::yield_once().await;
         }
@@ -98,6 +109,12 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
         scan.restart(after);
     }
     holds::schedule(core)
+}
+
+fn repair_parent_status(core: &Core, thread: &str) -> Result<(), EngineError> {
+    core.store.atomic(|_| {
+        core.with_state(|state| crate::liveness::reconcile::ancestors(core, state, thread))?
+    })
 }
 
 /// One thread's isolated step: stored state that cannot be read quarantines only that thread, so

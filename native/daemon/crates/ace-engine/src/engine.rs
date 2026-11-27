@@ -178,6 +178,28 @@ impl Engine {
             .with_state(|state| state.registry.set_entries(json))?
     }
 
+    /// Reconcile stopped work and refresh the local descendants' summaries, children first.
+    pub async fn reconcile_thread(&self, thread: &str) -> Result<(), EngineError> {
+        if let Some(ready) = self.core.ready_future() {
+            ready
+                .await
+                .map_err(|_| EngineError::Closed)?
+                .map_err(EngineError::Records)?;
+        }
+        crate::liveness::reconcile::tree(&self.core, thread).await
+    }
+
+    /// Stop a tree whose settle has been committed by the thread organizer.
+    pub async fn stop_settled(&self, thread: &str) -> Result<(), EngineError> {
+        if let Some(ready) = self.core.ready_future() {
+            ready
+                .await
+                .map_err(|_| EngineError::Closed)?
+                .map_err(EngineError::Records)?;
+        }
+        crate::settle::stop_tree(&self.core, thread).await
+    }
+
     /// Whether the engine has reached `Ready`.
     pub fn is_ready(&self) -> bool {
         self.core.lifecycle() == Lifecycle::Ready
@@ -247,6 +269,11 @@ fn start_sweep(core: &Rc<Core>) {
                 return;
             }
             let Some(core) = weak.upgrade() else { return };
+            if core.lifecycle() == Lifecycle::Ready
+                && let Err(error) = crate::settle::retry_active(&core).await
+            {
+                core.ports.report(error.to_string());
+            }
             if let Err(error) = recovery::prune_idle(&core) {
                 core.ports.report(error.to_string());
             }

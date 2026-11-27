@@ -141,11 +141,16 @@ impl Inbox {
     /// waker stored, so no wake is lost.
     pub fn poll(&self) -> Poll<Vec<Event>> {
         let batch = self.take_batch(usize::MAX, QUEUE_BYTES);
-        if batch.is_empty() {
+        if batch.is_empty() && !self.lock().drained {
             Poll::Pending
         } else {
             Poll::Ready(batch)
         }
+    }
+
+    pub(crate) fn finish(&self) {
+        self.lock().drained = true;
+        self.wake();
     }
 
     /// Stores the drain task's waker; the next push wakes it.

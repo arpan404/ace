@@ -255,3 +255,117 @@ fn processes_that_cannot_be_proven_gone_are_never_started_again() {
             == Some("Some processes from the previous run may still be running".to_owned())
     }));
 }
+
+#[test]
+fn a_reopened_engine_repairs_a_done_parent_when_its_child_is_waiting_on_a_question() {
+    use crate::repository::testsupport::header;
+    let conn = home("t", &header("t"));
+    setup(&conn, true);
+    conn.exec(&format!(
+        r#"UPDATE threads SET status='{{"state":"needs_you","interactions":1}}' WHERE id='t';
+        INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at)
+          VALUES ('parent', 'workspace', 'Parent', 'codex', '{{"state":"done"}}', 0, 0);
+        INSERT INTO thread_state VALUES ('parent', {}, 0);
+        INSERT INTO engine_sessions (thread_id,cwd) VALUES ('parent','/tmp');
+        INSERT INTO engine_permissions (thread_id,parent) VALUES ('t','parent');
+        INSERT INTO engine_state_records VALUES ('parent','agents','ace-child:t',
+          '{{"agent":{{"id":"summary","threadId":"parent","parentId":null,"origin":"ace","native":{{"provider":"codex"}},"status":{{"state":"idle"}},"fidelity":"summary","cwd":"/tmp","background":false,"createdAt":1,"childThreadId":"t"}},"activity":"idle","lastSignalAt":1,"externalStatus":{{"state":"done"}}}}');"#,
+        sql_text(&header("parent"))
+    ))
+    .unwrap();
+    let conn = reopen(conn);
+    pump_ready(&conn);
+    let row = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT json_extract(value,'$.externalStatus.state') AS status
+         FROM engine_state_records WHERE thread_id='parent' AND section='agents' AND key='ace-child:t'",
+        Vec::new(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        row.get("status")
+            .and_then(crate::repository::residency::cell_text),
+        Some("needs_you")
+    );
+}
+
+fn reopen(conn: Arc<ace_store::Connection>) -> Arc<ace_store::Connection> {
+    let database = ace_store::stmt_cache::get_row(&conn, "PRAGMA database_list", Vec::new())
+        .unwrap()
+        .unwrap();
+    let path = database
+        .get("file")
+        .and_then(crate::repository::residency::cell_text)
+        .unwrap()
+        .to_owned();
+    drop(conn);
+    ace_store::Connection::open(
+        &path,
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 1000,
+        },
+    )
+    .unwrap()
+}
+
+fn pump_ready(conn: &Arc<ace_store::Connection>) {
+    let (engine, shell) = engine_on(conn);
+    struct Budget;
+    impl crate::executor::Budget for Budget {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
+    for _ in 0..256 {
+        engine.pump(&mut Budget);
+        if engine.is_ready() {
+            break;
+        }
+    }
+    assert!(engine.is_ready(), "{:?}", shell.reports());
+}
+
+#[test]
+fn reopening_a_settled_tree_cancels_a_childs_request_and_holds_its_queued_send() {
+    use crate::repository::testsupport::header;
+    let conn = home("t", &header("t"));
+    setup(&conn, true);
+    conn.exec(&format!(
+        r#"INSERT INTO threads (id, workspace_id, title, provider, status, client, created_at, updated_at)
+          VALUES ('parent', 'workspace', 'Parent', 'codex', '{{"state":"done"}}', '{{"settledAt":5}}', 0, 0);
+        INSERT INTO thread_state VALUES ('parent', {}, 0);
+        INSERT INTO engine_sessions (thread_id,cwd) VALUES ('parent','/tmp');
+        INSERT INTO engine_permissions (thread_id,parent) VALUES ('t','parent');
+        INSERT INTO engine_state_records VALUES ('parent','agents','ace-child:t',
+          '{{"agent":{{"id":"summary","threadId":"parent","parentId":null,"origin":"ace","native":{{"provider":"codex"}},"status":{{"state":"idle"}},"fidelity":"summary","cwd":"/tmp","background":false,"createdAt":1,"childThreadId":"t"}},"activity":"idle","lastSignalAt":1,"externalStatus":{{"state":"done"}}}}');
+        INSERT INTO intents (command_id,thread_id,kind,payload,status,delivery,position)
+          VALUES ('next','t','thread.send','{{}}','pending','queue',1);"#,
+        sql_text(&header("parent"))
+    ))
+    .unwrap();
+    let conn = reopen(conn);
+    pump_ready(&conn);
+    let row = ace_store::stmt_cache::get_row(
+        &conn,
+        "SELECT json_extract(value,'$.state') AS state FROM engine_state_records
+         WHERE thread_id='t' AND section IN ('interactions','interactionHistory') AND key='ask-1'",
+        Vec::new(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        row.get("state")
+            .and_then(crate::repository::residency::cell_text),
+        Some("cancelled")
+    );
+    assert_eq!(queue(&conn, "reason").as_deref(), Some("stopped"));
+    assert_eq!(
+        crate::intents::store::command_status(&conn, "next")
+            .unwrap()
+            .as_deref(),
+        Some("pending")
+    );
+}

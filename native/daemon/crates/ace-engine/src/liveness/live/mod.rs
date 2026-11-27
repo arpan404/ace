@@ -102,7 +102,8 @@ pub fn active(core: &Core, state: &mut State, id: &str) -> Result<bool, EngineEr
             continue;
         };
         let live = {
-            let borrowed = snapshot.borrow();
+            let mut borrowed = snapshot.borrow_mut();
+            borrowed.hydrate_agents()?;
             !borrowed.state.indexes.running_tasks.is_empty()
                 || !borrowed.state.indexes.pending_interactions.is_empty()
                 || borrowed
