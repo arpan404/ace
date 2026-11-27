@@ -70,6 +70,9 @@ pub struct Session {
     pub pending_controller: Option<String>,
     /// Who began that takeover: a person's must never be superseded by an agent's.
     pub pending_controller_kind: Option<ActorKind>,
+    /// The epoch of the cleanup bind that takeover began. A later bind for the same
+    /// owner holds a newer epoch and is not the one the assignment left in flight.
+    pub pending_bind_epoch: Option<u64>,
     pub pending: PendingInput,
     pub generation: u64,
     pub binding_epoch: u64,
@@ -104,6 +107,7 @@ impl Session {
             control_revision: 0,
             pending_controller: None,
             pending_controller_kind: None,
+            pending_bind_epoch: None,
             pending: PendingInput::new(),
             generation: 0,
             binding_epoch: 0,

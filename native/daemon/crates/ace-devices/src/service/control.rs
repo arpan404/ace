@@ -184,6 +184,10 @@ pub fn start_human_controller_with_thread(
     }
     let assignment = begin_assign(session, person, now)?;
     let bind = begin_bind_for_person(session, thread_id, &person.owner)?;
+    // Remember the epoch this assignment's own bind began under: the owner may start
+    // another bind before it is invalidated, and retiring by the live epoch would
+    // clear that newer bind's guard, owner and recording.
+    session.pending_bind_epoch = Some(bind.epoch());
     Ok(ThreadedTakeover { assignment, bind })
 }
 
@@ -345,6 +349,7 @@ impl Assignment {
 fn clear_pending(session: &mut Session) {
     session.pending_controller = None;
     session.pending_controller_kind = None;
+    session.pending_bind_epoch = None;
 }
 
 /// A disable stops every capture and unbinds the device, so a takeover whose
@@ -382,12 +387,16 @@ fn retire_bind_at_epoch(session: &mut Session, epoch: u64) {
 /// running. An invalidated assignment must not leave the device reserved for a
 /// cleanup nobody will finish: a person starts a threaded bind, hands back or
 /// drops, and an agent's bind would otherwise be refused `bindingBusy` until the
-/// person's stale continuation lands.
+/// person's stale continuation lands. Retire the epoch the assignment's own bind
+/// began under, never the live one: a bind the same owner started later holds a
+/// newer epoch and is not the assignment's to retire.
 fn retire_owner_bind(session: &mut Session, owner: &str) {
     if session.binding_owner.as_deref() != Some(owner) {
         return;
     }
-    let epoch = session.binding_epoch;
+    let Some(epoch) = session.pending_bind_epoch else {
+        return;
+    };
     retire_bind_at_epoch(session, epoch);
 }
 
@@ -396,8 +405,8 @@ fn retire_owner_bind(session: &mut Session, owner: &str) {
 pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
     if session.pending_controller.as_deref() == Some(owner) {
         session.control_revision = session.control_revision.saturating_add(1);
-        clear_pending(session);
         retire_owner_bind(session, owner);
+        clear_pending(session);
     }
 }
 
@@ -433,6 +442,9 @@ pub fn begin_assign(
     };
     session.pending_controller = Some(requester.owner.clone());
     session.pending_controller_kind = Some(requester.kind);
+    // This assignment has no bind yet; the caller records the epoch of the one it
+    // starts. The previous assignment's epoch does not belong to it.
+    session.pending_bind_epoch = None;
     session.lease.release(None);
     Ok(assignment)
 }

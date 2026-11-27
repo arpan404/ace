@@ -10,7 +10,7 @@ use super::{
 };
 use crate::error::DeviceError;
 use crate::error::DeviceErrorCode;
-use crate::service::binding::begin_disable;
+use crate::service::binding::{begin_bind_for_person, begin_disable};
 use crate::service::lease::{Actor, Controller};
 use crate::service::session::Session;
 use crate::service::words;
@@ -681,6 +681,41 @@ fn a_retired_bind_clears_the_recording_its_skipped_cleanup_would_have() {
     .expect_err("the person dropped mid-bind");
     assert_eq!(refused, words::refusal("controlChanged"));
     assert_eq!(session.completed, None);
+}
+
+#[test]
+fn a_takeover_that_replaced_its_own_bind_leaves_the_newer_bind_alone() {
+    let mut session = Session::new("ios:AAAA");
+    let _takeover = start_human_controller_with_thread(&mut session, &person(), "t-person", NOW)
+        .expect("the person's threaded takeover");
+    // The same owner starts the bind again while their assignment is still pending,
+    // so the newer bind is not the one that assignment began.
+    let _newer_bind =
+        begin_bind_for_person(&mut session, "t-person", "person").expect("the person's newer bind");
+    session.completed = Some(String::from("newer-recording"));
+    session.recording_artifact = Some(String::from("newer-artifact"));
+
+    let other = Actor::human("person-2");
+    begin_assign(&mut session, &other, NOW).expect("another person takes control");
+
+    assert!(
+        session.changing_binding,
+        "the newer bind keeps its guard and epoch"
+    );
+    assert_eq!(
+        session.binding_owner.as_deref(),
+        Some("person"),
+        "the newer bind keeps its owner"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("newer-recording"),
+        "the newer bind keeps its recording"
+    );
+    assert_eq!(
+        session.recording_artifact.as_deref(),
+        Some("newer-artifact")
+    );
 }
 
 #[test]

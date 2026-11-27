@@ -48,6 +48,13 @@ impl Bind {
         }
     }
 
+    /// The binding epoch this bind was created under.
+    pub fn epoch(&self) -> u64 {
+        match self {
+            Self::Unchanged { epoch, .. } | Self::Cleanup { epoch, .. } => *epoch,
+        }
+    }
+
     /// The epoch of the cleanup this bind started, if it ran one.
     pub fn cleanup_epoch(&self) -> Option<u64> {
         match self {
