@@ -318,21 +318,42 @@ pub fn resume_claim_for_agent(
     begin_assign(session, actor, now).map(Some)
 }
 
-/// `authorize`: devices on, no bind in flight for agents, and an agent only on the
-/// device its thread took. The caller's own lifetime (`actor.guard`) is the shell's
-/// check. A person's takeover is not blocked by another agent's bind.
+/// `authorize`: devices on, no bind in flight, and an agent only on the device its
+/// thread took. The caller's own lifetime (`actor.guard`) is the shell's check.
+///
+/// The bind guard is for everyone, a person included: while a bind cleans up, the
+/// previous thread's completed recording and its publication are still published,
+/// and an ordinary operation — a `record.stop`, say — must not consume them before
+/// the bind clears them (`service.ts:525`, `assertEnabled`). Only the person's
+/// `controller` entry point passes the guard, in [`authorize_controller`].
 pub fn authorize(
     session: &Session,
     actor: &Actor,
     enabled: bool,
     closed: bool,
 ) -> Result<(), DeviceError> {
-    if closed || !enabled {
+    if closed || !enabled || session.changing_binding {
         return Err(words::refusal(DISABLED_KEY));
     }
-    if session.changing_binding && actor.kind == ActorKind::Agent {
+    require_taken(session, actor)
+}
+
+/// The person's `controller` entry point: a person's takeover supersedes the bind
+/// that is still cleaning up, so only it may pass the bind guard. An agent never
+/// does, even here; it takes the device like every other operation.
+pub fn authorize_controller(
+    session: &Session,
+    actor: &Actor,
+    enabled: bool,
+    closed: bool,
+) -> Result<(), DeviceError> {
+    if closed || !enabled || (session.changing_binding && actor.kind != ActorKind::Human) {
         return Err(words::refusal(DISABLED_KEY));
     }
+    require_taken(session, actor)
+}
+
+fn require_taken(session: &Session, actor: &Actor) -> Result<(), DeviceError> {
     if actor.kind == ActorKind::Agent
         && (actor.thread_id.as_deref().is_none_or(str::is_empty)
             || session.thread_id != actor.thread_id)

@@ -3,8 +3,8 @@
 //! priority 1, a person's takeover beats an agent's start.
 
 use super::{
-    AGENT_CALLER_REQUIRED, Assignment, Claim, authorize, begin_assign, cancel_assign,
-    claim_for_agent, finish_assign, invalidate_pending_owner, require_person,
+    AGENT_CALLER_REQUIRED, Assignment, Claim, authorize, authorize_controller, begin_assign,
+    cancel_assign, claim_for_agent, finish_assign, invalidate_pending_owner, require_person,
     resume_claim_for_agent, resume_human_controller_with_thread, start_bind_for_agent,
     start_human_controller_with_thread,
 };
@@ -136,7 +136,8 @@ fn a_person_may_take_over_while_an_agent_is_binding_to_a_new_thread() {
     let mut session = Session::new("ios:AAAA");
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("bind in flight");
     assert!(session.changing_binding);
-    authorize(&session, &person(), true, false).expect("bind does not block a person");
+    authorize_controller(&session, &person(), true, false)
+        .expect("the bind does not block a person's takeover");
 
     let person_assign = begin_assign(&mut session, &person(), NOW).expect("person begins");
     finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("person wins");
@@ -1027,11 +1028,46 @@ fn authorize_refuses_disabled_devices_and_another_threads_device() {
 
     authorize(&session, &person(), true, false).expect("a person");
     session.changing_binding = true;
-    authorize(&session, &person(), true, false).expect("bind does not block a person");
+    assert_eq!(
+        authorize(&session, &person(), true, false),
+        Err(words::refusal("devicesDisabled")),
+        "an ordinary operation waits for the bind"
+    );
+    authorize_controller(&session, &person(), true, false)
+        .expect("the person's takeover supersedes the bind");
     assert_eq!(
         authorize(&session, &agent(), true, false),
         Err(words::refusal("devicesDisabled"))
     );
+    assert_eq!(
+        authorize_controller(&session, &agent(), true, false),
+        Err(words::refusal("devicesDisabled")),
+        "an agent never passes the bind guard"
+    );
+}
+
+#[test]
+fn a_record_stop_is_refused_while_a_bind_runs_so_it_cannot_consume_the_old_slot() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t-old"));
+    session.completed = Some(String::from("recording-1"));
+    session.recording_artifact = Some(String::from("artifact-1"));
+    start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    assert!(
+        session.changing_binding,
+        "the bind has not cleared the old thread's recording yet"
+    );
+
+    let refused = authorize(&session, &person(), true, false)
+        .expect_err("record.stop may not reach the previous thread's slot");
+    assert_eq!(refused, words::refusal("devicesDisabled"));
+    assert_eq!(refused.code(), DeviceErrorCode::PermissionDenied);
+    assert_eq!(session.completed.as_deref(), Some("recording-1"));
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-1"));
+
+    // Only the takeover, which owns the cleanup, passes the guard.
+    authorize_controller(&session, &person(), true, false)
+        .expect("the person's takeover supersedes the bind");
 }
 
 #[test]

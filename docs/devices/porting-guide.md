@@ -292,7 +292,10 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
 
 - **D4, a person's takeover during an agent's bind.** TypeScript's `claimForAgent` awaits its bind
   with `changingBinding` set, so the person's `controller` request is refused `devicesDisabled`;
-  Rust lets the person's takeover through, reserves it, and the agent's claim loses.
+  Rust lets the person's takeover through, reserves it, and the agent's claim loses. Only that
+  controller entry point passes: every other operation, the person's included, keeps the bind
+  guard, as TypeScript's `assertEnabled` does, so a `record.stop` cannot consume the previous
+  thread's completed slot mid-bind.
 - **D4, an agent resuming after a completed person's takeover.** TypeScript's `claimForAgent`
   checks the lease only before its bind, so an agent whose bind ends after the person took and
   finished can release the live human lease; Rust rechecks the bind's control revision after the
