@@ -149,6 +149,39 @@ describe("Live browser view", () => {
     expect(sink.read("browser:latency")).toMatchObject({ threadId: "web", ms: 1 });
   });
 
+  test("the page's sound reaches this phone only once the person turns it on, and every view starts muted", async () => {
+    const { sink, view, requested } = await live();
+    const reports = () =>
+      requested.filter(
+        (request): request is { type: string } =>
+          typeof request === "object" &&
+          request !== null &&
+          "type" in request &&
+          (request.type === "browser.subscribe" || request.type === "browser.capture"),
+      );
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(sink) != null, "browser state");
+    expect(reports().at(-1)).not.toHaveProperty("viewport.audio");
+
+    expect(view.action({ kind: "audio", on: true })).toBe(true);
+    expect(reports().at(-1)).toMatchObject({ type: "browser.capture", viewport: { audio: true } });
+    // A resize keeps the sound on.
+    view.action({ kind: "viewport", viewport: { ...viewport, width: 400 } });
+    expect(reports().at(-1)).toMatchObject({
+      type: "browser.capture",
+      viewport: { width: 400, audio: true },
+    });
+    view.action({ kind: "audio", on: false });
+    expect(reports().at(-1)).toMatchObject({ type: "browser.capture" });
+    expect(reports().at(-1)).not.toHaveProperty("viewport.audio");
+
+    view.action({ kind: "audio", on: true });
+    view.action({ kind: "close" });
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => reports().at(-1)?.type === "browser.subscribe", "subscribed again");
+    expect(reports().at(-1)).not.toHaveProperty("viewport.audio");
+  });
+
   test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {
     const { daemon, sink, view, scheduled } = await live({ browser: false });
     view.action({ kind: "open", threadId: "web", viewport });

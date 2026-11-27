@@ -70,6 +70,8 @@ const BrowserAction = z.discriminatedUnion("kind", [
   /** The view's size changed (layout, rotation): the picture is sized for it; the page keeps its device. */
   z.object({ kind: z.literal("viewport"), viewport: Viewport, picture: Picture.optional() }),
   z.object({ kind: z.literal("input"), input: z.unknown() }),
+  /** The person turned the page's sound on or off on this phone (ADR 0088, Audio). */
+  z.object({ kind: z.literal("audio"), on: z.boolean() }),
   /** Video chunks up to `sequence` are decoded (cumulative); `keyframe` after a decode error. */
   z.object({
     kind: z.literal("ack"),
@@ -98,9 +100,11 @@ export function captureViewport(viewport: z.infer<typeof Viewport>): BrowserCapt
  */
 function captureFor(watch: Watch): BrowserCaptureViewport {
   const picture = watch.picture;
-  return picture
+  const size = picture
     ? captureViewport({ ...picture, devicePixelRatio: watch.viewport.devicePixelRatio })
     : watch.viewport;
+  // Muted unless the person turned the sound on here: a muted viewer gets no audio bytes.
+  return watch.audio ? { ...size, audio: true } : size;
 }
 
 /** What the view reads from the open thread, beyond the browser itself. */
@@ -142,6 +146,8 @@ interface Watch {
   viewport: BrowserCaptureViewport;
   /** The picture's drawn size, once Swift reports it: the stream is encoded for it. */
   picture: { width: number; height: number } | undefined;
+  /** The person turned the page's sound on for this view; every view starts muted. */
+  audio: boolean;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
   /** A failed subscribe's retry on the shared ladder and cooldown. */
@@ -411,6 +417,7 @@ export class BrowserLive {
         threadId: action.threadId,
         viewport: captureViewport(action.viewport),
         picture: undefined,
+        audio: false,
         generation: 0,
         subscribed: false,
         subscribing: false,
@@ -472,16 +479,14 @@ export class BrowserLive {
         watch.viewport = viewport;
         watch.picture = picture;
         if (!sameView) this.#devices.resized(watch, before);
-        if (watch.subscribed)
-          void this.#owner
-            .request({
-              type: "browser.capture",
-              threadId: watch.threadId,
-              viewport: captureFor(watch),
-            })
-            .catch(() => {});
+        this.#report(watch);
         return true;
       }
+      case "audio":
+        if (watch.audio === action.on) return true;
+        watch.audio = action.on;
+        this.#report(watch);
+        return true;
       case "input": {
         const input = BrowserInput.safeParse(action.input);
         if (!input.success) return false;
@@ -550,6 +555,13 @@ export class BrowserLive {
    * it, and an event (an engine opened, the state changed, a new session) may skip one step's
    * wait, never the cooldown.
    */
+  /** The view's pane report changed: a subscribed view tells the daemon (`browser.capture`). */
+  #report(watch: Watch): void {
+    if (!watch.subscribed) return;
+    void this.#owner
+      .request({ type: "browser.capture", threadId: watch.threadId, viewport: captureFor(watch) })
+      .catch(() => {});
+  }
   #subscribe(watch: Watch, cause: "event" | "poll" = "event"): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
     if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
