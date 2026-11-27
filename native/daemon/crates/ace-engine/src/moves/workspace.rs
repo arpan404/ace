@@ -603,7 +603,12 @@ mod tests {
     use super::*;
     use crate::repository::testsupport::{Shell, header, home};
 
-    fn home_with_checkout() -> (std::sync::Arc<ace_store::Connection>, EngineStore, State) {
+    fn home_with_checkout() -> (
+        std::sync::Arc<ace_store::Connection>,
+        EngineStore,
+        State,
+        std::rc::Rc<Shell>,
+    ) {
         let mut head = header("t");
         head = head.replace(
             "\"initialRoot\":{\"agent\":\"root\"",
@@ -617,10 +622,10 @@ mod tests {
         conn.exec("INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES ('t','/w',NULL,'native','acp','a',NULL)").expect("session");
         conn.exec("INSERT INTO workspace_canonical_roots VALUES ('workspace', '/w')")
             .expect("root");
-        let store = Shell::store(&conn);
+        let (store, shell) = Shell::store_with_controls(&conn);
         let mut state = State::default();
         state.transitions.rebuilt.insert("t".to_owned());
-        (conn, store, state)
+        (conn, store, state, shell)
     }
 
     fn reservation(root: &str) -> Reservation {
@@ -651,7 +656,7 @@ mod tests {
     // so provider work a restart left behind still holds the checkout.
     #[test]
     fn a_cold_peer_with_persisted_provider_work_holds_the_checkout() {
-        let (conn, store, mut state) = home_with_checkout();
+        let (conn, store, mut state, _shell) = home_with_checkout();
         let peer = header("p").replace(
             "\"hasRun\":false",
             "\"hasRun\":true,\"uncertainTasks\":{\"task-1\":true}",
@@ -681,11 +686,52 @@ mod tests {
         );
     }
 
+    // From `workspace-change.process.test.ts`: a never-started thread has no details row yet,
+    // and the move's `preparing` marker still reaches the client.
+    #[test]
+    fn a_never_started_threads_checkout_shows_preparing() {
+        let (_conn, store, mut state, shell) = home_with_checkout();
+        begin(
+            &store,
+            &mut state,
+            "t",
+            BeginRequest {
+                command_id: "cmd-fresh",
+                now: 5.0,
+                reservation: &reservation("/w"),
+                has_owned_work: &|_| false,
+                canonicalize: &|path| path.to_owned(),
+            },
+        )
+        .expect("begin");
+        let published = shell
+            .events()
+            .into_iter()
+            .find_map(|(thread, payload, _)| {
+                (thread == "t").then_some(payload).and_then(|payload| {
+                    let events = ace_json::parse(&payload).ok()?;
+                    let event = events.as_array()?.first()?.clone();
+                    (event.get("type").and_then(Value::as_str) == Some("thread.client.updated"))
+                        .then_some(event)
+                })
+            })
+            .expect("the preparing status was published");
+        assert_eq!(
+            published
+                .get("changes")
+                .and_then(|changes| changes.get("details"))
+                .and_then(|details| details.get("workspaceChange"))
+                .and_then(|change| change.get("state"))
+                .and_then(Value::as_str),
+            Some("preparing")
+        );
+    }
+
     // `workspace-change.ts:177`-`:181`: the fence is checked again after the sessions close,
     // because a peer can start work while they do.
     #[test]
     fn a_peer_that_starts_work_during_the_closes_refuses_the_git_write() {
-        let (conn, store, mut state) = home_with_checkout();
+        let (conn, store, mut state, _shell) = home_with_checkout();
         cold_peer(&conn, "p", header("p"));
         let fence = begin(
             &store,
@@ -718,7 +764,7 @@ mod tests {
     // the fence is released when it settles.
     #[test]
     fn a_workspace_change_reserves_its_roots_and_settles_them() {
-        let (conn, store, mut state) = home_with_checkout();
+        let (conn, store, mut state, _shell) = home_with_checkout();
         let fence = begin(
             &store,
             &mut state,
@@ -780,7 +826,7 @@ mod tests {
     // once, and the threads it fenced are handed back to wake.
     #[test]
     fn a_refused_change_releases_its_fence_and_names_the_threads_to_wake() {
-        let (_conn, store, mut state) = home_with_checkout();
+        let (_conn, store, mut state, _shell) = home_with_checkout();
         let fence = begin(
             &store,
             &mut state,
@@ -817,7 +863,7 @@ mod tests {
     // not hold the checkout; a running message does.
     #[test]
     fn a_held_queue_does_not_hold_a_checkout_but_running_work_does() {
-        let (_conn, store, mut state) = home_with_checkout();
+        let (_conn, store, mut state, _shell) = home_with_checkout();
         assert!(!live_pending(&store, &mut state, "t").expect("none"));
         // A message held after a Stop is not live work.
         // (The queue row and intent are what `intents.ts` writes.)

@@ -93,6 +93,8 @@ pub(crate) struct Shell {
     pinned: Cell<bool>,
     /// Each buffered live write: thread, events, time and callback token.
     pub buffered: RefCell<Vec<(String, String, f64, u64)>>,
+    /// Every `writeEvents` batch, in call order, so a case can read the status it published.
+    events: RefCell<Vec<(String, String, f64)>>,
     rolled_back: RefCell<Vec<String>>,
     /// Whether `after_commit` defers: off by default, so `Core::defer` releases at once as the
     /// binding does outside a transaction. A case that needs a commit or rollback to take effect
@@ -199,6 +201,11 @@ impl Shell {
         self.cancelled.borrow().clone()
     }
 
+    /// Every event batch the engine wrote, in call order.
+    pub fn events(&self) -> Vec<(String, String, f64)> {
+        self.events.borrow().clone()
+    }
+
     pub fn reports(&self) -> Vec<String> {
         self.reports.borrow().clone()
     }
@@ -227,6 +234,7 @@ impl Shell {
             fail_open: Cell::new(fail_open),
             pinned: Cell::new(false),
             buffered: RefCell::new(Vec::new()),
+            events: RefCell::new(Vec::new()),
             rolled_back: RefCell::new(Vec::new()),
             defer_commits: Cell::new(false),
             deferred: RefCell::new(Vec::new()),
@@ -451,7 +459,10 @@ impl Ports for Shell {
     fn settle_call(&self, _call: u64, _error: Option<String>) {}
     fn reject_pending(&self) {}
     fn finish_close(&self) {}
-    fn write_events(&self, _thread: &str, _payloads: &str, _at: f64) -> Result<(), PortError> {
+    fn write_events(&self, thread: &str, payloads: &str, at: f64) -> Result<(), PortError> {
+        self.events
+            .borrow_mut()
+            .push((thread.to_owned(), payloads.to_owned(), at));
         Ok(())
     }
     fn head_seq(&self) -> Result<f64, PortError> {
