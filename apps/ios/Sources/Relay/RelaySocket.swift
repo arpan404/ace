@@ -464,6 +464,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         switch router.route(bytes) {
         case .none: break
         case .stream(let message): if let path { streams?.deliver(message, path: path) }
+        case .audio(let message): if let path { streams?.deliver(message, path: path) }
         case .device(let message): if let path { streams?.deliver(message, path: path) }
         case .screen(let message): if let path { streams?.deliverScreen(message, path: path) }
         case .sdk: event("binary", .bytes(bytes))
