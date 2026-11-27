@@ -394,6 +394,49 @@ fn a_threadless_takeover_during_a_disable_finds_no_recording_from_the_old_thread
 }
 
 #[test]
+fn an_old_agents_bind_resuming_leaves_a_newer_agents_claim_intact() {
+    let mut session = Session::new("ios:AAAA");
+    let old = start_bind_for_agent(&mut session, &agent(), NOW).expect("the old agent's bind");
+
+    // Devices off retire the old reservation while its cleanup is still out, then the
+    // device comes back before that continuation lands.
+    let disabled = begin_disable(&mut session);
+    finish_disable(&mut session, disabled);
+
+    // A newer agent takes the device and starts a claim bind of its own.
+    let other = Actor::agent("agent-2", "t2", "a2");
+    assert_eq!(claim_for_agent(&mut session, &other, NOW), Ok(Claim::Take));
+    let newer = start_bind_for_agent(&mut session, &other, NOW).expect("the newer agent's bind");
+    let epoch = newer.cleanup_epoch().expect("a reservation to wait for");
+    assert_eq!(session.claim_bind_epoch, Some(epoch));
+
+    // The old continuation lands late. It is refused, and the newer claim keeps its
+    // guard, its epoch, its owner and the marker a drop of its own would retire.
+    let refused = resume_claim_for_agent(&mut session, &agent(), old, false, true, NOW)
+        .expect_err("the old bind was retired");
+    assert_eq!(refused, words::refusal("bindingDisabled"));
+    assert!(
+        session.changing_binding,
+        "the newer claim keeps its reservation"
+    );
+    assert_eq!(session.binding_epoch, epoch);
+    assert_eq!(session.claim_bind_epoch, Some(epoch));
+    assert_eq!(session.binding_owner.as_deref(), Some("agent-2"));
+
+    // The newer claim still finishes onto its own thread.
+    let assignment = resume_claim_for_agent(&mut session, &other, newer, false, true, NOW)
+        .expect("the newer agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&other), NOW).expect("the newer agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t2"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+    assert_eq!(
+        session.claim_bind_epoch, None,
+        "a finished claim leaves no marker"
+    );
+}
+
+#[test]
 fn a_replayed_successful_bind_completion_leaves_the_live_recording_alone() {
     let mut session = Session::new("ios:AAAA");
     let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");

@@ -543,7 +543,7 @@ fn a_failure_body_serializes_the_public_words_in_the_wire_order() {
         .get("permissionHints")
         .and_then(Value::as_object)
         .and_then(|hints| hints.get("accessibility"))
-        .map(|hint| ace_json::to_string(hint))
+        .map(ace_json::to_string)
         .expect("the accessibility hint");
     let failure = DeviceFailure {
         code: DeviceErrorCode::PermissionDenied,
