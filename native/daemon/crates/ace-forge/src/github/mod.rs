@@ -6,7 +6,13 @@
 
 pub mod checks;
 pub mod inbox;
+pub mod lifecycle;
+pub mod lifecycle_writes;
+pub mod local_stacks;
+pub mod merge_state;
+pub mod new_pr;
 pub mod repositories;
+pub mod stacks;
 pub mod status;
 
 use crate::error::Error;
