@@ -6,8 +6,8 @@
 //! decisions the shell renders.
 
 use super::{
-    android_without_video, arguments_body, failure_body, public_failure, public_words,
-    screenshot_note, summary, with_guidance, without_video,
+    android_without_video, arguments_body, arguments_body_with, failure_body, failure_body_with,
+    public_failure, public_words, screenshot_note, summary, with_guidance, without_video,
 };
 use crate::error::{DeviceErrorCode, DeviceFailure};
 use ace_json::{JsString, Number, Value, json};
@@ -451,6 +451,69 @@ fn a_permission_refusal_takes_its_hint_from_the_shared_error_catalog() {
             "{key}"
         );
     }
+}
+
+#[test]
+fn a_body_takes_its_words_from_the_catalog_it_is_given_not_from_a_literal() {
+    // A catalog whose wording nothing in the build writes: both bodies must carry these
+    // words, so a revert to hardcoded strings fails here.
+    let mut catalog = ace_mcp::catalog::catalog()
+        .expect("the embedded catalog parses")
+        .clone();
+    catalog.permission_hints.insert(
+        "accessibility".to_owned(),
+        "Let this build drive the test's accessibility tree.".to_owned(),
+    );
+    catalog.errors.remove("invalid_arguments");
+    catalog.fallbacks = ace_mcp::catalog::ErrorWords {
+        message: String::from("This code has no entry in the test catalog"),
+        hint: String::from("Read the test catalog's fallbacks."),
+    };
+
+    let failure = DeviceFailure {
+        code: DeviceErrorCode::PermissionDenied,
+        message: JsString::from("the helper says"),
+        hint: JsString::from("a device hint"),
+        permission: Some(crate::error::DevicePermission::Accessibility),
+        platform: None,
+    };
+    let body = failure_body_with(Some(&catalog), &failure, true);
+    assert_eq!(
+        body.get("hint").and_then(Value::as_str),
+        Some("Let this build drive the test's accessibility tree.")
+    );
+    assert_eq!(
+        body.get("permission").and_then(Value::as_str),
+        Some("accessibility")
+    );
+    assert_eq!(
+        body.get("message").and_then(Value::as_str),
+        Some(
+            catalog
+                .errors
+                .get("permission_denied")
+                .expect("permission_denied's words")
+                .message
+                .as_str()
+        )
+    );
+
+    // With `invalid_arguments` gone, the argument body renders the catalog's fallbacks.
+    let error = crate::tools::args::decode(
+        crate::tools::args::SimTool::Act,
+        &json!({ "simId": IOS, "action": "tap", "x": 1 }),
+    )
+    .expect_err("half a point");
+    let body = arguments_body_with(Some(&catalog), crate::tools::args::SimTool::Act, &error);
+    assert_eq!(
+        body.get("message").and_then(Value::as_str),
+        Some("This code has no entry in the test catalog")
+    );
+    assert_eq!(
+        body.get("hint").and_then(Value::as_str),
+        Some("Read the test catalog's fallbacks.")
+    );
+    assert!(body.get("issues").is_some());
 }
 
 #[test]

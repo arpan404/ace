@@ -9,6 +9,7 @@
 use std::sync::OnceLock;
 
 use ace_json::{Array, JsString, Map, Number, Value};
+use ace_mcp::catalog::{Catalog, ErrorWords};
 use regex::Regex;
 
 use super::args::{ArgumentError, SimTool};
@@ -241,10 +242,7 @@ pub fn public_failure(failure: &DeviceFailure, own: bool) -> PublicFailure {
 }
 
 /// The hint `PublicToolError` gives a permission refusal: the shared catalog's setting.
-fn permission_hint(permission: DevicePermission) -> String {
-    let Ok(catalog) = ace_mcp::catalog::catalog() else {
-        return String::from(INCOMPLETE_HINT);
-    };
+fn permission_hint(catalog: &Catalog, permission: DevicePermission) -> String {
     catalog
         .permission_hints
         .get(permission.as_str())
@@ -257,21 +255,32 @@ fn permission_hint(permission: DevicePermission) -> String {
 const INCOMPLETE_MESSAGE: &str = "This failure has no entry in ace's error catalog";
 const INCOMPLETE_HINT: &str = "Reinstall ace; its error catalog is incomplete.";
 
+fn incomplete_words() -> ErrorWords {
+    ErrorWords {
+        message: String::from(INCOMPLETE_MESSAGE),
+        hint: String::from(INCOMPLETE_HINT),
+    }
+}
+
+/// The words an agent sees for a public code: the given catalog's own entry, or its words
+/// for a code it does not know. The device failure's own words are never a source.
+fn catalog_words<'a>(catalog: &'a Catalog, code: &str) -> &'a ErrorWords {
+    catalog.errors.get(code).unwrap_or(&catalog.fallbacks)
+}
+
+/// [`catalog_words`] over the embedded catalog, whose absence is the install's problem.
+fn embedded_words(code: &str) -> ErrorWords {
+    match ace_mcp::catalog::catalog() {
+        Ok(catalog) => catalog_words(catalog, code).clone(),
+        Err(_) => incomplete_words(),
+    }
+}
+
 /// The words an agent sees for a public code, from the shared MCP catalog. The device
 /// failure's own words are never a source: a code the catalog does not know — which the
 /// completeness test rules out — renders the catalog's own words for that case.
-pub fn public_words(code: &str) -> ace_mcp::catalog::ErrorWords {
-    let Ok(catalog) = ace_mcp::catalog::catalog() else {
-        return ace_mcp::catalog::ErrorWords {
-            message: String::from(INCOMPLETE_MESSAGE),
-            hint: String::from(INCOMPLETE_HINT),
-        };
-    };
-    catalog
-        .errors
-        .get(code)
-        .unwrap_or(&catalog.fallbacks)
-        .clone()
+pub fn public_words(code: &str) -> ErrorWords {
+    embedded_words(code)
 }
 
 /// `/[a-f0-9]{64}/gi`, over UTF-16 units: a lone surrogate in the text is neither
@@ -320,13 +329,37 @@ fn detail_text(message: &JsString) -> JsString {
 /// `toolFailure` writes it — the public code, the catalog's message and hint, and
 /// ace's own detail last when it wrote the failure.
 pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
+    failure_body_with(ace_mcp::catalog::catalog().ok(), failure, own)
+}
+
+/// [`failure_body`] with its words taken from `catalog`: `None` is the embedded catalog
+/// not parsing at all, a daemon build bug. Split out so a test supplies its own wording
+/// and a body that reached for a literal fails it.
+fn failure_body_with(catalog: Option<&Catalog>, failure: &DeviceFailure, own: bool) -> Value {
     let public = public_failure(failure, own);
-    let words = public_words(public.code);
-    let hint = public.permission.map_or(words.hint, permission_hint);
+    let (words, permission_hint) = match catalog {
+        Some(catalog) => (
+            catalog_words(catalog, public.code).clone(),
+            public
+                .permission
+                .map(|permission| permission_hint(catalog, permission)),
+        ),
+        None => (
+            incomplete_words(),
+            public.permission.map(|_| String::from(INCOMPLETE_HINT)),
+        ),
+    };
+    let ErrorWords {
+        message,
+        hint: words_hint,
+    } = words;
     let mut out = Map::new();
     out.insert("code", Value::String(JsString::from(public.code)));
-    out.insert("message", Value::String(JsString::from(words.message)));
-    out.insert("hint", Value::String(JsString::from(hint)));
+    out.insert("message", Value::String(JsString::from(message)));
+    out.insert(
+        "hint",
+        Value::String(JsString::from(permission_hint.unwrap_or(words_hint))),
+    );
     if let Some(detail) = public.message.filter(|detail| !detail.is_empty()) {
         out.insert("detail", Value::String(detail_text(&detail)));
     }
@@ -343,7 +376,15 @@ pub fn failure_body(failure: &DeviceFailure, own: bool) -> Value {
 /// `invalid_arguments` code, its catalog words, the field issues in order, and —
 /// only when a field or variant does not exist — where to find the schema.
 pub fn arguments_body(tool: SimTool, error: &ArgumentError) -> Value {
-    let words = public_words("invalid_arguments");
+    arguments_body_with(ace_mcp::catalog::catalog().ok(), tool, error)
+}
+
+/// [`arguments_body`] with its words taken from `catalog`, as its failure twin is.
+fn arguments_body_with(catalog: Option<&Catalog>, tool: SimTool, error: &ArgumentError) -> Value {
+    let words = match catalog {
+        Some(catalog) => catalog_words(catalog, "invalid_arguments").clone(),
+        None => incomplete_words(),
+    };
     let mut out = Map::new();
     out.insert("code", Value::String(JsString::from("invalid_arguments")));
     out.insert("message", Value::String(JsString::from(words.message)));
