@@ -169,6 +169,15 @@ pub fn build_report(
         return Err(malformed());
     }
     let implied = implied_providers(connected);
+    // The reply's own Location is part of the envelope: a server that answered for
+    // another directory is refused once, never relabelled per source.
+    if location.get("directory").and_then(Value::as_str) != Some(instance.cwd.as_str()) {
+        return Err(DiscoveryFailure {
+            code: Some(FailureCode::DiscoveryFailed.as_str().to_owned()),
+            message: Some("OpenCode answered for another directory".to_owned()),
+            ..DiscoveryFailure::default()
+        });
+    }
     let errors: Vec<(String, Value)> = match envelope.get("errors") {
         None | Some(Value::Null) => Vec::new(),
         Some(errors) => errors
@@ -259,58 +268,40 @@ pub fn build_report(
         .map(|(id, _)| id.clone())
         .filter(|id| !failed.contains(id))
         .collect();
-    let mut rows = ace_models::opencode::normalize_opencode_v2(
-        &serde_json::json!({
-            "location": location,
-            "data": grouped.iter().flat_map(|(_, rows)| rows.clone()).collect::<Vec<_>>(),
-            "configuredDefault": envelope.get("configuredDefault").cloned().unwrap_or(Value::Null),
-        }),
-        instance,
-        Some(&eligible),
-    )
-    .map_err(opencode_failure)?;
-    for (provider, _) in &available {
-        if failed.contains(provider) {
-            let error = errors
-                .iter()
-                .find(|(id, _)| id == provider)
-                .map(|(_, error)| DiscoveryFailure::new(&error.to_string()))
-                .unwrap_or_default();
-            let detail = discovery_error(
-                Some(&error),
-                FailureCode::DiscoveryFailed,
-                &ErrorContext {
-                    provider: Some("opencode"),
-                    source: Some(provider),
-                    backend: None,
-                },
-            );
-            report
-                .source_failures
-                .push((provider.clone(), detail.message.clone()));
-            let source = available
-                .iter()
-                .find(|(id, _)| id == provider)
-                .map(|(_, source)| source.clone())
-                .unwrap_or_else(|| provider_source(provider));
-            report.sources.push(SourceStatus {
-                source,
-                status: SourceState::Stale,
-                last_refreshed_at: None,
-                error: Some(detail),
-            });
+    // Each provider is normalized on its own, as the TypeScript's per-source try/catch
+    // does: one malformed provider cannot erase the healthy ones or its own last good
+    // choices.
+    for (provider, source) in available.clone() {
+        if let Some((_, error)) = errors.iter().find(|(id, _)| id == &provider) {
+            failed_source(&mut report, &provider, &source, failure_from_value(error));
             continue;
         }
-        let source = available
+        let provider_data: Vec<Value> = grouped
             .iter()
-            .find(|(id, _)| id == provider)
-            .map(|(_, source)| source.clone())
-            .unwrap_or_else(|| provider_source(provider));
+            .find(|(id, _)| id == &provider)
+            .map(|(_, rows)| rows.clone())
+            .unwrap_or_default();
+        let normalized = ace_models::opencode::normalize_opencode_v2(
+            &serde_json::json!({
+                "location": location,
+                "data": provider_data,
+                "configuredDefault": envelope.get("configuredDefault").cloned().unwrap_or(Value::Null),
+            }),
+            instance,
+            Some(&eligible),
+        );
+        let mut rows = match normalized {
+            Ok(rows) => rows,
+            Err(error) => {
+                failed_source(&mut report, &provider, &source, opencode_failure(error));
+                continue;
+            }
+        };
         let mut provider_rows: Vec<CatalogModel> = rows
             .iter_mut()
             .filter_map(|row| {
                 let native = row.native_provider_id.as_ref()?.0.0.clone();
-                (native == *provider).then(|| row.clone())
+                (native == provider).then(|| row.clone())
             })
             .collect();
         if provider_rows.is_empty() {
@@ -324,7 +315,7 @@ pub fn build_report(
                     FailureCode::NoModels,
                     &ErrorContext {
                         provider: Some("opencode"),
-                        source: Some(provider),
+                        source: Some(&provider),
                         backend: None,
                     },
                 )),
@@ -332,7 +323,7 @@ pub fn build_report(
             continue;
         }
         for row in &mut provider_rows {
-            let routed = model_source_with(provider, &row.id.0, source.clone());
+            let routed = model_source_with(&provider, &row.id.0, source.clone());
             row.source = Some(routed.clone().into());
             if !report
                 .sources
@@ -383,21 +374,137 @@ fn opencode_failure(error: ace_models::opencode::OpenCodeError) -> DiscoveryFail
     }
 }
 
-/// The id-only `models` listing, filtered by what the account may actually serve.
+/// One provider's failure: its source keeps its last good rows and is reported stale.
+fn failed_source(
+    report: &mut OpenCodeReport,
+    provider: &str,
+    source: &ModelSource,
+    failure: DiscoveryFailure,
+) {
+    let detail = discovery_error(
+        Some(&failure),
+        FailureCode::DiscoveryFailed,
+        &ErrorContext {
+            provider: Some("opencode"),
+            source: Some(provider),
+            backend: None,
+        },
+    );
+    report
+        .source_failures
+        .push((provider.to_owned(), detail.message.clone()));
+    report.sources.push(SourceStatus {
+        source: source.clone(),
+        status: SourceState::Stale,
+        last_refreshed_at: None,
+        error: Some(detail),
+    });
+}
+
+/// The bounded error fields a provider nested in its report, for the classifier.
+///
+/// The TypeScript hands the thrown value itself to `discoveryError`; the wire only
+/// carries JSON, so the same fields are read by shape here: a nested `status` of 503
+/// must still classify as unreachable.
+fn failure_from_value(value: &Value) -> DiscoveryFailure {
+    fn bounded(text: &str) -> String {
+        crate::text::utf16_prefix(text, 8192)
+    }
+    fn status(value: &Value) -> Option<f64> {
+        match value {
+            Value::Number(number) => number.as_f64(),
+            Value::String(text) if text.len() == 3 && text.chars().all(|c| c.is_ascii_digit()) => {
+                text.parse().ok()
+            }
+            _ => None,
+        }
+    }
+    fn read(value: &Value, depth: usize) -> DiscoveryFailure {
+        if depth >= 12 {
+            return DiscoveryFailure::default();
+        }
+        match value {
+            Value::String(text) => {
+                let mut failure = DiscoveryFailure {
+                    message: Some(bounded(text)),
+                    ..DiscoveryFailure::default()
+                };
+                // A message that is itself JSON is another diagnostic entry.
+                if text.starts_with('{')
+                    && let Ok(nested) = serde_json::from_str::<Value>(text)
+                {
+                    failure.cause = Some(Box::new(read(&nested, depth + 1)));
+                }
+                failure
+            }
+            Value::Object(entry) => {
+                let text = |key: &str| {
+                    entry
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(bounded)
+                        .filter(|text| !text.is_empty())
+                };
+                let code = entry.get("code").and_then(|code| match code {
+                    Value::String(text) => Some(bounded(text)),
+                    Value::Number(number) => Some(number.to_string()),
+                    _ => None,
+                });
+                let nested = |key: &str| {
+                    entry
+                        .get(key)
+                        .map(|nested| Box::new(read(nested, depth + 1)))
+                };
+                let name = text("name");
+                DiscoveryFailure {
+                    code,
+                    discovery_code: text("discoveryCode"),
+                    parse_failure: matches!(name.as_deref(), Some("ZodError" | "SyntaxError")),
+                    name,
+                    reason: text("reason"),
+                    tag: text("_tag"),
+                    detail: text("detail"),
+                    message: text("message"),
+                    status: entry
+                        .get("status")
+                        .or_else(|| entry.get("statusCode"))
+                        .and_then(status),
+                    cause: nested("cause"),
+                    error: nested("error"),
+                    data: nested("data"),
+                    response: nested("response"),
+                    body: nested("body"),
+                    ..DiscoveryFailure::default()
+                }
+            }
+            _ => DiscoveryFailure::default(),
+        }
+    }
+    read(value, 0)
+}
+
+/// The CLI listing's overflow, naming the provider whose ids did not fit.
+#[derive(Debug, Clone)]
+pub struct SupplementError {
+    pub failure: DiscoveryFailure,
+    pub source: Option<String>,
+}
+
+/// The `models` listing, filtered by what the account may actually serve.
 ///
 /// Returns the number of ids it rejected, so a caller can log what it dropped.
 #[allow(clippy::result_large_err)]
 pub fn supplement(
     report: &mut OpenCodeReport,
-    listed: Vec<CatalogModel>,
+    listed: Vec<crate::discovery::opencode::ListedModel>,
     connected: &Connected,
     instance: &ModelInstance,
-) -> Result<usize, DiscoveryFailure> {
+) -> Result<usize, SupplementError> {
     let implied = implied_providers(connected);
     let mut seen = report.metadata_ids.clone();
     let mut rejected = 0;
-    for row in listed {
-        let id = row.id.0.clone();
+    for listed in listed {
+        let id = listed.model.id.0.clone();
         if !(3..=256).contains(&id.chars().count())
             || !id.split_once('/').is_some_and(|(provider, model)| {
                 !provider.is_empty() && !model.is_empty() && !model.contains(char::is_whitespace)
@@ -434,11 +541,15 @@ pub fn supplement(
             .split_once('/')
             .map(|(_, model)| model)
             .unwrap_or_default();
-        let free = free_model(provider, model_id);
+        // The id heuristic is evidence only for an id-only listing row. A row the CLI
+        // printed as JSON metadata is priced by that metadata, so a paid
+        // `opencode/*-free` row is not made free by its name.
+        let free = listed.id_only && free_model(provider, model_id);
+        let declared_free = listed.model.free.as_deref().copied().unwrap_or(false);
         let source = match known {
             Some(source) => model_source_with(provider, &id, source),
             None => {
-                if inferred.kind != ModelSourceKind::Local && !free {
+                if inferred.kind != ModelSourceKind::Local && !free && !declared_free {
                     rejected += 1;
                     continue;
                 }
@@ -453,14 +564,17 @@ pub fn supplement(
             }
         };
         if report.models.len() >= 512 {
-            return Err(DiscoveryFailure {
-                code: Some(FailureCode::ParseFailure.as_str().to_owned()),
-                message: Some("Too many models".to_owned()),
-                ..DiscoveryFailure::default()
+            return Err(SupplementError {
+                failure: DiscoveryFailure {
+                    code: Some(FailureCode::ParseFailure.as_str().to_owned()),
+                    message: Some("Too many models".to_owned()),
+                    ..DiscoveryFailure::default()
+                },
+                source: Some(provider.to_owned()),
             });
         }
         // The listing row keeps whatever metadata `models` printed; only its source is new.
-        let mut model = row;
+        let mut model = listed.model;
         model.instance = instance.id.clone().into();
         model.native_provider_id = serde_json::from_value(Value::String(provider.to_owned())).ok();
         model.source = Some(source.clone().into());
@@ -496,10 +610,14 @@ fn fill_source(report: &mut OpenCodeReport, source: ModelSource) {
 }
 
 /// A failed CLI supplement marks the sources it could not fill stale, keeping the rows.
+///
+/// `affected` also names a source that already had rows but could not be completed (the
+/// listing overflowed), so its status reports the partial failure instead of staying fresh.
 pub fn supplement_failed(
     report: &mut OpenCodeReport,
     cause: &DiscoveryFailure,
     missing: BTreeSet<String>,
+    affected: Option<&str>,
 ) {
     let detail = discovery_error(
         Some(cause),
@@ -510,13 +628,17 @@ pub fn supplement_failed(
             backend: None,
         },
     );
+    let mut stale = missing;
+    if let Some(source) = affected {
+        stale.insert(source.to_owned());
+    }
     for status in &mut report.sources {
-        if missing.contains(&status.source.id.0) {
+        if stale.contains(&status.source.id.0) {
             status.status = SourceState::Stale;
             status.error = Some(detail.clone());
         }
     }
-    for source in &missing {
+    for source in &stale {
         if report
             .sources
             .iter()

@@ -245,7 +245,7 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                 }) {
                     Ok(listed) => {
                         // An overflow in the listing is a partial failure like any other:
-                        // the ids it filled in stay, and only the unfilled sources go stale.
+                        // the ids it filled in stay, and only the affected sources go stale.
                         if let Err(error) = crate::discovery::opencode_report::supplement(
                             &mut report,
                             listed,
@@ -255,8 +255,9 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                             let missing = report.missing_metadata.clone();
                             crate::discovery::opencode_report::supplement_failed(
                                 &mut report,
-                                &error,
+                                &error.failure,
                                 missing,
+                                error.source.as_deref(),
                             );
                         }
                     }
@@ -267,6 +268,7 @@ impl CatalogDiscover for HttpOpenCodeDiscovery {
                             &mut report,
                             &error,
                             missing,
+                            None,
                         );
                     }
                 }
@@ -313,11 +315,18 @@ fn percent_encode(value: &str) -> String {
         .collect()
 }
 
+/// One `opencode models` row, and whether it carried JSON metadata or only the id.
+#[derive(Debug, Clone)]
+pub struct ListedModel {
+    pub model: ace_protocol::generated::CatalogModel,
+    pub id_only: bool,
+}
+
 /// The CLI's `opencode models` listing: a `provider/model` heading, then its JSON object.
 pub fn parse_opencode_listing(
     output: &str,
     instance: &ModelInstance,
-) -> Result<Vec<ace_protocol::generated::CatalogModel>, &'static str> {
+) -> Result<Vec<ListedModel>, &'static str> {
     let mut rows = Vec::new();
     let mut heading: Option<String> = None;
     let mut json = String::new();
@@ -384,7 +393,7 @@ pub fn parse_opencode_listing(
 }
 
 fn push_listing_row(
-    rows: &mut Vec<ace_protocol::generated::CatalogModel>,
+    rows: &mut Vec<ListedModel>,
     instance: &ModelInstance,
     heading: &str,
     json: &str,
@@ -393,7 +402,10 @@ fn push_listing_row(
     if json.trim().is_empty() {
         let mut model = ace_models::row::base(instance, heading, model_id, &Value::Null);
         model.native_provider_id = serde_json::from_value(Value::String(provider.to_owned())).ok();
-        rows.push(model);
+        rows.push(ListedModel {
+            model,
+            id_only: true,
+        });
         return Ok(());
     }
     let native: Value = serde_json::from_str(json).map_err(|_| "Malformed model metadata")?;
@@ -447,7 +459,10 @@ fn push_listing_row(
     model.deprecated = (status == "deprecated" || status == "legacy").into();
     model.legacy = Some(ace_models::metadata::legacy_metadata(&native).into());
     if ace_models::metadata::chat_metadata(&native) {
-        rows.push(model);
+        rows.push(ListedModel {
+            model,
+            id_only: false,
+        });
     }
     Ok(())
 }
@@ -1307,6 +1322,165 @@ mod tests {
         assert_eq!(
             outcome.models[0].id.0, "opencode/deepseek-v4.1-flash",
             "the catalog's own row is kept first"
+        );
+        let source = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "opencode")
+            .unwrap_or_else(|| panic!("the overflowed source is reported"));
+        assert_eq!(
+            source.status,
+            crate::sources::SourceState::Stale,
+            "a source the listing could not finish is stale even though it kept rows"
+        );
+        assert!(source.error.is_some(), "the overflow names its failure");
+    }
+
+    #[test]
+    fn a_malformed_provider_never_erases_a_healthy_one() {
+        let mut broken = catalog_entry("anthropic", "claude-opus-5", true);
+        broken["name"] = Value::Null;
+        let http = catalog_http(vec![
+            catalog_entry("opencode", "deepseek-v4.1-flash", true),
+            broken,
+        ]);
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]},{"id":"anthropic","connections":[{"type":"oauth"}]}]"#,
+            listing: Vec::new(),
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            outcome
+                .models
+                .iter()
+                .map(|row| row.id.0.as_str())
+                .collect::<Vec<_>>(),
+            ["opencode/deepseek-v4.1-flash"],
+            "the healthy provider's rows survive its neighbour's malformed answer"
+        );
+        let anthropic = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "anthropic")
+            .unwrap_or_else(|| panic!("the malformed provider is reported"));
+        assert_eq!(anthropic.status, crate::sources::SourceState::Stale);
+        assert_eq!(
+            anthropic.error.as_ref().map(|error| error.code),
+            Some(FailureCode::ParseFailure),
+            "the malformed provider is classified, not fatal"
+        );
+    }
+
+    #[test]
+    fn a_nested_provider_status_reaches_the_classifier() {
+        let mut replies = vec![HttpReply {
+            status: 200,
+            body: json!({
+                "location": { "directory": "/one" },
+                "data": [catalog_entry("opencode", "deepseek-v4.1-flash", true)],
+                "errors": [{
+                    "providerID": "anthropic",
+                    "error": { "data": { "status": 503 } }
+                }],
+            })
+            .to_string(),
+        }];
+        replies.push(HttpReply {
+            status: 200,
+            body: catalog_with(vec![]),
+        });
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]},{"id":"anthropic","connections":[{"type":"oauth"}]}]"#,
+            listing: Vec::new(),
+        });
+        let discovery = HttpOpenCodeDiscovery::new(
+            Arc::new(ScriptedHttp::new(replies)),
+            Arc::new(TestClock(Mutex::new(0))),
+            Arc::new(|_| {}),
+        )
+        .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        let anthropic = outcome
+            .sources
+            .unwrap_or_default()
+            .into_iter()
+            .find(|status| status.source.id.0 == "anthropic")
+            .unwrap_or_else(|| panic!("the failed provider is reported"));
+        assert_eq!(
+            anthropic.error.as_ref().map(|error| error.code),
+            Some(FailureCode::Unreachable),
+            "a nested 503 is unreachable, not a generic failure"
+        );
+    }
+
+    #[test]
+    fn only_an_id_only_listing_row_makes_a_free_named_model_free() {
+        let metadata = json!({
+            "id": "paide-free",
+            "providerID": "opencode",
+            "name": "Paid Free",
+            "enabled": true,
+            "status": "active",
+            "limit": { "context": 1, "output": 1 },
+            "capabilities": { "input": ["text"] },
+            "variants": [],
+            "cost": [{ "input": 3, "output": 9, "cache": { "read": 0, "write": 0 } }]
+        });
+        let listing = format!("{}\nopencode/idle-free\n", metadata);
+        let http = catalog_http(vec![catalog_entry("opencode", "deepseek-v4.1-flash", true)]);
+        let process = Arc::new(ScriptedProcess {
+            connections: r#"[{"id":"opencode","connections":[{"type":"oauth"}]}]"#,
+            listing: vec![crate::discovery::process::ProcessOutput {
+                status: Some(0),
+                stdout: format!("opencode/paide-free\n{listing}"),
+                stderr: String::new(),
+            }],
+        });
+        let discovery =
+            HttpOpenCodeDiscovery::new(http, Arc::new(TestClock(Mutex::new(0))), Arc::new(|_| {}))
+                .with_process(process);
+        let outcome = futures::executor::block_on(discovery.discover(
+            DiscoveryRequest {
+                instance: instance(),
+            },
+            Signal::new(),
+            Arc::new(|_metadata: DiscoveryDiagnostics| {}),
+        ))
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        let row = |id: &str| {
+            outcome
+                .models
+                .iter()
+                .find(|model| model.id.0 == id)
+                .unwrap_or_else(|| panic!("{id} is listed"))
+        };
+        assert!(
+            row("opencode/paide-free").free.is_none(),
+            "a paid row printed as JSON is never made free by its name"
+        );
+        assert_eq!(
+            row("opencode/idle-free").free.as_deref().copied(),
+            Some(true),
+            "the id heuristic applies only to an id-only row"
         );
     }
 
