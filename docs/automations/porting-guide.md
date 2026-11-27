@@ -90,12 +90,12 @@ and TypeScript facades: no new bridges. Proof for every item is its Rust tests a
 `check:daemon-native`, and composition happens in `ace-daemon-bin` once the Rust daemon's main
 wires the crates. The TypeScript shells named here before are not part of an item.
 
-| Item | Rust (yours)                                                                          |
-| ---- | ------------------------------------------------------------------------------------- |
+| Item | Rust (yours)                                                                                                                                                                                             |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A1   | `ace-automations/src/{store,store_schema,definition,service,scheduler,decisions,github,webhooks,webhook_body,webhook_signature,webhook_secret_box,webhook_key,calendar,grammar,recurrence,wildmatch}.rs` |
-| A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                  |
-| A3   | `ace-automations/src/workspace.rs`                                                    |
-| A4   | `ace-automations/src/tools.rs`                                                        |
+| A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                                                                                                                                    |
+| A3   | `ace-automations/src/workspace.rs`                                                                                                                                                                       |
+| A4   | `ace-automations/src/tools.rs`                                                                                                                                                                           |
 
 ## Where A1, A2 and A3 end (for the Rust daemon's wiring)
 
