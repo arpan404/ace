@@ -159,6 +159,7 @@ impl Catalog {
                 flight: None,
                 flight_token: None,
                 probe_revision: None,
+                probe: None,
                 acp_due: false,
                 generation,
                 abort: None,

@@ -145,7 +145,7 @@ impl Catalog {
                     &FailureReport {
                         started_at: now,
                         diagnostics: &DiscoveryDiagnostics::default(),
-                        revision: "",
+                        revision: None,
                         token: None,
                     },
                 );
@@ -273,7 +273,7 @@ impl Catalog {
                 &FailureReport {
                     started_at,
                     diagnostics: &DiscoveryDiagnostics::default(),
-                    revision: &revision,
+                    revision: Some(&revision),
                     token: Some(flight.token),
                 },
             );
@@ -303,7 +303,7 @@ impl Catalog {
                 &FailureReport {
                     started_at,
                     diagnostics: &DiscoveryDiagnostics::default(),
-                    revision: &revision,
+                    revision: Some(&revision),
                     token: Some(flight.token),
                 },
             );
@@ -354,7 +354,7 @@ impl Catalog {
         let failure_report = FailureReport {
             started_at,
             diagnostics: &diagnostics,
-            revision: &revision,
+            revision: Some(&revision),
             token: Some(flight.token),
         };
         match result {
@@ -504,7 +504,9 @@ impl Catalog {
             let Some(state) = inner.states.get_mut(id) else {
                 return false;
             };
-            if state.probe_revision.as_deref() != Some(revision) {
+            if let Some(revision) = revision
+                && state.probe_revision.as_deref() != Some(revision)
+            {
                 return false;
             }
             if let Some(token) = token
@@ -621,7 +623,7 @@ impl Catalog {
         let failure_report = FailureReport {
             started_at,
             diagnostics,
-            revision,
+            revision: Some(revision),
             token: Some(flight.token),
         };
         if outcome.models.is_empty() && outcome.sources.is_none() {
@@ -856,7 +858,7 @@ impl Catalog {
                 &FailureReport {
                     started_at,
                     diagnostics,
-                    revision,
+                    revision: Some(revision),
                     token: Some(flight.token),
                 },
             );
@@ -878,7 +880,8 @@ struct FlightFence<'a> {
 struct FailureReport<'a> {
     started_at: f64,
     diagnostics: &'a DiscoveryDiagnostics,
-    revision: &'a str,
+    /// The revision the flight ran under; a connection probe already fenced its own row.
+    revision: Option<&'a str>,
     token: Option<u64>,
 }
 
@@ -1052,6 +1055,7 @@ fn connection_revision(
 /// and removes its registry entries, whichever way its caller leaves.
 struct ProbeGuard {
     catalog: Catalog,
+    id: String,
     signal: Signal,
     gate: crate::signals::Gate,
     cancel: Option<crate::catalog::Cancel>,
@@ -1068,6 +1072,15 @@ impl Drop for ProbeGuard {
             inner
                 .probe_signals
                 .retain(|known| !known.same(&self.signal));
+            inner.probes = inner.probes.saturating_sub(1);
+            if let Some(state) = inner.states.get_mut(&self.id)
+                && state
+                    .probe
+                    .as_ref()
+                    .is_some_and(|probe| probe.done.same(&self.gate))
+            {
+                state.probe = None;
+            }
         });
         self.gate.open();
     }
@@ -1130,37 +1143,58 @@ impl Catalog {
                 self.with_inner(|inner| inner.states.get(&id).map(|state| state.generation));
             let revision = self.revision(&config);
             // Registering the probe and checking that shutdown has not begun are one
-            // critical section: no probe starts after close aborted the registry.
+            // critical section: no probe starts after close aborted the registry. A poll
+            // that finds this row's probe running shares it.
             let registered = self.with_inner(|inner| {
                 if inner.closed {
                     return None;
                 }
-                let state = inner.states.get(&id)?;
-                if state.flight.is_some() || self.now() < state.probe_retry_at.max(state.retry_at) {
+                if let Some(running) = inner.states.get(&id).and_then(|state| state.probe.clone()) {
+                    return Some(Err(running.done));
+                }
+                if inner.probes >= 64 {
+                    return None;
+                }
+                let now = self.now();
+                let state = inner.states.get_mut(&id)?;
+                if state.flight.is_some() || now < state.probe_retry_at.max(state.retry_at) {
                     return None;
                 }
                 let signal = Signal::new();
                 let gate = crate::signals::Gate::new();
+                state.probe = Some(crate::catalog::ProbeFlight { done: gate.clone() });
                 inner.probe_signals.push(signal.clone());
                 inner.owned.push(gate.clone());
-                Some((signal, gate))
+                inner.probes += 1;
+                Some(Ok((signal, gate)))
             });
-            let Some((signal, gate)) = registered else {
-                continue;
+            let (signal, gate) = match registered {
+                Some(Ok(registered)) => registered,
+                Some(Err(done)) => {
+                    done.wait().await;
+                    continue;
+                }
+                None => continue,
             };
             // The probe owns a deadline, a shutdown abort and a registry entry: whatever
             // ends its caller, its gate settles and its entry leaves the registry.
             let mut guard = ProbeGuard {
                 catalog: self.clone(),
+                id: id.clone(),
                 signal: signal.clone(),
                 gate,
                 cancel: None,
             };
+            let timed_out = Arc::new(std::sync::atomic::AtomicBool::new(false));
             guard.cancel = Some(self.options.deadline.arm(
                 self.options.timeout_ms,
                 Box::new({
+                    let flag = timed_out.clone();
                     let signal = signal.clone();
-                    move || signal.abort()
+                    move || {
+                        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        signal.abort();
+                    }
                 }),
             ));
             let request = DiscoveryRequest {
@@ -1178,13 +1212,17 @@ impl Catalog {
                 cancel();
             }
             let aborted = signal.is_aborted();
+            let fired = timed_out.load(std::sync::atomic::Ordering::SeqCst);
             drop(guard);
-            if aborted {
+            if aborted && !fired {
+                // Shutdown or a revocation, not a timer: nothing to report.
                 continue;
             }
-            let futures::future::Either::Left((result, _)) = outcome else {
-                continue;
+            let result = match outcome {
+                futures::future::Either::Left((result, _)) => Some(result),
+                futures::future::Either::Right(((), _)) => None,
             };
+            let started_at = self.now();
             // The login, the flight's generation and the effective revision are read from
             // the state already under the lock; asking `registered` (or `revision`) here
             // would take the same mutex again and wedge the catalog.
@@ -1200,6 +1238,29 @@ impl Catalog {
             if self.revision(&config) != revision {
                 continue;
             }
+            let Some(result) = result else {
+                // A fired deadline leaves a visible timeout and its own retry pause.
+                self.fail(
+                    id.as_str(),
+                    None,
+                    FailureCode::Timeout,
+                    &FailureReport {
+                        started_at,
+                        diagnostics: &DiscoveryDiagnostics::default(),
+                        revision: None,
+                        token: None,
+                    },
+                );
+                self.with_inner(|inner| {
+                    if let Some(state) = inner.states.get_mut(&id) {
+                        state.probe_retry_at = state.retry_at;
+                    }
+                });
+                if let Some(config) = self.registered(&id) {
+                    self.notify_config(&config);
+                }
+                continue;
+            };
             match result {
                 Ok(fingerprint) => {
                     let changed = self.with_inner(|inner| {
@@ -1226,10 +1287,31 @@ impl Catalog {
                         let _ = self.refresh_state(&id, RefreshCause::Background).await;
                     }
                 }
-                Err(_) => {
+                Err(failure) => {
+                    // An ordinary probe failure schedules its own backoff, never a tight loop.
+                    let code = failure
+                        .code
+                        .as_deref()
+                        .and_then(|code| {
+                            crate::failures::DISCOVERY_FAILURE_CODES
+                                .iter()
+                                .copied()
+                                .find(|known| known.as_str() == code)
+                        })
+                        .unwrap_or(FailureCode::DiscoveryFailed);
+                    self.fail(
+                        id.as_str(),
+                        Some(failure),
+                        code,
+                        &FailureReport {
+                            started_at,
+                            diagnostics: &DiscoveryDiagnostics::default(),
+                            revision: None,
+                            token: None,
+                        },
+                    );
                     self.with_inner(|inner| {
                         if let Some(state) = inner.states.get_mut(&id) {
-                            state.error = Some(StatusError::DiscoveryFailed);
                             state.probe_retry_at = state.retry_at;
                         }
                     });

@@ -414,6 +414,12 @@ impl std::fmt::Debug for CatalogOptions {
     }
 }
 
+/// The connection metadata probe running for one row (`state.probe`).
+#[derive(Clone, Debug)]
+pub(crate) struct ProbeFlight {
+    pub(crate) done: crate::signals::Gate,
+}
+
 /// A discovery or invalidation running for one row: waiters share its gate.
 #[derive(Clone, Debug)]
 pub(crate) struct Flight {
@@ -442,6 +448,8 @@ pub(crate) struct State {
     pub(crate) flight: Option<Flight>,
     pub(crate) flight_token: Option<u64>,
     pub(crate) probe_revision: Option<String>,
+    /// The connection metadata probe running for this row, shared by every poll.
+    pub(crate) probe: Option<ProbeFlight>,
     pub(crate) acp_due: bool,
     /// The registration this row's state belongs to.
     pub(crate) generation: u64,
@@ -463,6 +471,7 @@ pub(crate) struct Inner {
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
     pub(crate) active_flights: usize,
+    pub(crate) probes: usize,
     pub(crate) session_writes: usize,
     pub(crate) invalidations: usize,
     pub(crate) write_tails: BTreeMap<String, crate::signals::Gate>,
@@ -535,6 +544,7 @@ impl Catalog {
             acp_spacing: spacing,
             closed: false,
             active_flights: 0,
+            probes: 0,
             session_writes: 0,
             invalidations: 0,
             write_tails: BTreeMap::new(),
