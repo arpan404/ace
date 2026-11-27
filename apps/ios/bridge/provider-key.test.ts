@@ -30,7 +30,7 @@ interface Socket {
   hello(): Answer;
 }
 
-async function open(options: { relayed?: boolean } = {}) {
+async function open(options: { relayed?: boolean; fromDaemon?: (frame: Answer) => void } = {}) {
   const fixture = await settingsFixture();
   client = fixture.owner;
   const sockets: Socket[] = [];
@@ -41,7 +41,7 @@ async function open(options: { relayed?: boolean } = {}) {
         expectedHostId: "ios-test-host",
         deviceId: "ios-settings-test",
         credential: async () => ({ token: "ios-test-token" }),
-        socket: () => fakeSocket(fixture.daemon, sockets),
+        socket: () => fakeSocket(fixture.daemon, sockets, options.fromDaemon),
         keys: ephemeralRelayKeys,
         schedule: (callback, delay) => {
           const timer = setTimeout(callback, delay);
@@ -59,7 +59,10 @@ async function open(options: { relayed?: boolean } = {}) {
       return () => clearTimeout(timer);
     },
   };
-  const add = async (fields: Partial<ApiKeyScreenRequest> = {}) => {
+  const add = async (
+    fields: Partial<ApiKeyScreenRequest> = {},
+    signal = new AbortController().signal,
+  ) => {
     const request = ApiKeyScreenRequest.parse({
       type: "accounts.screen.key",
       provider: "codex",
@@ -67,7 +70,7 @@ async function open(options: { relayed?: boolean } = {}) {
       apiKey: key,
       ...fields,
     });
-    const answer = (await handOverApiKey(deps, request, new AbortController().signal)) as Answer;
+    const answer = (await handOverApiKey(deps, request, signal)) as Answer;
     return { answer, request };
   };
   const screen = async (provider: "codex" | "claude", relayed = options.relayed ?? true) =>
@@ -83,7 +86,7 @@ async function open(options: { relayed?: boolean } = {}) {
 }
 
 /** A socket straight into the fake daemon, as Swift's relay socket is to the real one. */
-function fakeSocket(daemon: FakeDaemon, sockets: Socket[]) {
+function fakeSocket(daemon: FakeDaemon, sockets: Socket[], fromDaemon?: (frame: Answer) => void) {
   const listeners = new Map<string, ((event?: { data: unknown; code?: number }) => void)[]>();
   const emit = (type: string, event?: { data: unknown; code?: number }) =>
     queueMicrotask(() => {
@@ -95,7 +98,10 @@ function fakeSocket(daemon: FakeDaemon, sockets: Socket[]) {
   };
   sockets.push(record);
   const connection = daemon.connect({
-    send: (text) => emit("message", { data: text }),
+    send: (text) => {
+      fromDaemon?.(JSON.parse(text) as Answer);
+      emit("message", { data: text });
+    },
     close: (code) => emit("close", { data: null, code }),
   });
   emit("open");
@@ -179,4 +185,25 @@ test("a provider the daemon says takes no key offers none, and a forced add is r
   expect(codex.apiKey).toBeNull();
   const { answer } = await add({ provider: "claude" });
   expect(answer).toEqual({ ok: false, problem: "Claude Code can't take an API key from ace." });
+});
+
+test("a sheet that goes while the CLI gets ready never sends the key, and no account is added", async () => {
+  const leaving = new AbortController();
+  const { add, sockets, screen } = await open({
+    // The person swipes the sheet away just as the CLI asks for the key.
+    fromDaemon: (frame) => {
+      if (frame.type === "provider.login.progress" && frame.progress.state === "awaiting_api_key")
+        leaving.abort();
+    },
+  });
+  const before = ((await screen("codex")).accounts as Answer[]).length;
+  const { answer } = await add({}, leaving.signal);
+  expect(answer.ok).toBe(false);
+  const sent = sockets.flatMap((socket) => socket.frames);
+  expect(sent.some((frame) => frame.includes(key))).toBe(false);
+  expect(sent.map((frame) => (JSON.parse(frame) as Answer).type)).not.toContain(
+    "provider.login.apiKey",
+  );
+  // The staged account never joins the list.
+  expect((await screen("codex")).accounts).toHaveLength(before);
 });

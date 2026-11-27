@@ -87,6 +87,9 @@ struct AddAccountView: View {
     @State private var key = ""
     /// The account a key added, for its badge once it exists.
     @State private var added: String?
+    /// The add in flight. Leaving the sheet cancels it, which cancels the bridge's hand-off
+    /// (`service.cancel`), so a key is never sent for a sheet that's gone.
+    @State private var submission: Task<Void, Never>?
     @State private var project = ""
     @State private var location = "global"
     @State private var problem: String?
@@ -112,7 +115,7 @@ struct AddAccountView: View {
             if started == nil && added == nil {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(busy ? "Adding…" : "Add") { Task { await add() } }
+                    Button(busy ? "Adding…" : "Add") { submission = Task { await add() } }
                         .disabled(busy || badgeProblem != nil || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate
                                   || (way?.keyWay != nil && key.isEmpty))
                 }
@@ -122,7 +125,7 @@ struct AddAccountView: View {
         }
         .sensoryFeedback(.success, trigger: started != nil)
         .onAppear { if way == nil { way = choices.first } }
-        .onDisappear { key = "" }
+        .onDisappear { submission?.cancel(); submission = nil; key = "" }
     }
     private var form: some View {
         Form {
@@ -172,10 +175,12 @@ struct AddAccountView: View {
                 let answer = try await model.manage(
                     AddAccountChoice.keyRequest(provider: provider, label: label, letters: draft.letters, way: keyWay, key: entry),
                     as: KeyAnswer.self, timeout: .seconds(130))
+                // Only a confirmed add goes on to its badge and the refresh.
+                guard !Task.isCancelled else { return }
                 added = answer.instance
                 busy = false
                 await finish()
-            } catch { problem = error.localizedDescription }
+            } catch { if !Task.isCancelled { problem = error.localizedDescription } }
             return
         }
         guard let signIn = way.signInWay else { return }

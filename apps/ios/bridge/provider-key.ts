@@ -56,6 +56,7 @@ const forbidden =
 const stepMs = 20_000;
 const checkMs = 60_000;
 
+const cancelledProblem = "The sign-in was cancelled.";
 const fail = (problem: string): Reply => ({ ok: false, problem });
 
 /** Hand one pasted key to the CLI of a new account. The caller's copy of the key is cleared. */
@@ -108,6 +109,8 @@ export async function handOverApiKey(
                 : `${name} asked for a browser sign-in instead. Choose Sign in with the browser.`,
             );
       }
+      // The screen may have stopped waiting while the CLI got ready: then the key never goes.
+      if (signal.aborted) return fail(cancelledProblem);
       const message: ClientMessage = {
         type: "provider.login.apiKey",
         requestId: deps.id(),
@@ -144,7 +147,7 @@ const finished = (state: ProviderLoginProgress["state"]) =>
   state === "succeeded" || state === "failed" || state === "cancelled";
 
 function ended(progress: ProviderLoginProgress, name: string): string {
-  if (progress.state === "cancelled") return "The sign-in was cancelled.";
+  if (progress.state === "cancelled") return cancelledProblem;
   // The daemon's own words on a failed sign-in are fixed categories, never the CLI's output.
   return progress.message ?? `${name} didn't take that key. Check it and try again.`;
 }
@@ -232,7 +235,7 @@ class KeyLink {
   /** Send one request and wait for its answer, or undefined when the channel can't give one. */
   ask(message: ClientMessage): Promise<ServerMessage | undefined> {
     const requestId = "requestId" in message ? message.requestId : undefined;
-    if (this.#closed || !requestId) {
+    if (this.#closed || this.#signal.aborted || !requestId) {
       if (message.type === "provider.login.apiKey") message.apiKey = "";
       return Promise.resolve(undefined);
     }
