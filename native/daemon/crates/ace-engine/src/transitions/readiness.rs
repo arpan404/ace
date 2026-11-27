@@ -13,9 +13,10 @@
 //! already loads the tasks it counts.
 //!
 //! **Rebuilt.** Both answering methods check the thread's readiness rebuild before they read
-//! (E5.3 brief, "Readiness"): a thread not yet rebuilt answers false, never "done". E5.4's owner
-//! decision of 2026-11-24 adds no fill, so the boot rebuild the TypeScript opener runs is the
-//! answer for every thread in a home this build opened.
+//! (E5.3 brief, "Readiness"): a thread not yet rebuilt answers false, never "done". The rebuild
+//! runs at boot in bounded pages (`BootRebuild`), each thread's index swapped in one transaction
+//! so a record that cannot decode leaves its previous rows in place; while boot is still running,
+//! a thread it has not reached answers false, and after it every thread answers from its rows.
 
 use crate::repository::collaborators::QuiescenceView;
 use crate::repository::residency::cell_text;

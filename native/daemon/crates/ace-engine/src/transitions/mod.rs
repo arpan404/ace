@@ -6,9 +6,11 @@
 //! synchronous dependencies; this item adds the pure transition decisions that do not need a
 //! session: the usage-limit switch window and its recovery context (`switch_recovery`), native
 //! fork replay (`fork_replay`), carried handoffs (`machine_handoff`), a fresh session after an
-//! unusable store (`store_handoff`), and the live-move fence (`moves`). The asynchronous execution
-//! of a switch, fork or merge itself needs E5.5's delivery and E5.6's sessions/models ports; it
-//! lands when those do, on the seams they define.
+//! unusable store (`store_handoff`), and the live-move fence (`moves`). A merge's execution lands
+//! here too (`dispatch`, `execute`), settling its intent and guards with its writes. A switch's
+//! execution needs E5.6's sessions and models ports, a patch merge E5.5's worktree port and a
+//! fork E5.4e's create seam; each refuses or waits, naming the item, rather than reporting work
+//! it did not do.
 
 use crate::EngineError;
 use crate::State;
