@@ -45,25 +45,26 @@ fn report(core: &Rc<Core>, thread: &str, outcome: Result<Result<(), EngineError>
     }
 }
 
-/// Claim and execute the next transition intent on `thread`, if there is one this item can run.
+/// Claim and execute the transition intents `thread` has queued, up to the merge queue's
+/// capacity, so a restart with several merges runs all of them and none stays pending.
 pub fn run_thread(core: &Rc<Core>, state: &mut State, thread: &str) -> Result<(), EngineError> {
-    let Some(header) = crate::intents::store::transition(core.store.conn(), thread)? else {
-        return Ok(());
-    };
-    // A switch's execution is E5.6's: its intent waits, unclaimed, for that item's dispatcher.
-    if header.kind != "thread.merge" {
-        return Ok(());
-    }
-    let Some(intent) = lifecycle::claim(&core.store, &header)? else {
-        return Ok(());
-    };
-    match run_merge(core, state, &intent) {
-        Ok(()) => Ok(()),
-        Err(error) => {
+    for _ in 0..8 {
+        let Some(header) = crate::intents::store::transition(core.store.conn(), thread)? else {
+            return Ok(());
+        };
+        // A switch's execution is E5.6's: its intent waits, unclaimed, for that item's own
+        // dispatcher, and nothing behind it may be assumed to have run.
+        if header.kind != "thread.merge" {
+            return Ok(());
+        }
+        let Some(intent) = lifecycle::claim(&core.store, &header)? else {
+            continue;
+        };
+        if let Err(error) = run_merge(core, state, &intent) {
             fail(core, state, &intent, &error)?;
-            Ok(())
         }
     }
+    Ok(())
 }
 
 fn run_merge(core: &Rc<Core>, state: &mut State, intent: &Intent) -> Result<(), EngineError> {

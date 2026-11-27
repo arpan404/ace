@@ -493,6 +493,63 @@ mod tests {
         );
     }
 
+    // A restart finds every queued merge, not only the first: each settles its own intent.
+    #[test]
+    fn a_restart_runs_every_queued_merge() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        conn.exec(&format!(
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, client) VALUES ('t3', 'workspace', 'Fork', 'claude', '{{\"state\":\"new\"}}', 0, 0, {})",
+            sql_text(
+                r#"{"lineage":{"parentThreadId":"t","parentAgentId":"root","point":{"type":"turn","runId":"r"},"mode":"portable","lossy":true}}"#
+            )
+        ))
+        .expect("second fork");
+        conn.exec(&format!(
+            "INSERT INTO thread_state VALUES ('t3', {}, 0)",
+            sql_text(&header("t3"))
+        ))
+        .expect("second fork state");
+        conn.exec(&format!(
+            "INSERT INTO items VALUES ('own3', 't3', 2, {})",
+            sql_text(
+                r#"{"id":"own3","agentId":"root","type":"message","role":"assistant","complete":true,"createdAt":1,"parts":[{"type":"text","text":"done"}]}"#
+            )
+        ))
+        .expect("second item");
+        for (thread, item) in [("t2", "own"), ("t3", "own3")] {
+            let command = format!(
+                r#"{{"id":"merge-{thread}","deviceId":"d","payload":{{"type":"thread.merge","threadId":"{thread}","summary":"s","citations":[{{"threadId":"{thread}","itemId":"{item}"}}]}}}}"#
+            );
+            conn.exec(&format!(
+                "INSERT INTO intents (command_id,thread_id,kind,payload,status,position) VALUES ('merge-{thread}','t','thread.merge',{},'pending',1)",
+                sql_text(&command)
+            ))
+            .expect("intent");
+        }
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        core.with_state(|state| crate::transitions::dispatch::recover_thread(core, state, "t"))
+            .expect("the state is free")
+            .expect("dispatch");
+        let statuses = ace_store::stmt_cache::all_rows(
+            &conn,
+            "SELECT status FROM intents WHERE thread_id='t' ORDER BY id",
+            Vec::new(),
+        )
+        .expect("intents")
+        .iter()
+        .map(|row| {
+            row.get("status")
+                .and_then(crate::repository::residency::cell_text)
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+        assert_eq!(statuses, ["done", "done"]);
+        assert_eq!(merged_events(&shell).len(), 2, "both merges wrote an item");
+    }
+
     // A merge that cannot land is terminal: the intent says why and the guards it held are
     // released in the same transaction, so nothing stays pending or guarded.
     #[test]
