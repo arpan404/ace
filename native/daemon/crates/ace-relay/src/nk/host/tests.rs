@@ -436,3 +436,125 @@ fn an_admission_keeps_neither_the_ticket_nor_the_grant_it_checked() {
         .expect("an admission");
     assert!(accepted.early.grant.is_none(), "the checked grant is gone");
 }
+
+#[test]
+fn a_revoked_paired_device_cannot_confirm_an_admitted_nk_session() {
+    let mut f = setup();
+    let paired = {
+        let code = f
+            .auth
+            .pairing(&[Scope::Read], &Default::default())
+            .unwrap()
+            .code;
+        f.auth.redeem(&code, "Phone", None, None).unwrap()
+    };
+    let device = f.auth.device_bearer(&paired.token).unwrap();
+    let ticket = f.auth.ticket(&device, "relay-key").unwrap().ticket;
+    let payload = ace_json::parse(&format!(
+        "{{\"type\":\"hello.early\",\"protocolVersion\":1,\"deviceId\":\"{}\",\"ticket\":\"{ticket}\"}}",
+        paired.device.id
+    ))
+    .unwrap();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: None,
+    };
+    let mut accepted = host
+        .admit(&payload, &ephemeral(1), || {})
+        .expect("admitted before revocation");
+    // Revoke the device before hello.confirm arrives.
+    assert!(f.auth.revoke(&paired.device.id).unwrap());
+    let confirm = accepted.confirm(
+        &mut f.auth,
+        "{\"type\":\"hello.confirm\",\"installId\":\"install-1\"}",
+    );
+    assert!(confirm.is_none(), "revoked device must not confirm");
+    assert!(accepted.session.closed());
+    assert_eq!(f.admission.held().sessions, 0);
+}
+
+#[test]
+fn a_revoked_or_expired_account_device_cannot_confirm_an_admitted_nk_session() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let mut accepted = host
+        .admit(&early("phone"), &ephemeral(1), || {})
+        .expect("admitted while still_admitted is true");
+    // Revoke account access before confirmation arrives.
+    f.account.still.store(false, Ordering::SeqCst);
+    assert!(
+        accepted
+            .confirm(&mut f.auth, "{\"type\":\"hello.confirm\"}")
+            .is_none(),
+        "account device that lost access must not confirm"
+    );
+    assert!(accepted.session.closed());
+    assert_eq!(f.admission.held().sessions, 0);
+
+    // Re-enable access, admit with an expiring grant, then advance time past expiry.
+    f.account.still.store(true, Ordering::SeqCst);
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let mut accepted = host
+        .admit(&early("phone"), &ephemeral(2), || {})
+        .expect("admitted");
+    accepted.grant_expires_at = Some(f.auth.now());
+    assert!(
+        accepted
+            .confirm(&mut f.auth, "{\"type\":\"hello.confirm\"}")
+            .is_none(),
+        "expired grant must not confirm"
+    );
+    assert!(accepted.session.closed());
+    assert_eq!(f.admission.held().sessions, 0);
+}
+
+#[test]
+fn malformed_confirmation_json_closes_and_releases_the_nk_session() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let mut accepted = host
+        .admit(&early("phone"), &ephemeral(1), || {})
+        .expect("admitted");
+    assert!(accepted.session.reserve_bytes(1024));
+    assert!(accepted.confirm(&mut f.auth, "{not valid json").is_none());
+    assert!(accepted.session.closed());
+    assert_eq!(f.admission.held().sessions, 0);
+    assert_eq!(f.admission.held().bytes, 0);
+}
+
+#[test]
+fn dropping_an_unconfirmed_nk_accepted_releases_the_session_even_when_cloned() {
+    let mut f = setup();
+    let mut host = NkHost {
+        admission: &f.admission,
+        epoch: "relay-key".to_owned(),
+        auth: &mut f.auth,
+        account: Some(f.account_trait.clone()),
+    };
+    let accepted = host
+        .admit(&early("phone"), &ephemeral(1), || {})
+        .expect("admitted");
+    assert!(accepted.session.reserve_bytes(2048));
+    let cloned_session = accepted.session.clone();
+    drop(accepted);
+    assert!(cloned_session.closed());
+    assert_eq!(f.admission.held().sessions, 0);
+    assert_eq!(f.admission.held().bytes, 0);
+}

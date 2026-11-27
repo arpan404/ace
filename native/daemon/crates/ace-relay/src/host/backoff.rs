@@ -23,8 +23,13 @@ impl Backoff {
     /// The wait before the next attempt: `round(current * (0.5 + random * 0.5))`, then the current
     /// value doubles up to `max`.
     pub fn next(&mut self, random: f64) -> i64 {
-        let wait = (self.current as f64 * (0.5 + random.clamp(0.0, 1.0) * 0.5)).round() as i64;
-        self.current = (self.current * 2).min(self.max);
+        let unit = if random.is_nan() {
+            0.0
+        } else {
+            random.clamp(0.0, 1.0)
+        };
+        let wait = (self.current as f64 * (0.5 + unit * 0.5)).round() as i64;
+        self.current = self.current.saturating_mul(2).min(self.max);
         wait
     }
 

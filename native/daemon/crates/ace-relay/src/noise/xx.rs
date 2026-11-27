@@ -89,6 +89,8 @@ impl NoiseXx {
         self.sym.wipe();
         self.static_key = None;
         self.ephemeral = None;
+        self.transport = None;
+        zeroize::Zeroize::zeroize(&mut self.handshake_hash);
     }
 
     fn own_static(&self) -> Result<&KeyPair, RelayError> {
@@ -105,7 +107,8 @@ impl NoiseXx {
 
     pub fn write_message(&mut self, payload: &[u8]) -> Result<Vec<u8>, RelayError> {
         self.check(true)?;
-        if payload.len() + overhead(self.step) > MAX_MESSAGE {
+        if payload.len().saturating_add(overhead(self.step)) > MAX_MESSAGE {
+            self.poison();
             return Err(RelayError::Noise("Noise message too large"));
         }
         match self.write(payload) {
@@ -175,10 +178,7 @@ impl NoiseXx {
         self.check(false)?;
         let minimum = overhead(self.step);
         if message.len() < minimum || message.len() > MAX_MESSAGE {
-            self.failed = true;
-            self.sym.wipe();
-            self.static_key = None;
-            self.ephemeral = None;
+            self.poison();
             return Err(RelayError::Noise("Invalid Noise message size"));
         }
         match self.read(message) {
@@ -255,5 +255,11 @@ impl NoiseXx {
         self.transport
             .take()
             .ok_or(RelayError::Noise("Handshake incomplete"))
+    }
+}
+
+impl Drop for NoiseXx {
+    fn drop(&mut self) {
+        self.poison();
     }
 }

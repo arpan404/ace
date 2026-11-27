@@ -115,6 +115,31 @@ impl std::fmt::Debug for HelloConfirm {
     }
 }
 
+impl Drop for HelloEarly {
+    fn drop(&mut self) {
+        if let Some(ticket) = self.ticket.as_mut() {
+            zeroize::Zeroize::zeroize(ticket);
+        }
+        if let Some(grant) = self.grant.as_mut() {
+            zeroize::Zeroize::zeroize(grant);
+        }
+    }
+}
+
+impl Drop for HelloConfirm {
+    fn drop(&mut self) {
+        if let Some(code) = self.machine_code.as_mut() {
+            zeroize::Zeroize::zeroize(code);
+        }
+    }
+}
+
+impl Drop for PairingLinkProof {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.proof);
+    }
+}
+
 impl std::fmt::Debug for PairingLinkProof {
     /// The proof is a bearer of the paired credential's authority: only its device is named.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

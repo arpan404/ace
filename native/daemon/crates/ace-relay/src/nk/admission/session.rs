@@ -79,9 +79,22 @@ impl NkSession {
         }
     }
 
-    /// Keeps the deadline's cancel so confirming or closing stops it.
+    /// Keeps the deadline's cancel so confirming or closing stops it. If the session already
+    /// closed, confirmed or released (for instance a timer fired synchronously), cancel at once
+    /// instead of holding onto the handle.
     pub(super) fn store_cancel(&self, cancel: Cancel) {
-        self.locked().cancel = Some(cancel);
+        let cancel_now = {
+            let mut held = self.locked();
+            if held.released || held.closed || held.confirmed {
+                true
+            } else {
+                held.cancel = Some(cancel);
+                return;
+            }
+        };
+        if cancel_now {
+            cancel();
+        }
     }
 }
 

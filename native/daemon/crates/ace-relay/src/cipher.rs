@@ -6,7 +6,7 @@
 //! that writes key and next nonce into a caller's block.
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::RelayError;
@@ -22,8 +22,8 @@ fn nonce_bytes(nonce: u64) -> [u8; 12] {
     bytes
 }
 
-fn cipher(key: &Zeroizing<[u8; 32]>) -> ChaCha20Poly1305 {
-    ChaCha20Poly1305::new(&Key::from(**key))
+fn cipher(key: &Zeroizing<[u8; 32]>) -> Result<ChaCha20Poly1305, RelayError> {
+    ChaCha20Poly1305::new_from_slice(&**key).map_err(|_| RelayError::Noise("Invalid cipher key"))
 }
 
 /// One direction's key and next nonce, and nothing else. It is deliberately not `Clone` and not
@@ -84,12 +84,14 @@ impl CipherState {
     }
 
     pub fn encrypt(&mut self, plaintext: &[u8], ad: &[u8]) -> Result<Vec<u8>, RelayError> {
-        let length = plaintext.len() + usize::from(self.key.is_some()) * 16;
+        let length = plaintext
+            .len()
+            .saturating_add(usize::from(self.key.is_some()) * 16);
         self.check(length)?;
         let Some(key) = self.key.as_ref() else {
             return Ok(plaintext.to_vec());
         };
-        let sealed = cipher(key)
+        let sealed = cipher(key)?
             .encrypt(
                 &Nonce::from(nonce_bytes(self.nonce)),
                 Payload {
@@ -107,7 +109,7 @@ impl CipherState {
         let Some(key) = self.key.as_ref() else {
             return Ok(ciphertext.to_vec());
         };
-        let opened = cipher(key)
+        let opened = cipher(key)?
             .decrypt(
                 &Nonce::from(nonce_bytes(self.nonce)),
                 Payload {
@@ -124,12 +126,12 @@ impl CipherState {
     /// A copy of the key and next nonce, for a holder that must survive losing its memory (a
     /// hibernated relay). `CipherState::new` resumes it.
     pub fn snapshot(&self) -> Result<Snapshot, RelayError> {
+        if self.closed || self.nonce == MAX_NONCE {
+            return Err(RelayError::Noise("Cipher exhausted or closed"));
+        }
         let Some(key) = self.key.as_ref() else {
             return Err(RelayError::Noise("No cipher key"));
         };
-        if self.closed {
-            return Err(RelayError::Noise("No cipher key"));
-        }
         Ok(Snapshot {
             key: Zeroizing::new(**key),
             nonce: self.nonce,
@@ -145,13 +147,18 @@ impl CipherState {
         key_offset: usize,
         nonce_offset: usize,
     ) -> Result<(), RelayError> {
+        if self.closed || self.nonce == MAX_NONCE {
+            self.destroy();
+            return Err(RelayError::Noise("Cipher exhausted or closed"));
+        }
         let Some(key) = self.key.as_ref() else {
             return Err(RelayError::Noise("No cipher key"));
         };
-        if self.closed {
-            return Err(RelayError::Noise("No cipher key"));
-        }
-        let fits = |offset: usize, length: usize| offset + length <= block.len();
+        let fits = |offset: usize, length: usize| {
+            offset
+                .checked_add(length)
+                .is_some_and(|end| end <= block.len())
+        };
         if !fits(key_offset, 32) || !fits(nonce_offset, 8) {
             return Err(RelayError::Noise("Export outside the block"));
         }
@@ -173,7 +180,7 @@ impl CipherState {
             return Err(RelayError::Noise("No cipher key"));
         };
         let sealed = Zeroizing::new(
-            cipher(key)
+            cipher(key)?
                 .encrypt(
                     &Nonce::from(nonce_bytes(MAX_NONCE)),
                     Payload {

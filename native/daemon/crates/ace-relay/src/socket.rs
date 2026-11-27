@@ -87,6 +87,15 @@ pub struct RelaySocket {
     paused: bool,
     /// Before confirmation: the session whose output budget applies.
     session: Option<NkSession>,
+    /// Live admission check (`stillAdmitted`): checked on confirmation, receive, send and explicit
+    /// polls so a revoked or expired device cannot keep a relayed session open.
+    still_admitted: Option<Box<dyn Fn() -> bool + Send + Sync>>,
+}
+
+impl Drop for RelaySocket {
+    fn drop(&mut self) {
+        self.release_unconfirmed();
+    }
 }
 
 impl RelaySocket {
@@ -97,7 +106,35 @@ impl RelaySocket {
             state: RelayedState::Open,
             paused: false,
             session: None,
+            still_admitted: None,
         }
+    }
+
+    fn release_unconfirmed(&mut self) {
+        if let Some(session) = self.session.take()
+            && !session.confirmed()
+        {
+            session.close();
+        }
+    }
+
+    /// Install a live admission recheck (paired device revocation/expiry or account `stillAdmitted`).
+    pub fn set_still_admitted(&mut self, check: impl Fn() -> bool + Send + Sync + 'static) {
+        self.still_admitted = Some(Box::new(check));
+    }
+
+    /// Whether the session's credential is still admitted right now.
+    pub fn is_still_admitted(&self) -> bool {
+        self.still_admitted.as_ref().is_none_or(|check| check())
+    }
+
+    /// Recheck live admission and close the channel at once if the device has been revoked or
+    /// expired. Returns `Some(Close)` when this call closed the socket.
+    pub fn check_admitted(&mut self, channel: &mut dyn HostChannel) -> Option<RelayedEvent> {
+        if self.state != RelayedState::Open || self.is_still_admitted() {
+            return None;
+        }
+        Some(self.terminate(channel))
     }
 
     pub fn ready_state(&self) -> RelayedState {
@@ -128,14 +165,15 @@ impl RelaySocket {
         confirmed: bool,
         continuations: &[Vec<u8>],
     ) -> Vec<RelayedEvent> {
-        self.session = None;
-        if !confirmed {
+        if !confirmed || !self.is_still_admitted() {
+            self.release_unconfirmed();
             self.state = RelayedState::Closed;
             return vec![RelayedEvent::Close {
                 code: 1006,
                 reason: String::new(),
             }];
         }
+        self.session = None;
         continuations
             .iter()
             .map(|message| RelayedEvent::Message {
@@ -147,6 +185,7 @@ impl RelaySocket {
 
     /// The session whose output budget applies before confirmation.
     pub fn hold_session(&mut self, session: NkSession) {
+        self.release_unconfirmed();
         self.session = Some(session);
     }
 
@@ -154,6 +193,11 @@ impl RelaySocket {
     /// back, so a shell that already took it from the channel can keep it instead of losing it.
     pub fn receive(&mut self, frame: Frame) -> Result<RelayedEvent, Frame> {
         if self.state != RelayedState::Open || self.paused {
+            return Err(frame);
+        }
+        if !self.is_still_admitted() {
+            self.release_unconfirmed();
+            self.state = RelayedState::Closed;
             return Err(frame);
         }
         Ok(match frame {
@@ -170,6 +214,7 @@ impl RelaySocket {
 
     /// The channel closed: the relay's own code and reason, or 1006 with what broke.
     pub fn ended(&mut self, cause: Option<&RelayError>) -> RelayedEvent {
+        self.release_unconfirmed();
         self.state = RelayedState::Closed;
         let (code, reason) = ended_by(cause);
         RelayedEvent::Close { code, reason }
@@ -206,6 +251,10 @@ impl RelaySocket {
     fn budget(&mut self, size: usize, channel: &mut dyn HostChannel) -> Result<(), RelayError> {
         if self.state != RelayedState::Open {
             return Err(RelayError::Protocol("Relay channel closed"));
+        }
+        if !self.is_still_admitted() {
+            self.terminate(channel);
+            return Err(RelayError::Protocol("Device no longer admitted"));
         }
         if let Some(session) = &self.session
             && !session.output(size)
@@ -245,7 +294,7 @@ impl RelaySocket {
         let _ = channel.send_text(&text, false);
         channel.close_after_flush();
         self.state = RelayedState::Closed;
-        self.session = None;
+        self.release_unconfirmed();
         Some(RelayedEvent::Close { code, reason })
     }
 
@@ -253,7 +302,7 @@ impl RelaySocket {
     pub fn terminate(&mut self, channel: &mut dyn HostChannel) -> RelayedEvent {
         channel.close_after_flush();
         self.state = RelayedState::Closed;
-        self.session = None;
+        self.release_unconfirmed();
         RelayedEvent::Close {
             code: 1006,
             reason: String::new(),

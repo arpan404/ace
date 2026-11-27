@@ -151,7 +151,7 @@ fn a_confirmation_s_link_accepts_extra_keys_as_the_protocol_s_plain_object_does(
     let full = "{\"type\":\"hello.confirm\",\"link\":{\"deviceId\":\"d\",\
                 \"proof\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"future\":1}}";
     let confirm = HelloConfirm::parse(&json(full)).unwrap();
-    assert_eq!(confirm.link.unwrap().device_id, "d");
+    assert_eq!(confirm.link.as_ref().unwrap().device_id, "d");
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn a_confirmation_carries_the_device_fields_and_the_allowlist() {
                 \"nextTicket\":true,\"machineCode\":\"1234\"}";
     let confirm = HelloConfirm::parse(&json(full)).unwrap();
     assert_eq!(confirm.install_id.as_deref(), Some("01936d1e-3f8a-7c2b"));
-    assert_eq!(confirm.link.unwrap().device_id, "d");
+    assert_eq!(confirm.link.as_ref().unwrap().device_id, "d");
     assert!(confirm.next_ticket);
     assert_eq!(confirm.machine_code.as_deref(), Some("1234"));
     for extra in [

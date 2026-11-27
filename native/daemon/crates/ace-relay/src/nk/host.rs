@@ -43,6 +43,14 @@ pub struct NkAccepted {
     pub grant_expires_at: Option<i64>,
 }
 
+impl Drop for NkAccepted {
+    fn drop(&mut self) {
+        if !self.session.confirmed() {
+            self.session.close();
+        }
+    }
+}
+
 impl NkAccepted {
     /// The session is given back at once when the relay abandons the admission.
     pub fn abandon(&self) {
@@ -56,6 +64,20 @@ impl NkAccepted {
             .is_none_or(|still_admitted| still_admitted())
     }
 
+    /// Full admission recheck against live auth state and clock: a revoked, expired or
+    /// generation-replaced paired device and a revoked or grant-expired account device all return
+    /// false so they cannot keep or confirm a session.
+    pub fn is_still_admitted_at(&self, auth: &RemoteAuth) -> bool {
+        if let Some(paired) = &self.paired {
+            return main_actor(auth, &paired.device.id, Some(&paired.generation)).is_some();
+        }
+        if !self.is_still_admitted() {
+            return false;
+        }
+        self.grant_expires_at
+            .is_none_or(|expires_at| expires_at > auth.now())
+    }
+
     /// The confirmation, as the channel's first message; the device's effects run only now.
     /// `None` refuses the confirmation, and the caller closes the channel.
     pub fn confirm(&mut self, auth: &mut RemoteAuth, raw: &str) -> Option<HelloConfirm> {
@@ -64,13 +86,22 @@ impl NkAccepted {
         if self.session.closed() {
             return None;
         }
-        let parsed = ace_json::parse(raw).ok()?;
+        let Some(parsed) = ace_json::parse(raw).ok() else {
+            self.session.close();
+            return None;
+        };
         let confirm = HelloConfirm::parse(&parsed).or_else(|| {
             self.session.close();
             None
         })?;
         // A link proof and a machine code go with a grant only, as in a hello.
         if self.paired.is_some() && (confirm.link.is_some() || confirm.machine_code.is_some()) {
+            self.session.close();
+            return None;
+        }
+        // Recheck revocation, credential replacement and grant expiry before confirming: a device
+        // revoked or expired between the first message and `hello.confirm` must never confirm.
+        if !self.is_still_admitted_at(auth) {
             self.session.close();
             return None;
         }
@@ -125,12 +156,12 @@ impl NkHost<'_> {
     ) -> Option<NkAccepted> {
         // Invalid UTF-8 is a refusal like any other, and the plaintext is wiped on that path too:
         // the buffer may hold a credential, so no early return may skip the wipe.
-        let parsed = std::str::from_utf8(payload)
+        let early = std::str::from_utf8(payload)
             .ok()
-            .and_then(|text| ace_json::parse(text).ok());
+            .and_then(|text| ace_json::parse(text).ok())
+            .and_then(|value| HelloEarly::parse(&value));
         payload.zeroize();
-        let value = parsed?;
-        self.admit(&value, ephemeral, expire)
+        self.admit_early(early?, ephemeral, expire)
     }
 
     /// Parse and admit a first message, or `None`. `expire` runs if the client doesn't confirm in
@@ -141,7 +172,16 @@ impl NkHost<'_> {
         ephemeral: &[u8],
         expire: impl FnOnce() + Send + 'static,
     ) -> Option<NkAccepted> {
-        let mut early = HelloEarly::parse(payload)?;
+        let early = HelloEarly::parse(payload)?;
+        self.admit_early(early, ephemeral, expire)
+    }
+
+    fn admit_early(
+        &mut self,
+        mut early: HelloEarly,
+        ephemeral: &[u8],
+        expire: impl FnOnce() + Send + 'static,
+    ) -> Option<NkAccepted> {
         if !self.admission.claim(&early.device_id) {
             return None;
         }
@@ -200,6 +240,13 @@ impl NkHost<'_> {
         if !verdict.admitted {
             return None;
         }
+        let now = self.auth.now();
+        if verdict
+            .expires_at
+            .is_some_and(|expires_at| expires_at <= now)
+        {
+            return None;
+        }
         let account = verdict.account?;
         // The channel's access is exactly the account's own check (`host.ts:81`, consumed by
         // `files-relay.ts:370`): a revoked device, a lapsed grant or a left organization answers
@@ -209,7 +256,7 @@ impl NkHost<'_> {
             let account = account.clone();
             Box::new(move || machine.still_admitted(&device_id, &account))
         };
-        let actor = account_device_actor(&early.device_id, self.auth.now(), None);
+        let actor = account_device_actor(&early.device_id, now, None);
         Some(Credential {
             actor,
             paired: None,

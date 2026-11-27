@@ -228,3 +228,65 @@ fn a_handover_writes_the_key_and_a_big_endian_nonce_and_then_destroys_the_state(
     );
     assert!(block.iter().all(|byte| *byte == 0) && small.iter().all(|byte| *byte == 0));
 }
+
+#[test]
+fn export_into_refuses_overflowing_offsets_and_exhausted_ciphers() {
+    let key = [5u8; 32];
+    let mut state = CipherState::keyed(key);
+    let mut block = vec![0u8; 64];
+    assert_eq!(
+        state
+            .export_into(&mut block, usize::MAX - 4, 0)
+            .unwrap_err()
+            .to_string(),
+        "Export outside the block"
+    );
+    assert_eq!(
+        state
+            .export_into(&mut block, 0, usize::MAX - 2)
+            .unwrap_err()
+            .to_string(),
+        "Export outside the block"
+    );
+    assert!(block.iter().all(|byte| *byte == 0));
+    assert!(state.has_key());
+
+    // An exhausted cipher (nonce at MAX_NONCE) cannot be exported and is destroyed.
+    let mut exhausted = CipherState::new(Some(key), u64::MAX);
+    assert_eq!(
+        exhausted
+            .export_into(&mut block, 0, 32)
+            .unwrap_err()
+            .to_string(),
+        "Cipher exhausted or closed"
+    );
+    assert!(!exhausted.has_key());
+    assert!(block.iter().all(|byte| *byte == 0));
+}
+
+#[test]
+fn directional_rekey_ordering_and_replay_across_rekey_are_rejected_without_advancing() {
+    let key = [0x42u8; 32];
+    let mut sender = CipherState::keyed(key);
+    let mut receiver = CipherState::keyed(key);
+
+    let m0 = sender.encrypt(b"zero", b"ad0").unwrap();
+    assert_eq!(receiver.decrypt(&m0, b"ad0").unwrap(), b"zero");
+
+    // Sender rekeys before receiver does: message sealed under new key is rejected by receiver
+    // without advancing receiver's nonce, and once receiver rekeys the same message opens cleanly.
+    sender.rekey().unwrap();
+    let m1 = sender.encrypt(b"one", b"ad1").unwrap();
+    assert!(receiver.decrypt(&m1, b"ad1").is_err());
+    assert_eq!(receiver.nonce(), 1);
+    // Replaying the pre-rekey message is also rejected without advancing.
+    assert!(receiver.decrypt(&m0, b"ad0").is_err());
+    assert_eq!(receiver.nonce(), 1);
+
+    receiver.rekey().unwrap();
+    assert_eq!(receiver.decrypt(&m1, b"ad1").unwrap(), b"one");
+    assert_eq!(receiver.nonce(), 2);
+    // Replaying post-rekey message is rejected too.
+    assert!(receiver.decrypt(&m1, b"ad1").is_err());
+    assert_eq!(receiver.nonce(), 2);
+}

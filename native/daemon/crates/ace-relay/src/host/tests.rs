@@ -260,3 +260,90 @@ fn authorizing_needs_the_device_hello_and_a_live_channel() {
     );
     assert!(authorize_first(true, false).is_ok());
 }
+
+#[test]
+fn host_options_refuses_non_positive_or_over_range_durations() {
+    let base = HostOptions::default();
+    for bad in [0, -1, i64::from(i32::MAX) + 1] {
+        assert!(
+            HostOptions {
+                hello_timeout_ms: bad,
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+        assert!(
+            HostOptions {
+                handshake_timeout_ms: bad,
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+        assert!(
+            HostOptions {
+                idle_timeout_ms: bad,
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+        assert!(
+            HostOptions {
+                ping_interval_ms: bad,
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+        assert!(
+            HostOptions {
+                retry_initial_ms: bad,
+                retry_max_ms: i64::from(i32::MAX),
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+        assert!(
+            HostOptions {
+                retry_max_ms: bad,
+                ..base
+            }
+            .valid()
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn client_slots_refuses_duplicate_tickets_without_downgrading_authorized() {
+    let mut slots = ClientSlots::new(2);
+    assert!(slots.reserve("dup").accepted);
+    slots.authorize("dup").unwrap();
+    // Replaying an active authorized ticket must not duplicate it or make it evictable.
+    let replay = slots.reserve("dup");
+    assert!(!replay.accepted);
+    assert_eq!(replay.evicted, None);
+    assert_eq!(slots.len(), 1);
+    assert!(slots.reserve("other").accepted);
+    slots.authorize("other").unwrap();
+    assert!(!slots.reserve("third").accepted);
+}
+
+#[test]
+fn registration_refuses_confirmation_after_close() {
+    let mut registration = Registration::default();
+    registration.close();
+    assert!(registration.registered("host", "host").is_err());
+    assert_eq!(registration.generation(), 0);
+}
+
+#[test]
+fn backoff_handles_nan_and_large_cap_without_overflow() {
+    let mut backoff = Backoff::new(i64::MAX / 2 + 10, i64::MAX);
+    let wait = backoff.next(f64::NAN);
+    assert!(wait > 0);
+    assert_eq!(backoff.current(), i64::MAX);
+}

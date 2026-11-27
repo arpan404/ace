@@ -277,3 +277,83 @@ fn the_buffered_amount_is_the_channel_s_own() {
     };
     assert_eq!(socket.buffered_amount(&channel), 1234);
 }
+
+#[test]
+fn dropping_a_relay_socket_with_an_unconfirmed_session_releases_it_even_when_cloned() {
+    let held_session = session();
+    assert!(held_session.reserve_bytes(1024));
+    let mut socket = RelaySocket::new(false);
+    socket.hold_session(held_session.clone());
+    drop(socket);
+    assert!(held_session.closed());
+}
+
+#[test]
+fn a_revoked_device_cannot_keep_a_relayed_socket_open_for_send_receive_or_confirm() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // Revoked before send: terminates channel, releases unconfirmed session, refuses send.
+    let admitted = Arc::new(AtomicBool::new(true));
+    let held_session = session();
+    let mut socket = RelaySocket::new(false);
+    socket.hold_session(held_session.clone());
+    let flag = Arc::clone(&admitted);
+    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+
+    let mut channel = Channel::default();
+    socket.send_text("ok", false, &mut channel).unwrap();
+    assert_eq!(channel.texts.len(), 1);
+    admitted.store(false, Ordering::SeqCst);
+    let err = socket
+        .send_text("after-revoke", false, &mut channel)
+        .unwrap_err();
+    assert!(err.to_string().contains("no longer admitted"));
+    assert!(channel.closed);
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
+    assert!(held_session.closed());
+
+    // Revoked before receive: refuses frame and closes socket.
+    let admitted = Arc::new(AtomicBool::new(true));
+    let mut socket = RelaySocket::new(false);
+    let flag = Arc::clone(&admitted);
+    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+    assert!(socket.receive(Frame::Text("ok".to_owned())).is_ok());
+    admitted.store(false, Ordering::SeqCst);
+    let frame = Frame::Text("late".to_owned());
+    assert_eq!(socket.receive(frame.clone()), Err(frame));
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
+
+    // Revoked before confirmation: refuses continuations and closes.
+    let admitted = Arc::new(AtomicBool::new(false));
+    let held = session();
+    let mut socket = RelaySocket::new(false);
+    socket.hold_session(held.clone());
+    let flag = Arc::clone(&admitted);
+    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+    assert_eq!(
+        socket.after_confirmation(true, &[b"sub".to_vec()]),
+        vec![RelayedEvent::Close {
+            code: 1006,
+            reason: String::new(),
+        }]
+    );
+    assert!(held.closed());
+
+    // Explicit recheck closes immediately.
+    let admitted = Arc::new(AtomicBool::new(true));
+    let mut socket = RelaySocket::new(false);
+    let flag = Arc::clone(&admitted);
+    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+    let mut channel = Channel::default();
+    assert_eq!(socket.check_admitted(&mut channel), None);
+    admitted.store(false, Ordering::SeqCst);
+    assert_eq!(
+        socket.check_admitted(&mut channel),
+        Some(RelayedEvent::Close {
+            code: 1006,
+            reason: String::new(),
+        })
+    );
+    assert!(channel.closed);
+}

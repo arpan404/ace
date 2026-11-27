@@ -62,11 +62,26 @@ impl Default for HostOptions {
 }
 
 impl HostOptions {
-    /// The schema's refinements: a channel cap of at most 1024, and a retry floor no higher than
-    /// its ceiling.
+    /// The schema's refinements: a channel cap of at most 1024, every timer in `1..=i32::MAX`
+    /// (`HostOptionsSchema` / Node's timer cap), and a retry floor no higher than its ceiling.
     pub fn valid(&self) -> Result<(), RelayError> {
+        const MAX_TIMEOUT_MS: i64 = i32::MAX as i64;
         if self.max_client_channels == 0 || self.max_client_channels > 1_024 {
             return Err(RelayError::Protocol("Invalid client channel limit"));
+        }
+        let durations = [
+            self.hello_timeout_ms,
+            self.handshake_timeout_ms,
+            self.idle_timeout_ms,
+            self.ping_interval_ms,
+            self.retry_initial_ms,
+            self.retry_max_ms,
+        ];
+        if durations
+            .into_iter()
+            .any(|ms| !(1..=MAX_TIMEOUT_MS).contains(&ms))
+        {
+            return Err(RelayError::Protocol("Invalid host timeout"));
         }
         if self.retry_initial_ms > self.retry_max_ms {
             return Err(RelayError::Protocol("Retry initial exceeds maximum"));
@@ -163,6 +178,14 @@ impl RejectReason {
         message.insert("reason", Value::String(self.as_str().into()));
         ace_json::to_string(&Value::Object(message))
     }
+
+    /// A rejection without a reason (`host.ts:389, :402`, used for client/media rejections).
+    pub fn bare_message(ticket: &str) -> String {
+        let mut message = ace_json::Map::new();
+        message.insert("type", Value::String("reject".into()));
+        message.insert("ticket", Value::String(ticket.into()));
+        ace_json::to_string(&Value::Object(message))
+    }
 }
 
 /// What taking an `http` ticket did (`httpAnswer`).
@@ -222,9 +245,15 @@ impl ClientSlots {
         self.slots.is_empty()
     }
 
-    /// Takes a slot for `id`, evicting the oldest pending channel when full. A host whose slots
-    /// are all authorized refuses the ticket.
+    /// Takes a slot for `id`, evicting the oldest pending channel when full. A duplicate active
+    /// ticket or a host whose slots are all authorized refuses the ticket.
     pub fn reserve(&mut self, id: &str) -> Reservation {
+        if self.slots.iter().any(|(each, _)| each == id) {
+            return Reservation {
+                accepted: false,
+                evicted: None,
+            };
+        }
         let mut evicted = None;
         if self.slots.len() >= self.limit {
             let pending = self
@@ -328,6 +357,9 @@ pub enum RegistrationWait {
 impl Registration {
     /// The relay confirmed this host: a new generation, and every waiter it satisfies resolves.
     pub fn registered(&mut self, host_id: &str, expected: &str) -> Result<Vec<u64>, RelayError> {
+        if self.closed {
+            return Err(RelayError::Protocol("Host closed"));
+        }
         if host_id != expected {
             return Err(RelayError::Protocol("Invalid registration"));
         }

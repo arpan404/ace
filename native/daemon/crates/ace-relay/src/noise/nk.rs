@@ -79,6 +79,8 @@ impl NoiseNk {
         self.sym.wipe();
         self.static_key = None;
         self.ephemeral = None;
+        self.transport = None;
+        zeroize::Zeroize::zeroize(&mut self.handshake_hash);
     }
 
     fn own_ephemeral(&self) -> Result<&KeyPair, RelayError> {
@@ -89,7 +91,8 @@ impl NoiseNk {
 
     pub fn write_message(&mut self, payload: &[u8]) -> Result<Vec<u8>, RelayError> {
         self.check(true)?;
-        if payload.len() + NK_FIRST_MESSAGE_MINIMUM > MAX_MESSAGE {
+        if payload.len().saturating_add(NK_FIRST_MESSAGE_MINIMUM) > MAX_MESSAGE {
+            self.poison();
             return Err(RelayError::Noise("Noise message too large"));
         }
         match self.write(payload) {
@@ -146,10 +149,7 @@ impl NoiseNk {
     pub fn read_message(&mut self, message: &[u8]) -> Result<Zeroizing<Vec<u8>>, RelayError> {
         self.check(false)?;
         if message.len() < NK_FIRST_MESSAGE_MINIMUM || message.len() > MAX_MESSAGE {
-            self.failed = true;
-            self.sym.wipe();
-            self.static_key = None;
-            self.ephemeral = None;
+            self.poison();
             return Err(RelayError::Noise("Invalid Noise message size"));
         }
         match self.read(message) {
@@ -209,5 +209,11 @@ impl NoiseNk {
         self.transport
             .take()
             .ok_or(RelayError::Noise("Handshake incomplete"))
+    }
+}
+
+impl Drop for NoiseNk {
+    fn drop(&mut self) {
+        self.poison();
     }
 }

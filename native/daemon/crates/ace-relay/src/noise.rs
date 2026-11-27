@@ -11,7 +11,7 @@
 //! message's payload is opened.
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
@@ -52,8 +52,9 @@ impl std::fmt::Debug for KeyPair {
 
 impl KeyPair {
     /// The pair a raw private key names.
-    pub fn from_private(private: [u8; 32]) -> Self {
+    pub fn from_private(mut private: [u8; 32]) -> Self {
         let secret = x25519_dalek::StaticSecret::from(private);
+        private.zeroize();
         let public = x25519_dalek::PublicKey::from(&secret).to_bytes();
         Self { public, secret }
     }
@@ -62,12 +63,18 @@ impl KeyPair {
     /// source returned is wiped before it is dropped, as the TypeScript wipes its own key bytes.
     pub fn generate(entropy: &dyn Fn(usize) -> Vec<u8>) -> Result<Self, RelayError> {
         let mut bytes = Zeroizing::new(entropy(32));
-        let private: [u8; 32] = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| RelayError::Noise("the entropy source did not give 32 bytes"))?;
+        let mut private = Zeroizing::new([0u8; 32]);
+        if bytes.len() != 32 {
+            bytes.zeroize();
+            return Err(RelayError::Noise(
+                "the entropy source did not give 32 bytes",
+            ));
+        }
+        private.copy_from_slice(&bytes);
         bytes.zeroize();
-        Ok(Self::from_private(private))
+        let pair = Self::from_private(*private);
+        private.zeroize();
+        Ok(pair)
     }
 
     /// The private half, for the one caller that must persist it (the home's key file). Every
@@ -145,6 +152,12 @@ impl SessionKeys {
     }
 }
 
+impl Drop for SessionKeys {
+    fn drop(&mut self) {
+        self.handshake_hash.zeroize();
+    }
+}
+
 impl std::fmt::Debug for SessionKeys {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionKeys").finish_non_exhaustive()
@@ -202,7 +215,8 @@ fn derive(ck: &[u8; 32], ikm: &[u8]) -> Result<(KeyMaterial, KeyMaterial), Relay
 fn seal(key: &[u8; 32], nonce: u64, ad: &[u8], plain: &[u8]) -> Result<Vec<u8>, RelayError> {
     let mut bytes = [0u8; 12];
     bytes[4..].copy_from_slice(&nonce.to_le_bytes());
-    ChaCha20Poly1305::new(&Key::from(*key))
+    ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| RelayError::Noise("Invalid Noise key"))?
         .encrypt(
             &Nonce::from(bytes),
             Payload {
@@ -216,7 +230,8 @@ fn seal(key: &[u8; 32], nonce: u64, ad: &[u8], plain: &[u8]) -> Result<Vec<u8>, 
 fn open(key: &[u8; 32], nonce: u64, ad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, RelayError> {
     let mut bytes = [0u8; 12];
     bytes[4..].copy_from_slice(&nonce.to_le_bytes());
-    ChaCha20Poly1305::new(&Key::from(*key))
+    ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| RelayError::Noise("Invalid Noise key"))?
         .decrypt(
             &Nonce::from(bytes),
             Payload {
@@ -233,6 +248,12 @@ struct Symmetric {
     ck: Zeroizing<[u8; 32]>,
     key: Option<Zeroizing<[u8; 32]>>,
     nonce: u64,
+}
+
+impl Drop for Symmetric {
+    fn drop(&mut self) {
+        self.wipe();
+    }
 }
 
 impl Symmetric {
@@ -307,8 +328,11 @@ impl Symmetric {
     }
 
     fn wipe(&mut self) {
-        self.h = [0u8; 32];
-        self.ck = Zeroizing::new([0u8; 32]);
+        self.h.zeroize();
+        self.ck.zeroize();
+        if let Some(key) = self.key.as_mut() {
+            key.zeroize();
+        }
         self.key = None;
         self.nonce = 0;
     }

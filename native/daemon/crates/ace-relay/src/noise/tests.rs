@@ -431,3 +431,17 @@ fn debug_never_prints_private_key_bytes() {
     let printed = format!("{keys:?}");
     assert_eq!(printed, "SessionKeys { .. }");
 }
+
+#[test]
+fn oversized_handshake_write_poisons_and_erases_the_handshake() {
+    let mut xx = NoiseXx::initiator(key(), fresh(), STREAM_PROLOGUE, None);
+    let too_big = vec![0u8; MAX_MESSAGE];
+    assert!(xx.write_message(&too_big).is_err());
+    // Must stay poisoned so keys were wiped and cannot be reused on a subsequent smaller write.
+    assert!(xx.write_message(&[]).is_err());
+
+    let responder = key();
+    let mut nk = NoiseNk::initiator(&responder.public, fresh(), NK_STREAM_PROLOGUE);
+    assert!(nk.write_message(&too_big).is_err());
+    assert!(nk.write_message(&[]).is_err());
+}
