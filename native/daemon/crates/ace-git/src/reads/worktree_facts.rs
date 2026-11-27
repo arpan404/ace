@@ -148,6 +148,23 @@ fn traversal_order(names: &mut [String]) {
     names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
 }
 
+fn collect_directory_names<I>(entries: I) -> Result<Vec<String>, GitError>
+where
+    I: IntoIterator<Item = std::io::Result<std::ffi::OsString>>,
+{
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries {
+        let name = entry.map_err(|error| GitError::from_io(&error))?;
+        // The TypeScript checks before pushing each entry, so 10,001 names pass and the
+        // 10,002nd refuses without pulling further entries from the directory stream.
+        if names.len() > FOOTPRINT_ENTRIES {
+            return Err(directory_error());
+        }
+        names.push(name.to_string_lossy().into_owned());
+    }
+    Ok(names)
+}
+
 /// Cold cleanup only. Bound traversal; symlinks contribute their own bytes, never target bytes.
 pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
     use sha2::{Digest, Sha256};
@@ -173,21 +190,9 @@ pub fn worktree_footprint(root: &str) -> Result<Footprint, GitError> {
         hash.update(stat_value(&metadata, &path.to_string_lossy()));
         *modified_at = (*modified_at).max(newest_mtime_ms(&metadata));
         if metadata.is_dir() && !metadata.file_type().is_symlink() {
-            let mut read_dir =
-                std::fs::read_dir(path).map_err(|error| GitError::from_io(&error))?;
-            let mut names: Vec<String> = Vec::new();
-            while let Some(entry) = read_dir
-                .next()
-                .transpose()
-                .map_err(|error| GitError::from_io(&error))?
-            {
-                // The TypeScript checks before pushing each entry, so 10,001 names pass and the
-                // 10,002nd refuses.
-                if names.len() > FOOTPRINT_ENTRIES {
-                    return Err(directory_error());
-                }
-                names.push(entry.file_name().to_string_lossy().into_owned());
-            }
+            let read_dir = std::fs::read_dir(path).map_err(|error| GitError::from_io(&error))?;
+            let mut names =
+                collect_directory_names(read_dir.map(|entry| entry.map(|item| item.file_name())))?;
             traversal_order(&mut names);
             for name in names {
                 walk(
@@ -384,6 +389,41 @@ mod tests {
         }
         let listed = worktree_footprint(&refused.to_string_lossy()).expect_err("listing cap");
         assert_eq!(listed.message, "Worktree directory exceeds its budget");
+    }
+
+    #[test]
+    fn a_directory_stream_stops_at_entry_10002_and_surfaces_early_io_errors() {
+        let mut pulled = 0usize;
+        let bounded = std::iter::from_fn(|| {
+            pulled += 1;
+            assert!(
+                pulled <= 10_002,
+                "directory listing must not pull past entry 10,002 (pulled {pulled})"
+            );
+            Some(Ok(std::ffi::OsString::from(format!("{pulled:05}"))))
+        });
+        let cap_error = collect_directory_names(bounded).expect_err("cap at 10,002");
+        assert_eq!(cap_error.code, GitErrorCode::OutputTooLarge);
+        assert_eq!(cap_error.message, "Worktree directory exceeds its budget");
+        assert_eq!(pulled, 10_002);
+
+        let mut step = 0usize;
+        let failing = std::iter::from_fn(|| {
+            step += 1;
+            if step <= 3 {
+                Some(Ok(std::ffi::OsString::from(format!("f{step}"))))
+            } else if step == 4 {
+                Some(Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "readdir denied",
+                )))
+            } else {
+                panic!("directory listing must stop on the first I/O error");
+            }
+        });
+        let io_error = collect_directory_names(failing).expect_err("early io error");
+        assert_ne!(io_error.code, GitErrorCode::OutputTooLarge);
+        assert_eq!(step, 4);
     }
 
     #[test]

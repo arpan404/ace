@@ -462,18 +462,35 @@ mod tests {
         assert_eq!(error.message, "The commit message is too long");
     }
 
-    // `z.string().trim()` uses the runtime's whitespace: U+0085 is not whitespace there, so a
-    // message of only U+0085 is a message (Rust's `trim` would empty it and refuse).
+    // `z.string().trim()` uses the runtime's whitespace: U+0085 is not whitespace there (Rust's
+    // `trim` would empty it and refuse), while U+FEFF IS whitespace (Rust's `trim` would leave it).
     #[tokio::test]
     async fn a_message_of_runtime_non_whitespace_commits_trimmed() {
         let fixture = Fixture::new("g4a-message-nel");
         let repo = fixture.repository("repo");
         std::fs::write(repo.join("file.txt"), "x\n").expect("file");
         let port = ProcessCommands { fixture: &fixture };
-        let mut request = request("  \u{0085}  ");
-        request.expected_head = crate::reads::info::head(&port, &repo.to_string_lossy())
+        let current = crate::reads::info::head(&port, &repo.to_string_lossy())
             .await
             .expect("head");
+        // Only U+FEFF trims to empty and is refused.
+        let mut bom_only = request("\u{FEFF} \u{FEFF}");
+        bom_only.expected_head = current.clone();
+        let error = commit_changes(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &bom_only,
+            false,
+        )
+        .await
+        .expect_err("bom-only message is empty");
+        assert_eq!(error.code, GitErrorCode::InvalidArgument);
+        assert_eq!(error.message, "A commit message is required");
+
+        // U+FEFF is trimmed away while U+0085 is preserved as the committed message.
+        let mut request = request("\u{FEFF}  \u{0085}  \u{FEFF}");
+        request.expected_head = current;
         commit_changes(
             &port,
             &repo.to_string_lossy(),
@@ -490,14 +507,28 @@ mod tests {
 
     #[tokio::test]
     async fn the_pathspec_cap_counts_utf8_bytes_not_characters() {
-        // `Buffer.byteLength`: 100 names of 1,000 emoji are 100,000 characters but 400,000 bytes,
-        // past the 256 KiB cap; the same names in ASCII would be well inside it.
+        // `Buffer.byteLength`: 100 names of 1,000 emoji are individually valid (1,000 <= 4,096
+        // code points) and 100,000 characters total, but 400,000 UTF-8 bytes — past the 256 KiB
+        // cap; the same names in ASCII would be well inside it.
+        let fixture = Fixture::new("g4a-pathspec-bytes");
+        let repo = fixture.repository("repo");
+        let port = ProcessCommands { fixture: &fixture };
         let wide = "\u{1F600}".repeat(1_000);
         let paths: Vec<String> = (0..100).map(|_| wide.clone()).collect();
-        assert!(!within_commit_path_bytes(&paths));
         let narrow: Vec<String> = (0..100).map(|_| "a".repeat(1_000)).collect();
-        assert!(within_commit_path_bytes(&narrow));
-        let error = commit_paths(&paths).expect_err("over the cap");
+        assert!(commit_paths(&narrow).is_ok());
+        let mut req = request("wide paths");
+        req.paths = Some(paths);
+        let error = commit_changes(
+            &port,
+            &repo.to_string_lossy(),
+            &fixture.root.to_string_lossy(),
+            &req,
+            false,
+        )
+        .await
+        .expect_err("over the byte cap");
+        assert_eq!(error.code, GitErrorCode::InvalidArgument);
         assert_eq!(error.message, "Name between 1 and 1000 paths to commit");
     }
 

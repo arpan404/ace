@@ -496,6 +496,7 @@ mod tests {
             ("=======\n", true),
             ("======= \t\n", true),
             ("======= \u{00A0}\n", true),
+            ("======= \u{FEFF}\n", true),
             ("======= \u{0085}\n", false),
         ] {
             let text = format!("<<<<<<< a\nx\n{separator}y\n>>>>>>> b");
