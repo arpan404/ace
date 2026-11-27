@@ -15,7 +15,6 @@ import {
   type DeviceActivity,
   type DevicePermissions,
 } from "@ace/protocol/devices";
-import { catalogRefusal } from "./catalog.ts";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
 import {
@@ -446,9 +445,17 @@ export class DevicesService {
     actor.guard?.();
     const current = session.lease.current();
     if (current?.kind === "human")
-      throw catalogRefusal("personControlling");
+      throw new DeviceError(
+        "lease_required",
+        "A person is controlling this device",
+        "Wait until the person hands it back, then call sim_start again.",
+      );
     if (current && current.owner !== actor.owner)
-      throw catalogRefusal("otherAgentUsing");
+      throw new DeviceError(
+        "busy",
+        "Another agent is using this device",
+        "Use another simulator, or retry after that agent finishes.",
+      );
     if (current && session.threadId === threadId) return;
     this.assertEnabled(session);
     await bindDevice(session, threadId, this.options, this.lifecycleOwner(), () => actor.guard?.());
@@ -523,7 +530,11 @@ export class DevicesService {
   }
   private assertEnabled(session: DeviceSession): void {
     if (this.closed || !this.enabled || session.changingBinding)
-      throw catalogRefusal("devicesDisabled");
+      throw new DeviceError(
+        "permission_denied",
+        "Devices are disabled",
+        "Enable devices in the device panel.",
+      );
   }
   private authorize(session: DeviceSession, actor: Actor): void {
     actor.guard?.();
@@ -532,7 +543,11 @@ export class DevicesService {
       actor.kind === "agent" &&
       (actor.threadId === undefined || session.threadId !== actor.threadId)
     )
-      throw catalogRefusal("deviceNotTaken");
+      throw new DeviceError(
+        "lease_required",
+        "Device is not taken for this thread",
+        "Call sim_start to take this simulator first.",
+      );
   }
   private async enqueue<T>(
     session: DeviceSession,
@@ -586,7 +601,11 @@ export class DevicesService {
       ["enable", "controller", "stream.configure", "stream.keyframe"].includes(operation.op) &&
       actor.kind !== "human"
     )
-      throw catalogRefusal("personOnly");
+      throw new DeviceError(
+        "permission_denied",
+        "Only a person can do this",
+        "Use the sim_* tools; sim_start takes the simulator for this thread.",
+      );
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
@@ -628,7 +647,12 @@ export class DevicesService {
     if (operation.op === "permissions" || operation.op === "permissions.request")
       return this.permissions(operation, actor);
     if (operation.op === "tools.install") {
-      if (actor.kind !== "human") throw catalogRefusal("toolsPersonOnly");
+      if (actor.kind !== "human")
+        throw new DeviceError(
+          "permission_denied",
+          "Only a person can download device tools",
+          "Ask the person to download device tools in Devices.",
+        );
       const tools = await this.options.platform.downloadTools(this.options.runtime);
       // The inventory's notes drop the missing-tools one once the next read finds them.
       void this.list().catch(() => {});
@@ -759,9 +783,17 @@ export class DevicesService {
           this.authorize(session, actor);
           if (actor.kind !== "agent") return;
           if (session.lease.current()?.kind === "human")
-            throw catalogRefusal("personControlling");
+            throw new DeviceError(
+              "lease_required",
+              "A person is controlling this device",
+              "Wait until the person hands it back, then call sim_start again.",
+            );
           if (session.lease.controlEpoch() !== epoch)
-            throw catalogRefusal("controlChangedRead");
+            throw new DeviceError(
+              "lease_required",
+              "Control of this device changed during the read",
+              "Call sim_start again, then read the clipboard again.",
+            );
         };
         authorize();
         const result = await performDeviceAction(
@@ -859,7 +891,7 @@ export class DevicesService {
     await session.capture?.releaseInput?.();
     this.authorize(session, requester);
     if (revision !== session.controlRevision || generation !== session.generation)
-      throw catalogRefusal("controlChanged");
+      throw new DeviceError("busy", "Device control changed", "Take control again.");
     delete session.pendingController;
     if (holder) session.lease.claim(holder);
     else session.lease.release();
@@ -911,7 +943,12 @@ export class DevicesService {
         "Run ace's desktop app on a Mac to view and control iOS Simulators.",
       );
     if (operation.op === "permissions") return screen.inspectDevicePermissions();
-    if (actor.kind !== "human") throw catalogRefusal("humanAuthorization");
+    if (actor.kind !== "human")
+      throw new DeviceError(
+        "permission_denied",
+        "Human authorization required",
+        "Ask the user to grant the permission from the device panel.",
+      );
     return screen.requestPermission(operation.permission);
   }
   private async ui<T>(session: DeviceSession, actor: Actor, run: () => Promise<T>): Promise<T> {

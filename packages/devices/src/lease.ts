@@ -1,4 +1,4 @@
-import { catalogRefusal } from "./catalog.ts";
+import { DeviceError } from "./sdk.ts";
 export type Actor = {
   kind: "human" | "agent";
   owner: string;
@@ -71,7 +71,12 @@ export class ControllerLease {
     return this.epoch;
   }
   assert(actor: Actor, epoch = this.epoch): void {
-    if (!this.holds(actor, epoch)) throw catalogRefusal("leaseRequired");
+    if (!this.holds(actor, epoch))
+      throw new DeviceError(
+        "lease_required",
+        "Controller lease required",
+        "Call sim_start to take control again; wait while a person controls the simulator.",
+      );
     this.deadline = this.now() + 30000;
   }
   holds(actor: Actor, epoch: number): boolean {

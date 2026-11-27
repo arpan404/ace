@@ -2,7 +2,6 @@ import type { z } from "zod";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { ScreenUITreeResult, type ScreenUINode } from "@ace/protocol";
 import type { DevicesService } from "./service.ts";
-import { catalogHint, catalogRefusal } from "./catalog.ts";
 import { DeviceError } from "./sdk.ts";
 import type { SimAgentState } from "./sim-state.ts";
 import { simActivity } from "./sim-activity.ts";
@@ -19,7 +18,11 @@ function directOperation(args: SimAct): unknown {
   const deviceId = args.simId;
   switch (args.action) {
     case "ui":
-      throw catalogRefusal("uiNeedsRef");
+      throw new DeviceError(
+        "not_supported",
+        "ui needs a ref",
+        "Read sim_ui and pass one of its refs.",
+      );
     case "tap":
       return { op: "input", deviceId, input: { kind: "tap", x: args.x, y: args.y } };
     case "long_press":
@@ -114,7 +117,7 @@ export async function simAct(
     throw new DeviceError(
       "stale_ref",
       `${args.ref} is not a ref from your sim_ui reads of ${deviceId}`,
-      catalogHint("simRefUnknownHint"),
+      "Read sim_ui and act on one of the refs it returns.",
     );
   const tree = ScreenUITreeResult.parse(await request({ op: "ui.tree", deviceId, ...fullRead }));
   const element = state.refs
@@ -124,7 +127,7 @@ export async function simAct(
     throw new DeviceError(
       "stale_ref",
       `${label(args.ref, known)} is no longer on screen`,
-      catalogHint("simStaleRefHint"),
+      "Read sim_ui again and act on a current ref.",
     );
   const ui = (
     action: ScreenUINode["actions"][number],
@@ -142,7 +145,7 @@ export async function simAct(
         throw new DeviceError(
           "not_supported",
           `${label(args.ref, element)} supports ${element.actions.join(", ")}, not ${action}`,
-          catalogHint("simActionUnsupportedHint"),
+          "Use one of the element's actions, or tap it.",
         );
       result = await ui(action, {
         ...(args.value !== undefined ? { value: args.value } : {}),
@@ -168,7 +171,7 @@ export async function simAct(
       throw new DeviceError(
         "not_supported",
         `${args.action} does not take a ref`,
-        catalogHint("simActionNoRefHint"),
+        "Pass coordinates or the action's own fields.",
       );
   }
   noteActivity(element);
