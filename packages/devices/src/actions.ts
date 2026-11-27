@@ -2,7 +2,7 @@ import type { DeviceOperation } from "@ace/protocol/devices";
 import type { DevicePlatform } from "./platform.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
-import { DeviceError } from "./sdk.ts";
+import { catalogRefusal } from "./sdk.ts";
 import { boundedClipboard } from "./clipboard.ts";
 import { keyRefusal } from "./key-support.ts";
 
@@ -51,11 +51,7 @@ export async function performDeviceAction(
         operation.input.pointerId &&
         !session.capture?.multiTouch
       )
-        throw new DeviceError(
-          "not_supported",
-          "This device view supports one finger",
-          "Send pointer input without a pointerId, or use one finger.",
-        );
+        throw catalogRefusal("inputOneFinger");
       if (session.capture?.input) {
         await session.capture.input(operation.input, guard);
         break;
@@ -74,11 +70,7 @@ export async function performDeviceAction(
       }
       break;
     default:
-      throw new DeviceError(
-        "invalid_data",
-        "Unsupported queued device action",
-        "Use a device command.",
-      );
+      throw catalogRefusal("unsupportedAction");
   }
   return { completed: true };
 }
