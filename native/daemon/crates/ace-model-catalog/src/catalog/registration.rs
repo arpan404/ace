@@ -58,7 +58,7 @@ impl Catalog {
             if inner.closed {
                 return Err(CatalogError::Closed);
             }
-            if inner.removals.contains(&config.id) {
+            if inner.removals.contains_key(&config.id) {
                 return Err(CatalogError::RemovalDraining);
             }
             let old = inner.states.get(&config.id);
@@ -155,7 +155,6 @@ impl Catalog {
                     .and_then(|entry| entry.connection_revision.clone()),
                 probe_retry_at: 0.0,
                 settings_key,
-                invalidating: None,
                 flight: None,
                 flight_token: None,
                 probe_revision: None,
@@ -227,18 +226,29 @@ impl Catalog {
 
     /// Removes a row: state, cached choices, and a flush of in-flight discovery.
     pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
+        // A removal already draining this id is shared: its deletion runs once, and both
+        // callers see its result. The capacity is checked before anything is touched.
+        enum Start {
+            Shared(crate::catalog::RemovalSlot),
+            Full,
+            Reserved(
+                Vec<crate::signals::Gate>,
+                Vec<crate::signals::Gate>,
+                Option<crate::signals::Gate>,
+            ),
+        }
+        let slot = crate::catalog::RemovalSlot::new();
         // The removal is catalog work on its own: close waits for it even after the row
         // is gone, so storage never closes before its deletion.
         let work = crate::catalog::OwnedWork::register(self);
-        let (flights, invalidations, tail) = self.with_inner(|inner| {
-            let removal = inner.removals.contains(instance);
-            if removal {
-                return (Vec::new(), Vec::new(), None);
+        let start = self.with_inner(|inner| {
+            if let Some(known) = inner.removals.get(instance) {
+                return Start::Shared(known.clone());
             }
             if inner.removals.len() >= 128 {
-                return (Vec::new(), Vec::new(), None);
+                return Start::Full;
             }
-            inner.removals.insert(instance.to_owned());
+            inner.removals.insert(instance.to_owned(), slot.clone());
             // Every flight this instance ever started, not only its current row's.
             let mut flights: Vec<crate::catalog::Flight> = inner
                 .row_flights
@@ -268,9 +278,9 @@ impl Catalog {
                 {
                     flights.push(flight.clone());
                 }
-                if let Some(pending) = &state.invalidating {
-                    invalidations.push(pending.clone());
-                }
+            }
+            if let Some(pending) = inner.invalidating.get(instance) {
+                invalidations.push(pending.clone());
             }
             if let Some(ids) = inner
                 .states
@@ -285,22 +295,36 @@ impl Catalog {
             inner.persisted_order.retain(|id| id != instance);
             inner.acp_loaded.remove(instance);
             inner.acp_spacing.forget(instance);
-            (flights, invalidations, tail)
+            Start::Reserved(
+                flights.into_iter().map(|flight| flight.done).collect(),
+                invalidations
+                    .into_iter()
+                    .map(|pending| pending.done)
+                    .collect(),
+                tail,
+            )
         });
-        let removal = Removal {
-            catalog: self.clone(),
-            id: instance.to_owned(),
-            flights: flights.into_iter().map(|flight| flight.done).collect(),
-            invalidating: invalidations
-                .into_iter()
-                .map(|pending| pending.done)
-                .collect(),
-            tail,
-            work: Some(work),
-            finished: false,
-            handed: false,
-        };
-        removal.run().await
+        match start {
+            Start::Shared(known) => {
+                known.done.wait().await;
+                known.settled()
+            }
+            Start::Full => Err(CatalogError::InstanceRemovalCapacity),
+            Start::Reserved(flights, invalidating, tail) => {
+                let removal = Removal {
+                    catalog: self.clone(),
+                    id: instance.to_owned(),
+                    flights,
+                    invalidating,
+                    tail,
+                    slot,
+                    work: Some(work),
+                    finished: false,
+                    handed: false,
+                };
+                removal.run().await
+            }
+        }
     }
 
     /// Account-change boundary: revoke choices immediately, then delete them.
@@ -329,6 +353,7 @@ impl Catalog {
         > = Vec::new();
         for id in &selected {
             let captured = self.with_inner(|inner| {
+                let invalidations = inner.invalidating.get(id).cloned();
                 let state = inner.states.get_mut(id)?;
                 if state.config.provider == ProviderKind::Acp {
                     return None;
@@ -345,7 +370,6 @@ impl Catalog {
                         })
                     });
                 }
-                let invalidations = state.invalidating.clone();
                 Some((
                     state.config.clone(),
                     state.admit.clone(),
@@ -363,13 +387,19 @@ impl Catalog {
             let turn = self.reserve_turn(id);
             let work = crate::catalog::OwnedWork::register(self);
             self.with_inner(|inner| {
-                if let Some(state) = inner.states.get_mut(id) {
-                    state.invalidating = Some(crate::catalog::Flight {
+                let generation = inner
+                    .states
+                    .get(id)
+                    .map(|state| state.generation)
+                    .unwrap_or_default();
+                inner.invalidating.insert(
+                    id.clone(),
+                    crate::catalog::Flight {
                         done: done.clone(),
                         token: 0,
-                        generation: state.generation,
-                    });
-                }
+                        generation,
+                    },
+                );
             });
             let deletion = Invalidation {
                 catalog: self.clone(),
@@ -589,6 +619,8 @@ struct Removal {
     flights: Vec<crate::signals::Gate>,
     invalidating: Vec<crate::signals::Gate>,
     tail: Option<crate::signals::Gate>,
+    /// The removal every caller of this id shares, and its result.
+    slot: crate::catalog::RemovalSlot,
     work: Option<crate::catalog::OwnedWork>,
     finished: bool,
     handed: bool,
@@ -611,7 +643,9 @@ impl Removal {
         if let Some(tail) = self.tail.take() {
             tail.wait().await;
         }
-        self.catalog.finish_removal(&self.id)
+        let result = self.catalog.finish_removal(&self.id);
+        self.catalog.settle_removal(&self.id, &self.slot, &result);
+        result
     }
 }
 
@@ -627,6 +661,7 @@ impl Drop for Removal {
             flights: std::mem::take(&mut self.flights),
             invalidating: std::mem::take(&mut self.invalidating),
             tail: self.tail.take(),
+            slot: self.slot.clone(),
             work: self.work.take(),
             finished: false,
             handed: true,
@@ -675,13 +710,12 @@ impl Invalidation {
             .catalog
             .with_inner(|inner| inner.deletions.remove(&self.id));
         self.catalog.with_inner(|inner| {
-            if let Some(state) = inner.states.get_mut(&self.id)
-                && state
-                    .invalidating
-                    .as_ref()
-                    .is_some_and(|current| current.done.same(&self.done))
+            if inner
+                .invalidating
+                .get(&self.id)
+                .is_some_and(|current| current.done.same(&self.done))
             {
-                state.invalidating = None;
+                inner.invalidating.remove(&self.id);
             }
         });
         self.done.open();

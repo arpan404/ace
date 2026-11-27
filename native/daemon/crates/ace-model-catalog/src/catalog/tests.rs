@@ -1177,6 +1177,65 @@ fn an_invalidated_account_keeps_its_place_but_not_its_choices() {
 }
 
 #[test]
+fn a_re_registered_row_keeps_its_pending_invalidation() {
+    within(15, "a revocation across a re-registration", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let gate = crate::signals::Gate::new();
+        let held = gate.clone();
+        let discover = FakeDiscover::new(move |request, _signal| {
+            let held = held.clone();
+            Box::pin(async move {
+                held.wait().await;
+                Ok(models(&request.instance, &["gpt-6-sol"]))
+            })
+        });
+        let fixture = fixture(
+            vec![codex.clone()],
+            SharedStorage::new(MemoryStorage::new()),
+            discover.clone(),
+        );
+        let catalog = fixture.catalog.clone();
+        let mut old = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(poll_once(old.as_mut()).is_pending());
+        let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
+        assert!(
+            poll_once(invalidating.as_mut()).is_pending(),
+            "the deletion is pending"
+        );
+        // The same id is registered again by a new login while the delete is pending.
+        catalog
+            .register_instance(
+                ModelInstance {
+                    login_revision: "2".to_owned(),
+                    ..codex
+                },
+                None,
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut replacement = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(
+            poll_once(replacement.as_mut()).is_pending(),
+            "the replacement still waits for the pending delete"
+        );
+        assert_eq!(
+            fixture.discover.calls(),
+            1,
+            "no discovery runs before the pending delete finished"
+        );
+        gate.open();
+        let (_, revoked) = settle(
+            async move { futures::join!(old, invalidating) },
+            &fixture.spawn,
+            "the revocation and the flight it drained",
+        );
+        revoked.unwrap_or_else(|error| panic!("{error}"));
+        let _ = settle(replacement, &fixture.spawn, "the replacement flight");
+        assert_eq!(fixture.discover.calls(), 2, "the replacement discovered");
+        assert_eq!(listed(&catalog).models.len(), 1);
+    })
+}
+
+#[test]
 fn a_replacement_refresh_waits_for_a_pending_invalidations_delete() {
     let codex = instance(ProviderKind::Codex, "account");
     let gate = crate::signals::Gate::new();

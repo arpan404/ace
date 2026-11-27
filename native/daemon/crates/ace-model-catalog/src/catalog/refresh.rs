@@ -228,12 +228,7 @@ impl Catalog {
         };
         let revision = self.revision(&config);
         // A replacement refresh waits for the pending invalidation's delete.
-        if let Some(invalidating) = self.with_inner(|inner| {
-            inner
-                .states
-                .get(id)
-                .and_then(|state| state.invalidating.clone())
-        }) {
+        if let Some(invalidating) = self.with_inner(|inner| inner.invalidating.get(id).cloned()) {
             invalidating.done.wait().await;
         }
         let started_at = self.now();

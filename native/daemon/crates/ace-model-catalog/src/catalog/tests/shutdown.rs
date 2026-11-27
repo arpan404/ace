@@ -395,3 +395,94 @@ fn a_dropped_removal_leaves_no_reservation() {
             .unwrap_or_else(|error| panic!("the id is free again: {error}"));
     })
 }
+
+#[test]
+fn a_second_removal_shares_the_first_ones_deletion() {
+    within(15, "a second removal of the same id", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let gate = crate::signals::Gate::new();
+        let (discover, _) = gated_after_the_first(gate.clone());
+        let fixture = fixture(vec![codex.clone()], storage.clone(), discover);
+        let catalog = fixture.catalog.clone();
+        let _ = settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the login's refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(poll_once(flight.as_mut()).is_pending(), "the flight runs");
+        let mut first = Box::pin(catalog.remove_instance("account"));
+        assert!(
+            poll_once(first.as_mut()).is_pending(),
+            "the first removal waits for the flight"
+        );
+        // A second removal of the same id shares the first one's deletion.
+        let mut second = Box::pin(catalog.remove_instance("account"));
+        assert!(
+            poll_once(second.as_mut()).is_pending(),
+            "the second removal waits for the first"
+        );
+        assert_eq!(
+            catalog.register_instance(codex.clone(), None),
+            Err(CatalogError::RemovalDraining),
+            "the id stays reserved until the deletion finished"
+        );
+        gate.open();
+        let (_, a, b) = settle(
+            async move { futures::join!(flight, first, second) },
+            &fixture.spawn,
+            "two removals of the same id",
+        );
+        a.unwrap_or_else(|error| panic!("{error}"));
+        b.unwrap_or_else(|error| panic!("{error}"));
+        let mut storage = storage.clone();
+        assert!(
+            storage.load().unwrap_or_default().is_empty(),
+            "the row's choices are deleted once"
+        );
+        catalog
+            .register_instance(codex, None)
+            .unwrap_or_else(|error| panic!("the id is free again: {error}"));
+    })
+}
+
+#[test]
+fn a_removal_at_its_capacity_is_refused_before_it_touches_the_row() {
+    let fixture = fixture(
+        Vec::new(),
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+    );
+    let catalog = fixture.catalog.clone();
+    // Every removal waits on a write that still holds its row's queue.
+    let ids: Vec<String> = (0..128).map(|index| format!("agent-{index}")).collect();
+    let mut holds = Vec::new();
+    let mut removals = Vec::new();
+    for id in &ids {
+        catalog
+            .register_instance(instance(ProviderKind::Acp, id), None)
+            .unwrap_or_else(|error| panic!("{error}"));
+        holds.push(futures::executor::block_on(catalog.hold_turn(id)));
+        let mut removal = Box::pin(catalog.remove_instance(id));
+        assert!(
+            poll_once(removal.as_mut()).is_pending(),
+            "{id}'s removal waits for its write"
+        );
+        removals.push(removal);
+    }
+    catalog
+        .register_instance(instance(ProviderKind::Acp, "over"), None)
+        .unwrap_or_else(|error| panic!("{error}"));
+    let mut refused = Box::pin(catalog.remove_instance("over"));
+    let result = match poll_once(refused.as_mut()) {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => panic!("the removal at capacity is refused at once"),
+    };
+    assert_eq!(result, Err(CatalogError::InstanceRemovalCapacity));
+    assert!(
+        catalog.has_instance("over"),
+        "the refused removal left its row in place"
+    );
+}

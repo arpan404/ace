@@ -443,6 +443,32 @@ impl Drop for OwnedWork {
     }
 }
 
+/// A removal another caller already started: its deletion, and the result every caller
+/// that asked for the same id sees.
+#[derive(Clone)]
+pub(crate) struct RemovalSlot {
+    pub(crate) done: crate::signals::Gate,
+    pub(crate) result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
+}
+
+impl RemovalSlot {
+    pub(crate) fn new() -> Self {
+        Self {
+            done: crate::signals::Gate::new(),
+            result: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The result once the removal settled; a waiter that finds none sees its own run.
+    pub(crate) fn settled(&self) -> Result<(), CatalogError> {
+        self.result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .unwrap_or(Ok(()))
+    }
+}
+
 /// A counted bound: the places the catalog admits for one kind of work, held for as long
 /// as that work exists and released whichever way its caller leaves.
 pub(crate) struct CapacitySlot {
@@ -527,7 +553,6 @@ pub(crate) struct State {
     pub(crate) connection_fingerprint: Option<String>,
     pub(crate) probe_retry_at: f64,
     pub(crate) settings_key: String,
-    pub(crate) invalidating: Option<Flight>,
     pub(crate) flight: Option<Flight>,
     pub(crate) flight_token: Option<u64>,
     pub(crate) probe_revision: Option<String>,
@@ -549,6 +574,8 @@ pub(crate) struct Inner {
     pub(crate) deletions: crate::deletions::PendingDeletions,
     /// The places taken for each instance's stored choices, in the order they were accepted.
     pub(crate) turns: BTreeMap<String, turns::Turns>,
+    /// The revocation draining each instance, which outlives the registration it replaced.
+    pub(crate) invalidating: BTreeMap<String, Flight>,
     pub(crate) acp_loaded: BTreeSet<String>,
     pub(crate) acp_spacing: AcpProbeSpacing,
     pub(crate) closed: bool,
@@ -571,7 +598,7 @@ pub(crate) struct Inner {
     pub(crate) observers: usize,
     pub(crate) observed_check: Option<Cancel>,
     pub(crate) flight_token: u64,
-    pub(crate) removals: BTreeSet<String>,
+    pub(crate) removals: BTreeMap<String, RemovalSlot>,
 }
 
 /// The catalog a daemon serves.
@@ -626,6 +653,7 @@ impl Catalog {
             persisted_order: Vec::new(),
             deletions: crate::deletions::PendingDeletions::new(storage.clone()),
             turns: BTreeMap::new(),
+            invalidating: BTreeMap::new(),
             acp_loaded: BTreeSet::new(),
             acp_spacing: spacing,
             closed: false,
@@ -646,7 +674,7 @@ impl Catalog {
             observers: 0,
             observed_check: None,
             flight_token: 0,
-            removals: BTreeSet::new(),
+            removals: BTreeMap::new(),
         };
         let instances = options.instances.clone();
         #[allow(clippy::arc_with_non_send_sync)]
@@ -1139,13 +1167,28 @@ impl Catalog {
     pub(crate) fn finish_removal(&self, id: &str) -> Result<(), CatalogError> {
         let _ = self.with_inner(|inner| inner.deletions.remove(id));
         let retried = self.with_inner(|inner| inner.deletions.retry());
-        self.with_inner(|inner| {
-            inner.removals.remove(id);
-        });
         match retried.into_iter().find(|result| result.is_err()) {
             Some(Err(error)) => Err(CatalogError::Cache(error)),
             _ => Ok(()),
         }
+    }
+
+    /// Publishes one removal's result to everyone who asked for it, and frees the id.
+    fn settle_removal(&self, id: &str, slot: &RemovalSlot, result: &Result<(), CatalogError>) {
+        *slot
+            .result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result.clone());
+        slot.done.open();
+        self.with_inner(|inner| {
+            if inner
+                .removals
+                .get(id)
+                .is_some_and(|known| known.done.same(&slot.done))
+            {
+                inner.removals.remove(id);
+            }
+        });
     }
 
     /// Completes a deletion this write would otherwise recreate.
