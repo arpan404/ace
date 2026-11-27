@@ -585,6 +585,17 @@ fn a_disable_during_a_threadless_persons_assignment_cleanup_grants_no_lease_and_
 }
 
 #[test]
+fn an_agents_cleanup_failure_racing_a_disable_reports_the_failure_not_the_disable() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    begin_disable(&mut session);
+    let outcome = resume_claim_for_agent(&mut session, &agent(), bind, true, true, NOW)
+        .expect("the cleanup failure is reported ahead of the disable");
+    assert_eq!(outcome, None, "the failed cleanup never assigns control");
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+}
+
+#[test]
 fn cancelling_an_unrelated_owners_assignment_leaves_the_pending_marker() {
     let mut session = Session::new("ios:AAAA");
     let agent_assign = begin_assign(&mut session, &agent(), NOW).expect("agent");

@@ -135,6 +135,13 @@ pub fn finish_bind(
     enabled: bool,
 ) -> Result<Bound, DeviceError> {
     if session.binding_epoch != epoch {
+        // The cleanup's own failure is the caller's error, and it outranks the
+        // newer epoch: `binding.ts` throws the AggregateError before its disabled
+        // check. Report it without touching the newer bind's reservation, epoch or
+        // published recording.
+        if cleanup_failed {
+            return Ok(Bound::CleanupFailed);
+        }
         return Err(words::refusal(TURNED_OFF_KEY));
     }
     session.changing_binding = false;

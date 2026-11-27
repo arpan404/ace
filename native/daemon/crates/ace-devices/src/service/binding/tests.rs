@@ -134,6 +134,47 @@ fn a_newer_bind_makes_the_older_one_refuse() {
 }
 
 #[test]
+fn a_cleanup_failure_racing_a_disable_reports_the_failure_and_leaves_the_newer_bind_alone() {
+    let mut session = bound("t1");
+    let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
+    else {
+        panic!("a cleanup");
+    };
+    // A disable (and a later bind) moved the epoch while this one cleaned up, and
+    // then this cleanup failed too: the failure is the caller's own error.
+    begin_disable(&mut session);
+    let Bind::Cleanup { epoch: newer, .. } =
+        begin_bind(&mut session, "t3", "agent-1").expect("a new bind")
+    else {
+        panic!("a newer cleanup");
+    };
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    assert_eq!(
+        finish_bind(&mut session, "t2", epoch, true, true),
+        Ok(Bound::CleanupFailed)
+    );
+    assert!(
+        session.changing_binding,
+        "the newer bind keeps its reservation"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "the newer bind's published recording stays"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+    assert_eq!(session.thread_id, None, "the device stays unbound");
+
+    assert_eq!(
+        finish_bind(&mut session, "t3", newer, false, true),
+        Ok(Bound::Bound)
+    );
+    assert_eq!(session.thread_id.as_deref(), Some("t3"));
+}
+
+#[test]
 fn disabling_retires_an_in_flight_bind_and_an_obsolete_finish_leaves_the_newer_bind_alone() {
     let mut session = bound("t1");
     let Bind::Cleanup { epoch, .. } = begin_bind(&mut session, "t2", "agent-1").expect("free")
