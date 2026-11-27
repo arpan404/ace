@@ -82,17 +82,24 @@ impl Actor {
         for id in ids {
             self.pump(&id);
         }
-        self.cancel_unsubmitted_tasks();
+        self.settle_tasks_without_io();
         self.closing = true;
         self.finish_close_if_ready();
     }
 
-    fn cancel_unsubmitted_tasks(&mut self) {
+    fn settle_tasks_without_io(&mut self) {
         let cancelled: Vec<_> = self
             .in_flight
             .iter()
             .filter(|(_, (kind, control))| {
-                matches!(kind, TaskKind::Reconcile) || control.cancel_unsubmitted()
+                let unpolled = control.cancel_unpolled();
+                match kind {
+                    TaskKind::Flight { token, .. } => !self.flight_io.contains(token),
+                    TaskKind::Probe { .. } => unpolled,
+                    // Revocations and permission reports are ordered by storage and
+                    // turns. Close can settle their readiness without the spawner.
+                    _ => true,
+                }
             })
             .map(|(task, (kind, _))| (*task, kind.clone()))
             .collect();

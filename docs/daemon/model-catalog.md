@@ -246,68 +246,49 @@ backoff, and is rechecked on explicit refresh, login change or cache max age.
 
 ## Concurrency
 
-The catalog is one actor. A single task owns every mutable piece of its state: rows,
-registrations, flights, the per-instance order, reservations, invalidations, removals,
-capacity counters and the closed flag. Nothing else holds that state or a lock on it.
+The Rust catalog runs one actor. It owns registrations, flight and probe tokens,
+per-instance write order, deletion markers, and capacity. A bounded mailbox takes
+commands and replies with `Catalog is busy` when full. Workers report results on a
+separate queue whose size is bounded by the operations that can still report. Their
+wake never waits for command ingress. A caller dropping its reply leaves admitted
+work in actor order.
 
-Public methods send one command with a oneshot reply over a bounded channel and await the
-reply. A caller that goes away drops its receiver; the actor still finishes the operation
-and settles everything it admitted. A dropped Rust caller therefore does not cancel
-catalog work: a dropped close still drains the work it collected and closes storage, a
-dropped revocation or removal still deletes, and a dropped write still takes its place.
+The catalog arms a flight deadline at admission. The home guard and any prerequisite
+revocation run before the flight takes a discovery slot. A deadline settles the
+flight's refresh waiters even if the result is queued or a storage call has already
+started. Task capacity stays occupied until the task exits. Each refresh batch waits
+for specific flight tokens, so an old attempt cannot answer a waiter for its
+replacement.
 
-Slow work (discovery runs, connection probes and removal deletion) runs in tasks the
-actor spawns. Each task reports back with its token, generation and revision, and the
-actor alone decides whether the result commits, in what order per instance, and whether a
-deadline already won. A flight's deadline is armed at admission, before the concurrency
-limiter or a caller's guard can wait, so a guard that never answers neither holds a
-discovery slot nor outlives the deadline. A batch that waits for a row's refresh waits on
-that flight's token: an older flight settling for the same instance never answers the
-batch that is waiting for its replacement. Deadlines are actor-side timers that stay
-armed until the actor commits or drops the result; abort is a message, so every wait is
-abortable. Spawned work
-is wrapped so a panic or a dropped task is reported as a failure and settled. Listeners
-and storage calls are contained too, so neither can unwind the actor.
+Four storage workers can serve different instances concurrently. The actor sends one
+job at a time per instance. The owning registration and effective revision follow
+the job through the queue and are checked again on completion. The storage port
+checks the write's fence after staging and immediately before committing it. A newer
+revision, superseded owner, or expired deadline discards a write that has yet to
+commit. Each pending deletion has one active attempt. Waiters with the same
+prerequisite share that attempt, and only its token can clear its marker. Failed
+deletions keep their marker for retry.
 
-Close is a command: it sets the closed flag, refuses every new admission (removals
-included), aborts flights and probes, waits for every task it spawned and every storage
-job to report, then deletes pending rows and closes storage last before replying to every
-close caller. A successful close is final: the actor thread ends, the handle joins it,
-and a repeated close answers the recorded result. A failed close (a deletion or the
-storage's own close failing) keeps its deletion markers and allows a later call to retry;
-it is the only case where closing is not final. The command channel and each instance's
-pending work are bounded; capacity counts accepted operations until the actor settles
-them, never released early by a dropped caller.
+Listeners, error callbacks, timers, storage and the spawner run outside the actor.
+Clock and settings values reach the actor as snapshots. Notifications are bounded
+hints to re-read. Shutdown disconnects public admission first, aborts discovery and
+probes, and cancels obsolete and queued replaces. An accepted permission report
+that already holds the first write place still drains. Close waits for active I/O,
+flushes pending revocations, then closes storage. Callbacks can themselves close
+the catalog. Concurrent closes join the same result. A failed durable close retains
+enough state for a later retry.
 
-Storage never runs on the actor. Replaces, removes and close are dispatched to one
-storage-lane worker in arrival order and answered as messages; a row's queue place stays
-open until its durable write answers, so its next write cannot overtake it. Each write
-carries the token that owns it and the lane checks that token immediately before touching
-storage, so a deadline or a replaced row means the write never starts. The actor rechecks
-the token, the generation and the effective revision on the reply and installs nothing
-over a row that moved on. Listener callbacks run on their own lane, never on the actor, so
-a listener that reads the catalog cannot deadlock it; notifications are hints whose
-overflow is dropped.
-
-Every admission that can outlive the mailbox is bounded: refresh batches (256, then
-the catalog answers `Catalog is busy`), the callers retained on one flight, probe or
-removal (1024; a refresh's extra caller gets the row as it stands, a probe's gets the
-busy error), session writes (64), invalidations and removals (128 each) and pending
-deletions (1152). A reply whose caller went away is never retained where the actor can
-see it is closed, and an invocation that prunes drops them. A session payload over its
-provider's documented byte budget (4 MiB, or 256 KiB for an ACP agent's row) is refused
-at admission with the persistence byte-backpressure error, so it never becomes pending
-work.
-
-A session's metadata and permission modes bind to the registration token it saw
-(`Catalog.registration`), not to whichever registration later shares its login and cache
-revision. A report under a superseded token is refused with the session-generation error,
-even when the replacement has the same login, and a write still queued when settings
-change is refused if its effective revision no longer matches.
+Caps include 64 outstanding discovery tasks, 64 probe tasks, 256 refresh batches,
+1024 waiters per flight, probe, removal or close, 64 session writes, 128 removals,
+128 invalidations, and 1152 pending deletion markers. Session payloads are checked
+against the 4 MiB CLI and 256 KiB ACP budgets before admission. Session metadata and
+permission modes are bound to the registration token returned by
+`Catalog.registration`, even when a replacement registration keeps the same login.
 
 ## Intended differences from the TypeScript
 
 - Cutting text at a limit (`resolve.ts`'s 1024, `discovery-failure.ts`'s 8192, `cli-versions.ts`'s 4096) counts UTF-16 code units as the TypeScript does, but a cut never splits an astral character, so the last character of a truncated string is whole where the TypeScript could leave an unpaired surrogate.
 - The CLI's `models` listing is parsed with its JSON metadata, so an id the listing describes keeps its name, context and efforts; the TypeScript appends an id-only row for the same line.
 - A discovery built without a process runner (a caller that only has the HTTP port) takes the server's catalog unfiltered, because no connection status can be read.
+- A stalled home guard cannot take a discovery slot. Expiring a refresh settles its waiters before blocked storage returns. Concurrent revocations with the same prerequisite share one durable deletion.
 - A caller that goes away does not cancel the catalog's work (see Concurrency). The TypeScript cannot observe this because its promises are never cancelled, so its equivalent behaviour is that the same work runs to completion.

@@ -139,3 +139,56 @@ fn wait_sync<T>(mut receiver: futures::channel::oneshot::Receiver<T>) -> Result<
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::commands::Reporter;
+    use std::{
+        sync::{Arc, mpsc},
+        time::Duration,
+    };
+
+    #[test]
+    fn completion_reports_return_even_when_a_sender_waits_on_full_ingress() {
+        let limit = Duration::from_secs(3);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let ingress = Arc::new(Ingress::new(sender));
+        ingress.wake();
+
+        let (enter, entered) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let other = ingress.clone();
+        std::thread::spawn(move || {
+            enter.send(()).unwrap();
+            other
+                .sender
+                .send(Envelope::report(Command::Unlisten { token: 1 }))
+                .unwrap();
+            release.send(()).unwrap();
+        });
+        entered.recv_timeout(limit).unwrap();
+        assert!(matches!(
+            released.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+
+        let (completions, reported) = mpsc::channel();
+        let reporter = Reporter {
+            commands: Arc::downgrade(&ingress),
+            completions,
+        };
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            reporter.report(Command::TaskSettled { task: 42 });
+            done.send(()).unwrap();
+        });
+        finished.recv_timeout(limit).unwrap();
+        assert!(matches!(
+            reported.recv_timeout(limit).unwrap().command,
+            Command::TaskSettled { task: 42 }
+        ));
+        receiver.recv_timeout(limit).unwrap();
+        released.recv_timeout(limit).unwrap();
+    }
+}

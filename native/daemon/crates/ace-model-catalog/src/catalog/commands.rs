@@ -323,35 +323,3 @@ pub(crate) enum FlightOutcome {
     /// The task ended without an answer: aborted, dropped, or panicked.
     None,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    #[test]
-    fn completion_reports_return_even_when_command_ingress_is_full() {
-        let (commands, _receiver) = mpsc::sync_channel(1);
-        let commands = Arc::new(Ingress::new(commands));
-        commands.wake();
-        let (completions, reported) = mpsc::channel();
-        let reporter = Reporter {
-            commands: Arc::downgrade(&commands),
-            completions,
-        };
-        let (done, finished) = mpsc::channel();
-        std::thread::spawn(move || {
-            reporter.report(Command::TaskSettled { task: 42 });
-            let _ = done.send(());
-        });
-        finished.recv_timeout(Duration::from_secs(3)).unwrap();
-        assert!(matches!(
-            reported
-                .recv_timeout(Duration::from_secs(3))
-                .unwrap()
-                .command,
-            Command::TaskSettled { task: 42 }
-        ));
-    }
-}

@@ -151,6 +151,8 @@ fn a_second_close_waits_for_the_first_ones_drain() {
     let catalog = fixture.catalog.clone();
     let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
     assert!(poll_once(flight.as_mut()).is_pending(), "the flight runs");
+    fixture.spawn.drain();
+    assert_eq!(fixture.discover.calls(), 1);
     let mut first = Box::pin(catalog.close());
     assert!(
         poll_once(first.as_mut()).is_pending(),

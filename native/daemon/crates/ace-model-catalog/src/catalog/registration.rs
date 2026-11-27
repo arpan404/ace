@@ -297,6 +297,13 @@ impl Actor {
                 state.backoff.reset();
                 state.retry_at = 0.0;
             }
+            if state
+                .probe
+                .as_ref()
+                .is_some_and(|probe| !enabled || probe.revision != revision)
+            {
+                self.abort_rows_probe(&id);
+            }
             refreshed.push(id);
         }
         for id in refreshed {
@@ -359,6 +366,7 @@ impl Actor {
             changed.push(id);
         }
         for id in changed {
+            self.abort_rows_probe(&id);
             self.cancel_stale_replace(&id);
             self.notify_id(&id);
             self.refresh_after.insert(id.clone());

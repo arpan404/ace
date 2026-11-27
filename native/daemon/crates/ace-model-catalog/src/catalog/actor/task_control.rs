@@ -31,9 +31,11 @@ impl TaskControl {
             .is_ok()
     }
 
-    pub(super) fn cancel_unsubmitted(&self) -> bool {
+    pub(super) fn cancel_unpolled(&self) -> bool {
         self.0
-            .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                matches!(state, QUEUED | SUBMITTED).then_some(CANCELLED)
+            })
             .is_ok()
     }
 }

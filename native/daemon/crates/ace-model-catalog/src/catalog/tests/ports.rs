@@ -161,3 +161,36 @@ fn a_spawner_can_close_before_submitting_its_task() {
         spawn.catalog.lock().unwrap().take();
     });
 }
+
+#[test]
+fn close_does_not_wait_for_admission_code_before_provider_io() {
+    within(5, "close during an admission callback", || {
+        let fixture = fixture(
+            vec![],
+            SharedStorage::new(MemoryStorage::new()),
+            always(vec![]),
+        );
+        let (entered, observed) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let resume = Mutex::new(resume);
+        let admit: super::super::Admit = Arc::new(move || {
+            entered.send(()).unwrap();
+            resume.lock().unwrap().recv().unwrap();
+            Box::pin(async { Ok(()) })
+        });
+        let catalog = fixture.catalog;
+        catalog
+            .register_instance(instance(ProviderKind::Codex, "account"), Some(admit))
+            .unwrap();
+        let mut refresh = Box::pin(catalog.load("account"));
+        assert!(poll_once(refresh.as_mut()).is_pending());
+        let spawn = fixture.spawn.clone();
+        std::thread::spawn(move || spawn.drain());
+        observed.recv().unwrap();
+
+        assert_eq!(futures::executor::block_on(catalog.close()), Ok(()));
+        release.send(()).unwrap();
+        assert!(futures::executor::block_on(refresh).is_ok());
+        assert_eq!(fixture.discover.calls(), 0);
+    });
+}

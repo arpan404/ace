@@ -498,7 +498,11 @@ impl Actor {
         let token = self.next_probe;
         let signal = Signal::new();
         if let Some(state) = self.inner.states.get_mut(id) {
-            state.probe = Some(ProbeFlight { token });
+            state.probe = Some(ProbeFlight {
+                token,
+                revision: revision.clone(),
+                deadline_at: now + self.options.timeout_ms,
+            });
         }
         self.probe_signals.insert(token, signal.clone());
         self.probe_rows.insert(token, id.to_owned());
@@ -576,6 +580,11 @@ impl Actor {
             return;
         }
         let generation = state.generation;
+        let revision = state
+            .probe
+            .as_ref()
+            .map(|probe| probe.revision.clone())
+            .unwrap_or_default();
         self.timed_out_probes.insert(token);
         if let Some(signal) = self.probe_signals.get(&token) {
             signal.abort();
@@ -584,7 +593,7 @@ impl Actor {
             id,
             token,
             generation,
-            "",
+            &revision,
             self.now() - self.options.timeout_ms,
             None,
         );
@@ -599,21 +608,23 @@ impl Actor {
         started_at: f64,
         result: Option<Result<String, DiscoveryFailure>>,
     ) {
-        let owns_row = self
+        self.probe_rows.remove(&token);
+        let Some(deadline_at) = self
             .inner
             .states
             .get(id)
             .and_then(|state| state.probe.as_ref())
-            .is_some_and(|probe| probe.token == token);
-        self.probe_rows.remove(&token);
-        if !owns_row {
+            .filter(|probe| probe.token == token)
+            .map(|probe| probe.deadline_at)
+        else {
             return;
-        }
-        if owns_row && let Some(state) = self.inner.states.get_mut(id) {
+        };
+        if let Some(state) = self.inner.states.get_mut(id) {
             state.probe = None;
         }
         let timer = self.probe_cancels.remove(&token);
         let fired = self.timed_out_probes.remove(&token)
+            || self.now() >= deadline_at
             || timer
                 .as_ref()
                 .is_some_and(crate::catalog::timers::Timer::fired);
@@ -628,6 +639,12 @@ impl Actor {
             .and_then(|state| state.abort.as_ref())
             .is_some_and(Signal::is_aborted);
         let waiters = self.probe_waiters.remove(&token).unwrap_or_default();
+        if !self.write_current(id, generation, revision) {
+            for waiter in waiters {
+                let _ = waiter.send(Ok(()));
+            }
+            return;
+        }
         if fired {
             self.fail(
                 id,
@@ -650,15 +667,6 @@ impl Actor {
             return;
         }
         if aborted || result.is_none() {
-            for waiter in waiters {
-                let _ = waiter.send(Ok(()));
-            }
-            return;
-        }
-        let current = self.inner.states.get(id).is_some_and(|state| {
-            state.generation == generation && self.revision(&state.config) == revision
-        });
-        if !current {
             for waiter in waiters {
                 let _ = waiter.send(Ok(()));
             }

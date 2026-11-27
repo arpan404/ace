@@ -126,6 +126,7 @@ pub(crate) struct Actor {
     flight_cancels: BTreeMap<u64, Timer>,
     flight_deadlines: BTreeMap<u64, f64>,
     pub(crate) flight_tasks: usize,
+    flight_io: BTreeSet<u64>,
     pub(crate) removal_tasks: usize,
     pub(crate) timed_out_probes: BTreeSet<u64>,
     pub(crate) next_probe: u64,
@@ -213,6 +214,7 @@ impl Actor {
             flight_cancels: BTreeMap::new(),
             flight_deadlines: BTreeMap::new(),
             flight_tasks: 0,
+            flight_io: BTreeSet::new(),
             removal_tasks: 0,
             timed_out_probes: BTreeSet::new(),
             next_probe: 0,
@@ -626,6 +628,7 @@ impl Actor {
         match kind {
             TaskKind::Flight { id, token } => {
                 self.flight_tasks -= 1;
+                self.flight_io.remove(&token);
                 // A discovery that already reported is waiting for its turn; its task
                 // ending is not the flight ending.
                 if !self.commit_tokens.contains(&token) {
@@ -786,17 +789,22 @@ impl Actor {
             .copied()
             .unwrap_or(self.now())
             - self.options.timeout_ms;
-        self.fail(
-            id,
-            None,
-            FailureCode::Timeout,
-            &FailureReport {
-                started_at,
-                diagnostics: &DiscoveryDiagnostics::default(),
-                revision: revision.as_deref(),
-                token: Some(token),
-            },
-        );
+        if revision
+            .as_ref()
+            .is_some_and(|revision| self.revision(&state.config) == *revision)
+        {
+            self.fail(
+                id,
+                None,
+                FailureCode::Timeout,
+                &FailureReport {
+                    started_at,
+                    diagnostics: &DiscoveryDiagnostics::default(),
+                    revision: revision.as_deref(),
+                    token: Some(token),
+                },
+            );
+        }
         self.cancel_commit(id, token);
     }
 
@@ -1197,7 +1205,11 @@ impl Actor {
             self.settle_flight(id, token);
             return false;
         }
-        self.flight_cancels.contains_key(&token)
+        if !self.flight_cancels.contains_key(&token) {
+            return false;
+        }
+        self.flight_io.insert(token);
+        true
     }
 
     pub(crate) fn arm_flight_deadline(&mut self, id: &str, token: u64) {

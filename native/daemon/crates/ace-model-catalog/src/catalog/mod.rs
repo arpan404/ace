@@ -303,6 +303,8 @@ pub(crate) struct Flight {
 #[derive(Clone, Debug)]
 pub(crate) struct ProbeFlight {
     pub(crate) token: u64,
+    pub(crate) revision: String,
+    pub(crate) deadline_at: f64,
 }
 
 pub(crate) struct State {

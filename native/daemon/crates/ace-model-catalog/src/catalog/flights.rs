@@ -129,7 +129,7 @@ pub(crate) async fn run(
         token,
         reply,
     });
-    if !decision.await.unwrap_or(false) {
+    if !decision.await.unwrap_or(false) || signal.is_aborted() {
         // The actor already settled this flight (aborted, replaced or too old).
         return;
     }

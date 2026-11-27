@@ -387,17 +387,18 @@ fn a_stalled_admission_and_a_held_turn_do_not_block_abort_or_close() {
             .register_instance(stalled, Some(admit))
             .unwrap_or_else(|error| panic!("{error}"));
         let turn = futures::executor::block_on(catalog.hold_turn("stalled"));
-        // The stalled admission holds the only discovery slot.
+        // Admit the stalled guard without taking a discovery slot.
         let mut admitted = Box::pin(catalog.refresh_state("stalled", RefreshCause::Background));
         assert!(
             poll_once(admitted.as_mut()).is_pending(),
             "admission is pending"
         );
         fixture.spawn.drain();
-        // The other row's deadline fires while it waits behind the stalled admission.
+        // Start the other row's discovery before either deadline fires.
         let mut waiting = Box::pin(catalog.refresh_state("other", RefreshCause::Background));
         assert!(poll_once(waiting.as_mut()).is_pending());
         fixture.spawn.drain();
+        assert_eq!(fixture.discover.calls(), 1);
         fixture.deadlines.fire(1_000.0 + 1_000.0);
         let mut close = Box::pin(catalog.close());
         assert!(
@@ -802,14 +803,14 @@ fn a_hung_admission_loses_its_deadline_and_frees_the_discovery_slot() {
         assert_eq!(
             fixture.discover.calls(),
             0,
-            "the hung guard holds the only slot before discovery"
+            "the hung guard never reaches discovery"
         );
         // The deadline is armed at admission, so it bounds the hung guard too.
         fixture.deadlines.fire(1_000.0 + 1_000.0);
         fixture.spawn.drain();
         let status = settle(stalled_flight, &fixture.spawn, "the stalled admission");
         assert_eq!(status.error, Some(StatusError::Timeout));
-        // The slot the hung guard held is free: the next row discovers normally.
+        // The next row can discover normally.
         let other_status = settle(
             catalog.refresh_state("other", RefreshCause::Background),
             &fixture.spawn,

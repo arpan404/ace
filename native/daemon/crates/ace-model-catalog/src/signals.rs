@@ -2,7 +2,7 @@
 //! Small concurrency pieces the catalog's state machine needs: an abort signal, a
 //! one-way gate for per-instance write ordering, and the discovery admission limiter.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -15,79 +15,15 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 #[derive(Debug, Default)]
-struct SignalState {
-    aborted: bool,
-    wakers: Vec<Waker>,
-}
-
-/// An abort signal shared by a flight and the discovery reading it.
-#[derive(Debug, Clone, Default)]
-pub struct Signal(Arc<Mutex<SignalState>>);
-
-impl Signal {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn abort(&self) {
-        let wakers = {
-            let mut state = lock(&self.0);
-            if state.aborted {
-                return;
-            }
-            state.aborted = true;
-            std::mem::take(&mut state.wakers)
-        };
-        for waker in wakers {
-            waker.wake();
-        }
-    }
-
-    pub fn is_aborted(&self) -> bool {
-        lock(&self.0).aborted
-    }
-
-    /// Whether both names are the same signal.
-    pub fn same(&self, other: &Signal) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-
-    /// Resolves once [`Signal::abort`] is called.
-    pub fn wait(&self) -> SignalWait {
-        SignalWait(self.clone())
-    }
-}
-
-pub struct SignalWait(Signal);
-
-impl Future for SignalWait {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-        let mut state = lock(&self.0.0);
-        if state.aborted {
-            return Poll::Ready(());
-        }
-        if !state
-            .wakers
-            .iter()
-            .any(|waker| waker.will_wake(context.waker()))
-        {
-            state.wakers.push(context.waker().clone());
-        }
-        Poll::Pending
-    }
-}
-
-#[derive(Debug, Default)]
-struct GateState {
+struct Waiters {
     open: bool,
-    wakers: Vec<Waker>,
+    next: u64,
+    wakers: BTreeMap<u64, Waker>,
 }
 
 /// A one-way gate: closed until opened, and then every waiter resolves.
 #[derive(Debug, Clone, Default)]
-pub struct Gate(Arc<Mutex<GateState>>);
+pub struct Gate(Arc<Mutex<Waiters>>);
 
 impl Gate {
     pub fn new() -> Self {
@@ -97,47 +33,89 @@ impl Gate {
     pub fn open(&self) {
         let wakers = {
             let mut state = lock(&self.0);
-            if state.open {
-                return;
-            }
             state.open = true;
             std::mem::take(&mut state.wakers)
         };
-        for waker in wakers {
-            waker.wake();
+        for waker in wakers.into_values() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| waker.wake()));
         }
     }
 
     pub fn wait(&self) -> GateWait {
-        GateWait(self.clone())
+        GateWait {
+            gate: self.clone(),
+            token: None,
+        }
     }
 
-    /// Whether both names are the same gate.
     pub fn same(&self, other: &Gate) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
-pub struct GateWait(Gate);
+pub struct GateWait {
+    gate: Gate,
+    token: Option<u64>,
+}
 
 impl Future for GateWait {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-        let mut state = lock(&self.0.0);
-        if state.open {
-            return Poll::Ready(());
-        }
-        if !state
-            .wakers
-            .iter()
-            .any(|waker| waker.will_wake(context.waker()))
-        {
-            state.wakers.push(context.waker().clone());
-        }
+        let this = self.get_mut();
+        let waker = context.waker().clone();
+        let previous = {
+            let mut state = lock(&this.gate.0);
+            if state.open {
+                return Poll::Ready(());
+            }
+            let token = *this.token.get_or_insert_with(|| {
+                state.next += 1;
+                state.next
+            });
+            state.wakers.insert(token, waker)
+        };
+        drop(previous);
         Poll::Pending
     }
 }
+
+impl Drop for GateWait {
+    fn drop(&mut self) {
+        if let Some(token) = self.token {
+            let waker = lock(&self.gate.0).wakers.remove(&token);
+            drop(waker);
+        }
+    }
+}
+
+/// An abort signal shared by a flight and the discovery reading it.
+#[derive(Debug, Clone, Default)]
+pub struct Signal(Gate);
+
+impl Signal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn abort(&self) {
+        self.0.open();
+    }
+
+    pub fn is_aborted(&self) -> bool {
+        lock(&self.0.0).open
+    }
+
+    pub fn same(&self, other: &Signal) -> bool {
+        self.0.same(&other.0)
+    }
+
+    pub fn wait(&self) -> SignalWait {
+        self.0.wait()
+    }
+}
+
+pub type SignalWait = GateWait;
 
 struct LimiterState {
     active: usize,
@@ -162,11 +140,12 @@ struct PendingAcquire {
     gate: Option<Gate>,
 }
 
-fn release(state: &mut LimiterState) {
-    match state.waiters.pop_front() {
-        Some(next) => next.open(),
-        None => state.active -= 1,
+fn release(state: &mut LimiterState) -> Option<Gate> {
+    let next = state.waiters.pop_front();
+    if next.is_none() {
+        state.active -= 1;
     }
+    next
 }
 
 impl Drop for PendingAcquire {
@@ -174,13 +153,17 @@ impl Drop for PendingAcquire {
         let Some(gate) = self.gate.take() else {
             return;
         };
-        let mut state = lock(&self.limiter.state);
-        match state.waiters.iter().position(|waiter| waiter.same(&gate)) {
-            Some(index) => {
+        let next = {
+            let mut state = lock(&self.limiter.state);
+            if let Some(index) = state.waiters.iter().position(|waiter| waiter.same(&gate)) {
                 state.waiters.remove(index);
+                return;
             }
-            // The slot was already handed over before this acquisition was dropped.
-            None => release(&mut state),
+            // The slot was handed over before this acquisition was dropped.
+            release(&mut state)
+        };
+        if let Some(next) = next {
+            next.open();
         }
     }
 }
@@ -226,7 +209,10 @@ impl Limiter {
 
 impl Drop for Permit {
     fn drop(&mut self) {
-        release(&mut lock(&self.limiter.state));
+        let next = release(&mut lock(&self.limiter.state));
+        if let Some(next) = next {
+            next.open();
+        }
     }
 }
 
@@ -270,6 +256,44 @@ mod tests {
         futures::executor::block_on(waiting);
         let _ = handle.join();
         let _ = opener.join();
+    }
+
+    #[test]
+    fn a_dropped_waiter_and_an_old_waker_are_never_called() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::Wake;
+
+        #[derive(Default)]
+        struct Count(AtomicUsize);
+        impl Wake for Count {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let gate = Gate::new();
+        let abandoned = Arc::new(Count::default());
+        let obsolete = Arc::new(Count::default());
+        let live = Arc::new(Count::default());
+        let poll = |waiting: &mut GateWait, count: &Arc<Count>| {
+            let waker = Waker::from(count.clone());
+            assert!(
+                Pin::new(waiting)
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_pending()
+            );
+        };
+        let mut dropped = gate.wait();
+        poll(&mut dropped, &abandoned);
+        drop(dropped);
+        let mut waiting = gate.wait();
+        poll(&mut waiting, &obsolete);
+        poll(&mut waiting, &live);
+
+        gate.open();
+        assert_eq!(abandoned.0.load(Ordering::Relaxed), 0);
+        assert_eq!(obsolete.0.load(Ordering::Relaxed), 0);
+        assert_eq!(live.0.load(Ordering::Relaxed), 1);
     }
 
     #[test]
