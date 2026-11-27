@@ -23,6 +23,7 @@ pub(crate) struct Turns {
 struct Place {
     token: u64,
     gate: Gate,
+    settled: bool,
 }
 
 impl Turns {
@@ -39,19 +40,29 @@ impl Turns {
         self.places.push_back(Place {
             token,
             gate: gate.clone(),
+            settled: false,
         });
         (token, gate, previous)
     }
 
     /// Settles one place and reports whether the queue is empty afterwards.
     pub(crate) fn settle(&mut self, token: u64) -> bool {
-        let position = self.places.iter().position(|place| place.token == token);
-        if let Some(position) = position
-            && let Some(place) = self.places.remove(position)
-        {
-            place.gate.open();
+        if let Some(place) = self.places.iter_mut().find(|place| place.token == token) {
+            place.settled = true;
         }
+        self.advance();
         self.places.is_empty()
+    }
+
+    /// Opens a finished place once every place before it finished, in order. A place whose
+    /// caller went away keeps its gate shut until then, so later work never passes the
+    /// write the place before it is still running.
+    fn advance(&mut self) {
+        while self.places.front().is_some_and(|place| place.settled) {
+            if let Some(place) = self.places.pop_front() {
+                place.gate.open();
+            }
+        }
     }
 }
 

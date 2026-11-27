@@ -145,6 +145,59 @@ fn a_permission_write_accepted_first_keeps_its_place_in_the_queue() {
 }
 
 #[test]
+fn a_dropped_writer_never_lets_later_work_pass_the_one_before_it() {
+    let codex = instance(ProviderKind::Codex, "account");
+    let fixture = fixture(
+        vec![codex],
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+    );
+    let catalog = fixture.catalog.clone();
+    // A holds the queue; B and C take their places after it.
+    let held = futures::executor::block_on(catalog.hold_turn("account"));
+    let dropped = catalog.reserve_turn("account");
+    let mut later = Box::pin(catalog.hold_turn("account"));
+    assert!(
+        poll_once(later.as_mut()).is_pending(),
+        "C waits for the places before it"
+    );
+    // B's caller goes away before its body runs: C still waits for A's write to finish.
+    drop(dropped);
+    assert!(
+        poll_once(later.as_mut()).is_pending(),
+        "a dropped place releases nothing before the place before it finished"
+    );
+    drop(held);
+    futures::executor::block_on(later);
+}
+
+#[test]
+fn a_dropped_session_write_releases_its_capacity_slot() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let fixture = fixture(
+        vec![agent.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+    );
+    let catalog = fixture.catalog.clone();
+    let held = futures::executor::block_on(catalog.hold_turn("account"));
+    let metadata = acp_metadata("session-model");
+    // Every slot is taken by a write whose caller goes away before its turn comes.
+    for index in 0..64 {
+        let mut queued = Box::pin(catalog.update_from_session(agent.clone(), &metadata));
+        assert!(
+            poll_once(queued.as_mut()).is_pending(),
+            "write {index} is queued"
+        );
+        drop(queued);
+    }
+    drop(held);
+    // The slots are free again, so a later session write is accepted.
+    futures::executor::block_on(catalog.update_from_session(agent.clone(), &metadata))
+        .unwrap_or_else(|error| panic!("{error}"));
+}
+
+#[test]
 fn a_session_reports_levels_for_the_model_it_runs_without_erasing_others() {
     // A provider-level ACP account (no agent id) keeps the options a session reports.
     let agent = instance(ProviderKind::Acp, "one");

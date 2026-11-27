@@ -16,6 +16,29 @@ use crate::cache::CacheEntry;
 use crate::catalog::turns::Turn;
 use crate::catalog::{Catalog, CatalogError, identity_revision, owns, validate_instance};
 
+/// One of the 64 session-metadata slots, held for as long as the write exists even when
+/// its caller goes away, so a dropped write never keeps the catalog at its bound.
+pub(crate) struct SessionSlot {
+    catalog: Catalog,
+}
+
+impl SessionSlot {
+    pub(crate) fn take(catalog: &Catalog) -> Self {
+        catalog.with_inner(|inner| inner.session_writes += 1);
+        Self {
+            catalog: catalog.clone(),
+        }
+    }
+}
+
+impl Drop for SessionSlot {
+    fn drop(&mut self) {
+        self.catalog.with_inner(|inner| {
+            inner.session_writes = inner.session_writes.saturating_sub(1);
+        });
+    }
+}
+
 /// What one session write learned before it took its place in the queue.
 struct SessionWrite {
     generation: u64,
@@ -73,7 +96,7 @@ impl Catalog {
         let revision = self.revision(&input);
         let identity = identity_revision(&input);
         let refreshed_at = self.now();
-        self.with_inner(|inner| inner.session_writes += 1);
+        let slot = SessionSlot::take(self);
         let mut hold = self.reserve_turn(&input.id);
         hold.wait().await;
         let result = self
@@ -90,7 +113,7 @@ impl Catalog {
             )
             .await;
         drop(hold);
-        self.with_inner(|inner| inner.session_writes = inner.session_writes.saturating_sub(1));
+        drop(slot);
         result
     }
 
@@ -229,7 +252,7 @@ impl Catalog {
         token: Option<u64>,
         mut hold: Turn,
     ) {
-        self.with_inner(|inner| inner.session_writes += 1);
+        let _slot = SessionSlot::take(self);
         hold.wait().await;
         // The row may have been replaced while this write waited behind another.
         let current = match token {
@@ -266,6 +289,5 @@ impl Catalog {
             }
         }
         drop(hold);
-        self.with_inner(|inner| inner.session_writes = inner.session_writes.saturating_sub(1));
     }
 }
