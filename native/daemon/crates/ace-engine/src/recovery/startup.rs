@@ -74,15 +74,27 @@ pub async fn run(core: &Rc<Core>) -> Result<(), EngineError> {
     // reached Cursor, so it goes again, once.
     let mut after = 0;
     loop {
-        let page: Vec<IntentHeader> = core.store.atomic(|tx| intent_page(tx.conn(), after))?;
+        let page = core.store.atomic(|tx| intent_page(tx.conn(), after))?;
         if page.is_empty() {
             break;
         }
-        after = page.last().map(|intent| intent.id).unwrap_or(after);
-        for intent in &page {
-            isolated(core, &intent.thread_id.clone(), || {
-                intent_step(core, intent, processes_unverified)
-            })?;
+        for row in page {
+            let Some(Cell::Integer(id)) = row.get("id") else {
+                return Err(EngineError::InvalidRecord);
+            };
+            after = *id;
+            match IntentHeader::from_row(&row) {
+                Ok(intent) => isolated(core, &intent.thread_id, || {
+                    intent_step(core, &intent, processes_unverified)
+                })?,
+                Err(error) => {
+                    let thread = row
+                        .get("thread_id")
+                        .and_then(crate::repository::residency::cell_text)
+                        .unwrap_or("<unreadable thread>");
+                    core.ports.report(format!("{thread}: intent {id}: {error}"));
+                }
+            }
             crate::actor::yield_once().await;
         }
         crate::actor::yield_once().await;
@@ -653,10 +665,9 @@ fn second_pass_in(
 fn intent_page(
     conn: &std::sync::Arc<ace_store::Connection>,
     after: i64,
-) -> Result<Vec<IntentHeader>, EngineError> {
+) -> Result<Vec<stmt_cache::Row>, EngineError> {
     const SQL: &str = "SELECT id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged,trigger,submitted_generation,resolution_generation,resolution_id FROM intents WHERE id>? AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1) ORDER BY id LIMIT 64";
-    let rows = stmt_cache::all_rows(conn, SQL, vec![Cell::Integer(after)])?;
-    rows.iter().map(IntentHeader::from_row).collect()
+    Ok(stmt_cache::all_rows(conn, SQL, vec![Cell::Integer(after)])?)
 }
 
 /// What the first pass read of a thread's state once.

@@ -310,7 +310,7 @@ fn reopen(conn: Arc<ace_store::Connection>) -> Arc<ace_store::Connection> {
     .unwrap()
 }
 
-fn pump_ready(conn: &Arc<ace_store::Connection>) {
+fn pump_ready(conn: &Arc<ace_store::Connection>) -> Vec<String> {
     let (engine, shell) = engine_on(conn);
     struct Budget;
     impl crate::executor::Budget for Budget {
@@ -326,6 +326,7 @@ fn pump_ready(conn: &Arc<ace_store::Connection>) {
         }
     }
     assert!(engine.is_ready(), "{:?}", shell.reports());
+    shell.reports()
 }
 
 #[test]
@@ -397,4 +398,35 @@ fn a_restart_retries_a_resume_whose_intent_did_not_commit() {
     assert_eq!(resume_intents(&conn), 1);
     assert_eq!(crate::restart::streak(&conn, "t").unwrap(), 1);
     assert!(!crate::restart::has_capture(&conn, "t").unwrap());
+}
+
+#[test]
+fn a_corrupt_outstanding_intent_is_reported_and_later_intents_still_recover() {
+    let conn = home("t", &crate::repository::testsupport::header("t"));
+    conn.exec(
+        "INSERT INTO intents(id,command_id,thread_id,kind,payload,status,delivery)
+         VALUES (41,'unreadable','t','thread.interrupt','{}','running','unrecognized'),
+                (42,'later','t','thread.interrupt','{}','running','queue')",
+    )
+    .unwrap();
+    let conn = reopen(conn);
+    let reports = pump_ready(&conn);
+    assert_eq!(
+        crate::intents::store::command_status(&conn, "later")
+            .unwrap()
+            .as_deref(),
+        Some("failed")
+    );
+    assert_eq!(
+        crate::intents::store::command_status(&conn, "unreadable")
+            .unwrap()
+            .as_deref(),
+        Some("running")
+    );
+    assert!(
+        reports
+            .iter()
+            .any(|report| report.contains("intent 41") && report.contains("delivery")),
+        "{reports:?}"
+    );
 }
