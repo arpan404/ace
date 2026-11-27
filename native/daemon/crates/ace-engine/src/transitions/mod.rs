@@ -29,10 +29,16 @@ pub fn quiescent(_state: &State, _exclude: Option<TaskId>) -> bool {
     true
 }
 
-/// Startup: prune stale guards and rebuild readiness blockers.
-pub fn boot(store: &crate::EngineStore, state: &mut State, now: i64) -> Result<(), EngineError> {
+/// Startup: prune stale guards, then mark readiness unbuilt until boot's pages replace it.
+pub fn begin_boot(store: &crate::EngineStore, state: &mut State) -> Result<(), EngineError> {
     state.transition_prune_guards(store)?;
-    readiness::boot_rebuild(store, state, now)
+    state.transitions.booting = true;
+    Ok(())
+}
+
+/// Boot's readiness rebuild is done: every thread now answers from its rebuilt index.
+pub fn finish_boot(state: &mut State) {
+    state.transitions.booting = false;
 }
 
 pub mod dispatch;

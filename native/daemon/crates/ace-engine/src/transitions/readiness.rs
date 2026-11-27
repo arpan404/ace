@@ -195,23 +195,12 @@ fn update(
 
 const REBUILD_SLICE: i64 = 256;
 
-/// `TransitionReadiness`'s construction (`:54`): rebuild one thread in bounded slices, without
-/// clearing other threads' blockers until the thread's replacement is ready.
-pub fn rebuild_thread(
-    conn: &std::sync::Arc<ace_store::Connection>,
-    now: i64,
-    thread: &str,
-) -> Result<(), EngineError> {
-    loop {
-        let (deleted, _) = stmt_cache::run(
-            conn,
-            "DELETE FROM engine_transition_blockers WHERE rowid IN (SELECT rowid FROM engine_transition_blockers WHERE thread_id=? LIMIT ?)",
-            vec![Cell::Text(thread.to_owned()), Cell::Integer(REBUILD_SLICE)],
-        )?;
-        if deleted == 0 {
-            break;
-        }
-    }
+/// One thread's blockers, replaced in one transaction. The thread's stored agents are read in
+/// bounded slices first, so a record that cannot decode fails the rebuild before anything is
+/// written: the old index stays until its replacement is complete.
+pub fn rebuild_thread(store: &EngineStore, now: i64, thread: &str) -> Result<(), EngineError> {
+    let conn = store.conn();
+    let mut blocked: Vec<String> = Vec::new();
     let mut cursor = String::new();
     loop {
         let rows = stmt_cache::all_rows(
@@ -240,71 +229,95 @@ pub fn rebuild_thread(
             let record: AgentRecord = ace_json::from_value(&parsed)
                 .map_err(|error| EngineError::Records(error.to_string()))?;
             if !agent_ready(&record, now) {
-                stmt_cache::run(
-                    conn,
-                    PUT,
-                    vec![Cell::Text(thread.to_owned()), Cell::Text(key.to_owned())],
-                )?;
+                blocked.push(key.to_owned());
             }
             cursor = key.to_owned();
         }
     }
-    let leftover = stmt_cache::get_row(
-        conn,
-        "SELECT agent_key FROM engine_transition_blockers WHERE thread_id=? AND agent_key NOT IN (SELECT key FROM engine_state_records WHERE section='agents' AND thread_id=?) LIMIT 1",
-        vec![Cell::Text(thread.to_owned()), Cell::Text(thread.to_owned())],
-    )?;
-    if leftover.is_some() {
+    store.atomic(|_tx| {
         stmt_cache::run(
             conn,
-            "DELETE FROM engine_transition_blockers WHERE thread_id=? AND agent_key NOT IN (SELECT key FROM engine_state_records WHERE section='agents' AND thread_id=?)",
-            vec![Cell::Text(thread.to_owned()), Cell::Text(thread.to_owned())],
+            "DELETE FROM engine_transition_blockers WHERE thread_id=?",
+            vec![Cell::Text(thread.to_owned())],
         )?;
-    }
-    Ok(())
+        for key in &blocked {
+            stmt_cache::run(
+                conn,
+                PUT,
+                vec![Cell::Text(thread.to_owned()), Cell::Text(key.clone())],
+            )?;
+        }
+        Ok(())
+    })
 }
 
-/// Rebuild every thread that has agent records or stale blockers, marking each when done.
-pub fn rebuild(
-    conn: &std::sync::Arc<ace_store::Connection>,
-    now: i64,
-) -> Result<Vec<String>, EngineError> {
-    let mut threads = std::collections::HashSet::new();
-    for row in stmt_cache::all_rows(
-        conn,
-        "SELECT DISTINCT thread_id FROM engine_state_records WHERE section='agents'",
-        Vec::new(),
-    )? {
-        if let Some(id) = row.get("thread_id").and_then(cell_text) {
-            threads.insert(id.to_owned());
-        }
-    }
-    for row in stmt_cache::all_rows(
-        conn,
-        "SELECT DISTINCT thread_id FROM engine_transition_blockers",
-        Vec::new(),
-    )? {
-        if let Some(id) = row.get("thread_id").and_then(cell_text) {
-            threads.insert(id.to_owned());
-        }
-    }
-    let mut done = Vec::new();
-    for thread in threads {
-        rebuild_thread(conn, now, &thread)?;
-        done.push(thread);
-    }
-    Ok(done)
+/// One page of the threads a boot rebuild has to visit, by thread id.
+fn rebuild_page(store: &EngineStore, cursor: &str, limit: i64) -> Result<Vec<String>, EngineError> {
+    let rows = stmt_cache::all_rows(
+        store.conn(),
+        "SELECT thread_id FROM (
+             SELECT DISTINCT thread_id FROM engine_state_records WHERE section='agents'
+             UNION SELECT DISTINCT thread_id FROM engine_transition_blockers
+         ) WHERE thread_id > ? ORDER BY thread_id LIMIT ?",
+        vec![Cell::Text(cursor.to_owned()), Cell::Integer(limit)],
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| row.get("thread_id").and_then(cell_text).map(str::to_owned))
+        .collect())
 }
 
-/// On boot, rebuild readiness for loaded threads in bounded steps.
-pub fn boot_rebuild(store: &EngineStore, state: &mut State, now: i64) -> Result<(), EngineError> {
-    state.transitions.booting = true;
-    let rebuilt = rebuild(store.conn(), now);
-    state.transitions.booting = false;
-    for thread in rebuilt? {
-        mark_rebuilt(state, &thread);
+/// The boot rebuild's cursor: one bounded page of threads per step (ADR 0170), each thread's
+/// index swapped in its own transaction.
+#[derive(Debug, Default)]
+pub struct BootRebuild {
+    cursor: String,
+    done: bool,
+}
+
+impl BootRebuild {
+    /// Rebuilds the next page; `true` when there is no page left.
+    pub fn step(
+        &mut self,
+        store: &EngineStore,
+        state: &mut State,
+        now: i64,
+    ) -> Result<bool, EngineError> {
+        if self.done {
+            return Ok(true);
+        }
+        let threads = rebuild_page(store, &self.cursor, REBUILD_SLICE)?;
+        if threads.is_empty() {
+            self.done = true;
+            return Ok(true);
+        }
+        for thread in &threads {
+            rebuild_thread(store, now, thread)?;
+        }
+        self.cursor = threads.last().cloned().unwrap_or_default();
+        self.done = threads.len() < REBUILD_SLICE as usize;
+        for thread in &threads {
+            mark_rebuilt(state, thread);
+        }
+        Ok(self.done)
     }
-    Ok(())
+}
+
+/// Every thread that has agent records or stale blockers, in pages.
+pub fn rebuild(store: &EngineStore, now: i64) -> Result<Vec<String>, EngineError> {
+    let mut built = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let threads = rebuild_page(store, &cursor, REBUILD_SLICE)?;
+        if threads.is_empty() {
+            return Ok(built);
+        }
+        for thread in &threads {
+            rebuild_thread(store, now, thread)?;
+        }
+        cursor = threads.last().cloned().unwrap_or_default();
+        built.extend(threads);
+    }
 }
 
 /// `TransitionReadiness.capture` (`:63`): the agents a batch's events touched get their blocker
@@ -535,7 +548,8 @@ mod tests {
         ))
         .expect("idle");
         let mut state = State::default();
-        let threads = rebuild(&conn, 10).expect("rebuild");
+        let store = Shell::store(&conn);
+        let threads = rebuild(&store, 10).expect("rebuild");
         for thread in threads {
             mark_rebuilt(&mut state, &thread);
         }
@@ -545,6 +559,35 @@ mod tests {
             .filter_map(|row| row.get("agent_key").and_then(cell_text).map(str::to_owned))
             .collect::<Vec<_>>();
         assert_eq!(keys, ["working"]);
+    }
+
+    // A stored agent that cannot decode must not leave the thread with no index at all: the
+    // old blockers stay until the replacement is complete.
+    #[test]
+    fn a_failed_agent_decode_keeps_the_threads_previous_blockers() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_transition_blockers VALUES ('t', 'working')")
+            .expect("old blocker");
+        let stored =
+            |value: serde_json::Value| format!("'{}'", value.to_string().replace('\'', "''"));
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'working', {})",
+            stored(agent_json("a-working", "working", Some("run-1")))
+        ))
+        .expect("working");
+        conn.exec(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'corrupt', '{not json')",
+        )
+        .expect("corrupt");
+        let store = Shell::store(&conn);
+        let failed = rebuild_thread(&store, 10, "t");
+        assert!(failed.is_err(), "the corrupt record fails the rebuild");
+        let keys = stmt_cache::all_rows(&conn, KEYS, vec![Cell::Text("t".into())])
+            .expect("rows")
+            .iter()
+            .filter_map(|row| row.get("agent_key").and_then(cell_text).map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["working"], "the old index is still there");
     }
 
     #[test]

@@ -301,6 +301,36 @@ mod tests {
         .expect("command")
     }
 
+    // A boot rebuild that has not reached a thread says nothing about it: its stored agent may
+    // be working, so a transition may not treat it as ready.
+    #[test]
+    fn a_thread_the_boot_rebuild_has_not_reached_is_not_ready() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        conn.exec(&format!(
+            "INSERT INTO engine_state_records VALUES ('t', 'agents', 'root', {})",
+            sql_text(
+                r#"{"agent":{"id":"root","threadId":"t","origin":"root","native":{"provider":"claude"},"fidelity":"full","cwd":"/tmp","status":{"state":"working","activity":"thinking"},"createdAt":1},"activity":"thinking","lastSignalAt":2,"activeRun":"run-1"}"#
+            )
+        ))
+        .expect("working root");
+        let engine = engine_on(&conn);
+        let core = engine.core();
+        let result = core
+            .with_state(|state| {
+                state.transitions.booting = true;
+                state.transitions.rebuilt.insert("t2".to_owned());
+                handle(core, state, &merge_command(true))
+            })
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(
+            result.get("error").and_then(Value::as_str),
+            Some("source_tree_is_live")
+        );
+    }
+
     // From `transition-regressions`: a patch merge waits for the source tree, and a first send
     // the provider accepted but has not started a run is still live work.
     #[test]

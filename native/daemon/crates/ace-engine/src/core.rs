@@ -344,6 +344,7 @@ impl Core {
             self.with_state(sessions::prepare_silence)??;
             self.with_state(recovery::prepare)??;
         }
+        self.with_state(|state| transitions::begin_boot(&self.store, state))??;
         let mut scan = repository::candidates::Scan::new(String::new());
         loop {
             let step = self.store.atomic(|tx| scan.step(tx.conn()))?;
@@ -375,8 +376,17 @@ impl Core {
             scan.restart(after);
         }
         let now = self.ports.now() as i64;
-        self.with_state(|state| transitions::boot(&self.store, state, now))??;
+        let mut rebuild = transitions::readiness::BootRebuild::default();
+        loop {
+            let done = self.with_state(|state| rebuild.step(&self.store, state, now))??;
+            if done {
+                break;
+            }
+            // One pump step between pages: a large home never rebuilds in one turn.
+            yield_once().await;
+        }
         self.with_state(|state| {
+            transitions::finish_boot(state);
             state.lifecycle = Lifecycle::Ready;
         })
     }
