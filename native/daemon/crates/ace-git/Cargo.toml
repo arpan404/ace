@@ -15,6 +15,12 @@ workspace = true
 [dependencies]
 # ace-json: every JS-visible value serializes with JSON.parse/JSON.stringify semantics, never serde_json.
 ace-json = { path = "../ace-json" }
+# ace-redaction: the port of @ace/redaction, whose literal spans and secret keys the
+# publication scan shares with every other redaction site (ADR 0224 §8a, F0).
+ace-redaction = { path = "../ace-redaction" }
+# yaml-rust2: the event parser the publication scan walks for credential fields, without
+# resolving aliases or dropping tags (MIT OR Apache-2.0, checked by deny.toml).
+yaml-rust2 = { version = "0.13", default-features = false }
 # ace-supervisor: every Git process the core starts goes through the supervisor (ADR 0223 E2): groups or jobs, bounded capture, deadlines.
 ace-supervisor = { path = "../ace-supervisor" }
 # thiserror: one typed error enum for the crate, mapped in the binding.
@@ -25,6 +31,9 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
 # libc: O_NONBLOCK when probing a root ref, so a FIFO in the Git directory can never block a worker.
 libc = { version = "0.2" }
+# unicode-normalization: NFKD before slugging a machine name, exactly as the TypeScript's
+# `normalize("NFKD")` (MIT OR Apache-2.0).
+unicode-normalization = { version = "0.1", default-features = false }
 # regex: diagnostics, stderr redaction, and config/version matching (already in workspace lockfile).
 regex = { version = "1" }
 # base64: binary stdout/stderr chunks crossing the injected-spawn port bridge (already in workspace lockfile).

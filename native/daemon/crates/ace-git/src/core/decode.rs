@@ -169,30 +169,27 @@ pub fn path_ancestors(path: &str) -> Vec<String> {
         .collect()
 }
 
-/// `git version M.m.p`'s major and minor, as every caller's parser asks (`verifyGit`).
+/// `git version M.m.p`'s major and minor, as the TypeScript's `/^git version (\d+)\.(\d+)\.(\d+)/`
+/// requires: three dot-separated numbers, so `2.39beta.1` is no version at all.
 pub fn decode_version(text: &str) -> Result<Option<(u64, u64)>, GitError> {
     let Some(rest) = text.strip_prefix("git version ") else {
         return Ok(None);
     };
-    let mut parts = rest.split('.');
+    let mut rest = rest;
     let mut numbers = Vec::with_capacity(3);
-    for _ in 0..3 {
-        let Some(part) = parts.next() else {
-            return Ok(None);
-        };
-        // The whole first component is digits; later ones end at the first non-digit, as the
-        // regex's capture does.
-        let digits: String = if numbers.is_empty() {
-            part.to_owned()
-        } else {
-            part.chars()
-                .take_while(|character| character.is_ascii_digit())
-                .collect()
-        };
-        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    for index in 0..3 {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
             return Ok(None);
         }
-        numbers.push(count(&digits)?);
+        let (head, tail) = rest.split_at(digits);
+        numbers.push(count(head)?);
+        if index < 2 {
+            let Some(after) = tail.strip_prefix('.') else {
+                return Ok(None);
+            };
+            rest = after;
+        }
     }
     Ok(Some((
         numbers.first().copied().unwrap_or(0),
@@ -353,9 +350,22 @@ mod tests {
             decode_version("git version 2.40.0").ok(),
             Some(Some((2, 40)))
         );
-        for bad in ["", "git version", "git version two.1.0", "git version 2"] {
+        for bad in [
+            "",
+            "git version",
+            "git version two.1.0",
+            "git version 2",
+            "git version 2.39beta.1",
+            "git version 2.39 .1",
+            "git version 2..1",
+        ] {
             assert_eq!(decode_version(bad).ok().flatten(), None, "{bad}");
         }
+        // A third component may run into a suffix, as the regex's trailing capture allows.
+        assert_eq!(
+            decode_version("git version 2.39.1beta").ok().flatten(),
+            Some((2, 39))
+        );
     }
 
     #[test]

@@ -4,11 +4,15 @@
 //! person's hooks and signing in their roots exactly where TypeScript does.
 //! G0 stub.
 
+pub mod bind;
 pub mod branches;
 pub mod commit;
+pub mod context;
 pub mod fetch;
 pub mod integration;
 pub mod merge;
+pub mod overlap;
+pub mod private;
 pub mod projects;
 pub mod publication;
 pub mod push;

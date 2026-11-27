@@ -132,6 +132,16 @@ pub struct CommitResolution {
 }
 
 impl CommitResolution {
+    /// `"commit"`, `"unborn"` or `"missing"`, as the shell reads it.
+    pub fn kind(&self) -> &'static str {
+        self.kind
+    }
+
+    /// The resolved commit id, when `kind` is `"commit"`.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
     fn commit(id: gix::hash::ObjectId) -> Self {
         Self {
             kind: "commit",
