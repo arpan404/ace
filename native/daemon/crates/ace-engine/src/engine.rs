@@ -49,6 +49,8 @@ impl Engine {
             ..State::default()
         };
         state.registry.set_entries(registry_json)?;
+        // The restart ledgers' DDL is open-time work and belongs to `ace-engine::open`, in the
+        // TypeScript opener's order (E5.4 decision 8 as amended 2026-11-26): never here.
         let (ready_tx, ready_rx) = oneshot::channel();
         let core = Rc::new(Core {
             executor: Executor::new(notifier),
@@ -216,9 +218,8 @@ fn start_sweep(core: &Rc<Core>) {
                 return;
             }
             let Some(core) = weak.upgrade() else { return };
-            match core.with_state(recovery::prune_idle) {
-                Ok(Err(error)) | Err(error) => core.ports.report(error.to_string()),
-                Ok(Ok(())) => {}
+            if let Err(error) = recovery::prune_idle(&core) {
+                core.ports.report(error.to_string());
             }
         }
     });

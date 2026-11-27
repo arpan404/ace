@@ -112,6 +112,8 @@ pub(crate) struct Shell {
     reports: RefCell<Vec<String>>,
     /// The events `writeEvents` handed the store, in order.
     events: RefCell<Vec<(String, String, f64)>>,
+    /// `previousProcessesUnverified` (E5.8).
+    processes_unverified: Cell<bool>,
     /// `admits`'s answer, the calls it saw, and the call number it starts throwing at.
     admits_answer: Cell<Option<bool>>,
     admits_calls: Cell<u32>,
@@ -119,6 +121,11 @@ pub(crate) struct Shell {
 }
 
 impl Shell {
+    /// Windows only: some process of the previous run may still be running.
+    pub fn unverified_processes(&self, unverified: bool) {
+        self.processes_unverified.set(unverified);
+    }
+
     /// A store whose transaction frame cannot open: the read must surface it, not skip it.
     pub fn failing_store(conn: &Arc<Connection>) -> EngineStore {
         Shell::make(conn, true).0
@@ -227,6 +234,7 @@ impl Shell {
             seq: Cell::new(0.0),
             ids: Cell::new(0),
             fail_open: Cell::new(fail_open),
+            processes_unverified: Cell::new(false),
             pinned: Cell::new(false),
             buffered: RefCell::new(Vec::new()),
             rolled_back: RefCell::new(Vec::new()),
@@ -308,6 +316,9 @@ impl Ports for Shell {
             return Err(PortError::Threw("maintenance gate threw".to_owned()));
         }
         Ok(self.admits_answer.get().unwrap_or(true))
+    }
+    fn previous_processes_unverified(&self) -> bool {
+        self.processes_unverified.get()
     }
     fn providers_activated(
         &self,

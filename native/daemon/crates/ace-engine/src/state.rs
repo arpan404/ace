@@ -4,6 +4,7 @@
 use crate::Core;
 use crate::actor;
 use crate::commands;
+use crate::cursor_reconcile;
 use crate::error::{EngineError, Lifecycle};
 use crate::futures::channel::oneshot;
 use crate::futures::future::Shared;
@@ -36,6 +37,8 @@ pub struct State {
     pub recovery: recovery::Recovery,            // E5.8
     pub transitions: transitions::Transitions,   // E5.9
     pub liveness: liveness::Liveness,            // E5.10
+    /// The Cursor threads a startup marked for reconcile (`CursorReconciles`, E5.8).
+    pub cursor: cursor_reconcile::CursorReconciles,
     /// The engine this state belongs to, so the fold's collaborators reach the store without a
     /// trait signature change (E5.4a). A bare `State` in a unit test has none.
     pub(crate) engine: std::rc::Weak<Core>,
@@ -61,6 +64,7 @@ impl Default for State {
             recovery: recovery::Recovery::default(),
             transitions: transitions::Transitions,
             liveness: liveness::Liveness,
+            cursor: cursor_reconcile::CursorReconciles::default(),
             engine: std::rc::Weak::new(),
             deferred_queue: Vec::new(),
         }

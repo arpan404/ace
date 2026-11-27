@@ -41,6 +41,43 @@ pub fn native_runs(key: &str) -> String {
 pub const NATIVE_RUNS_PREFIX: &str = "nativeRuns:";
 
 impl Snapshot {
+    /// Load a restarted thread's live tree (E5.8): every agent record, and the runs those agents
+    /// point at, so `lostWorkLines` sees the work a crash cut short. Records are the bound: an
+    /// agent's historical runs stay in their section.
+    pub fn hydrate_recovery(&mut self) -> Result<(), EngineError> {
+        let agents = self.agents.keys()?;
+        for key in agents {
+            if self.state.agents.contains_key(&key) {
+                continue;
+            }
+            if let Some(record) = self.agents.read(&key)? {
+                self.state.agents.insert(key, record);
+            }
+        }
+        let runs: Vec<String> = self
+            .state
+            .agents
+            .values()
+            .flat_map(|record| {
+                record
+                    .active_run
+                    .iter()
+                    .chain(record.last_run.iter())
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for run in runs {
+            if self.state.runs.contains_key(&run) {
+                continue;
+            }
+            if let Some(record) = self.runs.read(&run)? {
+                self.state.runs.insert(run, record);
+            }
+        }
+        Ok(())
+    }
+
     /// Load the records a batch names into the state before the core folds it, so a reopened
     /// thread folds onto its stored agent, item, run, interaction and task rather than creating
     /// a placeholder. The lazy sections stay the one record cache: this only reads the keys the

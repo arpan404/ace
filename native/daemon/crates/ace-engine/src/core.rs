@@ -12,6 +12,7 @@ use crate::ports::Ports;
 use crate::state::{Inputs, ReadyFuture, State};
 use crate::store::EngineStore;
 use crate::{commands, liveness, recovery, repository, sessions, transitions};
+use ace_json::Value;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::rc::{Rc, Weak};
@@ -126,7 +127,18 @@ impl Core {
             let _ = self.with_state(|state| state.repo.evict(&self.store, id));
             return Err(error);
         }
+        self.observe(id, facts_json, now)?;
         Ok(())
+    }
+
+    /// `repo.observe` (`repository.ts:419`): every committed fold reaches recovery's limit and
+    /// restart rules. Called after the transaction, so a rule may write its own.
+    pub fn observe(&self, id: &str, facts_json: &str, now: f64) -> Result<(), EngineError> {
+        let facts = match ace_json::parse(facts_json) {
+            Ok(Value::Array(facts)) => facts.into_vec(),
+            _ => Vec::new(),
+        };
+        recovery::observe::observe(self, id, &facts, now)
     }
 
     /// `repo.stream` (`repository.ts:363`): the live batch's refusals and fold inside one state
@@ -161,6 +173,7 @@ impl Core {
             let _ = self.with_state(|state| state.repo.live.remove(&prepared.token).is_some());
             return Err(error);
         }
+        self.observe(id, facts_json, now)?;
         Ok(true)
     }
 
@@ -342,37 +355,14 @@ impl Core {
                 .await
                 .map_err(EngineError::Port)?;
             self.with_state(sessions::prepare_silence)??;
-            self.with_state(recovery::prepare)??;
+            if let Some(core) = self.self_rc() {
+                recovery::prepare_ready(&core).await?;
+            }
         }
-        let mut scan = repository::candidates::Scan::new(String::new());
-        loop {
-            let step = self.store.atomic(|tx| scan.step(tx.conn()))?;
-            let Some(step) = step else {
-                // Nothing final yet: the event loop runs between scan steps.
-                yield_once().await;
-                continue;
-            };
-            if step.done {
-                break;
-            }
-            for thread in step.threads {
-                let loaded = self.with_state(|state| state.repo.state(&self.store, &thread))?;
-                match loaded {
-                    Ok(Some(_)) => {
-                        self.with_state(|state| recovery::recover_thread(state, &thread))??;
-                    }
-                    Ok(None) => {}
-                    // `skippableAtStartup` (`repository.ts:277`): an unreadable thread is
-                    // reported and skipped; a store retry or another build's data refuses.
-                    Err(error) if error.skippable_at_startup() => {
-                        self.ports.report(format!("{thread}: {error}"));
-                    }
-                    Err(error) => return Err(error),
-                }
-                yield_once().await;
-            }
-            let after = scan.after().to_owned();
-            scan.restart(after);
+        // The restart pass in bounded slices: the same threads, recovered the same way, each
+        // slice and each thread's recovery a separate pump step (E5.8, ADR 0170).
+        if let Some(core) = self.self_rc() {
+            recovery::startup::run(&core).await?;
         }
         self.with_state(|state| {
             state.lifecycle = Lifecycle::Ready;

@@ -27,6 +27,13 @@ const SET: &str = "INSERT INTO engine_transitions VALUES (?, ?)
 use crate::transitions::metadata::{
     TransitionMetadata, admit_metadata, metadata_json, parse_metadata,
 };
+/// `TransitionState.pruneGuards` (`:78`): guards whose command is no longer outstanding go.
+pub fn prune_guards(conn: &std::sync::Arc<ace_store::Connection>) -> Result<(), EngineError> {
+    const SQL: &str = "DELETE FROM engine_transition_guards WHERE command_id NOT IN (SELECT command_id FROM intents WHERE status IN ('pending','queued','running'))";
+    stmt_cache::run(conn, SQL, vec![])?;
+    Ok(())
+}
+
 impl State {
     /// `TransitionState.guarded` (`:87`).
     pub fn transition_guarded(
@@ -94,6 +101,41 @@ impl State {
                 parse_metadata(&parsed)
             }
         }
+    }
+
+    /// `TransitionState.delivered` (`:126`): a delivered handoff's marker, fallback and context go.
+    pub fn transition_delivered(
+        &mut self,
+        store: &EngineStore,
+        id: &str,
+    ) -> Result<(), EngineError> {
+        let metadata = self.transition_get(store, id)?;
+        if metadata.handoff.is_none()
+            && metadata.marker.is_none()
+            && metadata.fallback.is_none()
+            && metadata.context.is_empty()
+        {
+            return Ok(());
+        }
+        let remaining = TransitionMetadata {
+            handoff: None,
+            marker: None,
+            fallback: None,
+            context: Vec::new(),
+            ..metadata
+        };
+        let value = Value::Object(metadata_json(&remaining));
+        store.atomic(|tx| {
+            stmt_cache::run(
+                tx.conn(),
+                SET,
+                vec![
+                    text(id),
+                    ace_store::Value::Text(ace_json::to_string(&value)),
+                ],
+            )?;
+            Ok(())
+        })
     }
 
     /// `TransitionState.selection` (`:139`): the selection a requested change resolves to.

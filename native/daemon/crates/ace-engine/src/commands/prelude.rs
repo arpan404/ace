@@ -197,7 +197,7 @@ pub fn handle(
     {
         return Ok(Some(error(&id, "workspace_change_in_progress")));
     }
-    if let Some(result) = crate::queue::commands::handle(core, state, command)? {
+    if let Some(result) = crate::recovery::handle(core, state, command)? {
         return Ok(Some(result));
     }
     if matches!(kind, "thread.switch" | "thread.merge" | "thread.fork") {
