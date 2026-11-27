@@ -192,6 +192,9 @@ pub fn begin_disable(session: &mut Session) -> u64 {
     session.thread_id = None;
     session.changing_binding = false;
     session.binding_owner = None;
+    // `stopDevice` releases control synchronously, before its cleanup is awaited, so
+    // a re-enable before the lease ran out finds the device free.
+    session.lease.release(None);
     super::control::invalidate_pending_control(session);
     session.binding_epoch
 }

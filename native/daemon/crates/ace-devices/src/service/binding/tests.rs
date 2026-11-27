@@ -9,6 +9,10 @@ use super::{
     Bind, Bound, begin_bind, begin_disable, finish_bind, finish_disable, supersede_inflight_bind,
 };
 use crate::error::DeviceErrorCode;
+use crate::service::control::{
+    Claim, claim_for_agent, finish_assign, owns_control, resume_claim_for_agent,
+    start_bind_for_agent,
+};
 use crate::service::lease::{Actor, Controller};
 use crate::service::session::Session;
 use crate::service::words;
@@ -278,6 +282,47 @@ fn a_recording_published_after_re_enable_survives_the_old_disable_completion() {
         "the newer recording survives the old disable's completion"
     );
     assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+}
+
+#[test]
+fn disabling_releases_an_established_persons_lease_so_an_agent_can_take_the_device() {
+    let mut session = bound("t1");
+    session.lease.release(None);
+    session.lease.claim(Actor::human("person"), 0.0);
+    assert!(owns_control(&mut session.lease, "person", 0.0));
+
+    begin_disable(&mut session);
+    assert!(
+        !owns_control(&mut session.lease, "person", 0.0),
+        "a disable lets go of control before its cleanup, as stopDevice does"
+    );
+    assert_eq!(
+        claim_for_agent(&mut session, &Actor::agent("agent-2", "t2", "a2"), 0.0),
+        Ok(Claim::Take),
+        "the expired person's lease no longer refuses an agent"
+    );
+}
+
+#[test]
+fn disabling_releases_an_established_agents_lease_so_another_agent_can_take_the_device() {
+    let mut session = bound("t1");
+    let other = Actor::agent("agent-2", "t2", "a2");
+
+    begin_disable(&mut session);
+    assert_eq!(
+        claim_for_agent(&mut session, &other, 0.0),
+        Ok(Claim::Take),
+        "the first agent's lease does not outlive the disable"
+    );
+
+    // Back on, the other agent binds its own thread and holds the device.
+    let bind = start_bind_for_agent(&mut session, &other, 0.0).expect("the other agent binds");
+    let assignment = resume_claim_for_agent(&mut session, &other, bind, false, true, 0.0)
+        .expect("the other agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&other), 0.0).expect("the other agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t2"));
+    assert_eq!(session.lease.status(0.0).controller, Controller::Agent);
 }
 
 #[test]
