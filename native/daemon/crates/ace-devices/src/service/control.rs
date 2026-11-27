@@ -10,6 +10,7 @@
 
 use super::binding::{
     Bind, Bound, TURNED_OFF_KEY, begin_bind, begin_bind_for_person, fail_bind, finish_bind,
+    holds_reservation,
 };
 use super::lease::{Actor, ActorKind, ControllerLease};
 use super::session::Session;
@@ -90,16 +91,20 @@ fn require_agent_caller(actor: &Actor) -> Result<(&str, &str), DeviceError> {
 /// Clear the bind this claim started, and only that one: a newer bind — a
 /// person's, started after it — keeps its guard, its epoch and its recording, so
 /// its own cleanup is not refused `bindingDisabled` by a stale agent that landed
-/// later. The bind that still owns the epoch clears the old thread's published
-/// recording here, as `bindDevice`'s cleanup does, even when control moved on.
+/// later. The live bind that still owns the epoch clears the old thread's
+/// published recording here, as `bindDevice`'s cleanup does, even when control
+/// moved on. A completion replayed after that reservation was consumed, or a
+/// superseded one, changes nothing: the epoch alone still matches, and the
+/// recording published since belongs to the thread that holds the device now.
 fn abort_stale_bind(session: &mut Session, bind: &Bind) {
     let Bind::Cleanup { epoch, .. } = bind else {
         return;
     };
-    if session.binding_epoch != *epoch {
+    if !holds_reservation(session, *epoch) {
         return;
     }
     session.changing_binding = false;
+    session.binding_owner = None;
     session.completed = None;
     session.recording_artifact = None;
 }

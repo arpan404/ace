@@ -883,6 +883,59 @@ fn a_second_person_supersedes_a_pending_persons_takeover() {
 }
 
 #[test]
+fn a_replayed_successful_bind_completion_leaves_the_live_recording_alone() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    let replay = bind.clone();
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    // The newly bound thread publishes a recording of its own.
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    let refused = resume_claim_for_agent(&mut session, &agent(), replay, false, true, NOW)
+        .expect_err("the bind already finished");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "a consumed reservation does not clear the live recording"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+}
+
+#[test]
+fn a_replayed_failed_bind_completion_leaves_the_live_recording_alone() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    let replay = bind.clone();
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("the agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent holds it");
+    session.completed = Some(String::from("recording-2"));
+    session.recording_artifact = Some(String::from("artifact-2"));
+
+    let outcome = resume_claim_for_agent(&mut session, &agent(), replay, true, true, NOW)
+        .expect("the replay reports its own failure");
+    assert_eq!(outcome, None, "a failed cleanup never assigns control");
+    assert_eq!(
+        session.lease.status(NOW).controller,
+        Controller::Agent,
+        "the live holder keeps control"
+    );
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("recording-2"),
+        "a consumed reservation's failure does not clear the live recording"
+    );
+    assert_eq!(session.recording_artifact.as_deref(), Some("artifact-2"));
+}
+
+#[test]
 fn a_person_taking_control_without_a_thread_still_clears_the_agents_recording() {
     let mut session = Session::new("ios:AAAA");
     session.completed = Some(String::from("recording-1"));

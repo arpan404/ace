@@ -135,13 +135,21 @@ pub fn begin_bind_for_person(
     begin_bind(session, thread_id, owner)
 }
 
+/// Whether the cleanup reservation at `epoch` is the live one. Every completion is
+/// accepted once, and only by the bind that owns it: the epoch alone keeps matching
+/// after the reservation was consumed, so a replayed completion (the same bind's
+/// second copy) would otherwise write to a session that has since moved on.
+pub(crate) fn holds_reservation(session: &Session, epoch: u64) -> bool {
+    session.changing_binding && session.binding_epoch == epoch
+}
+
 /// The cleanup threw. Its failure is the caller's error whatever else happened to
 /// the device: `binding.ts` throws the AggregateError before it checks the epoch
 /// or the disable, so a hand-back, a disable and a fresh takeover that landed
-/// during the cleanup cannot hide it. Only the bind that still owns the epoch
+/// during the cleanup cannot hide it. Only the live bind that still owns the epoch
 /// clears the reservation and the publication its cleanup never got to clear.
 pub fn fail_bind(session: &mut Session, epoch: u64) -> Bound {
-    if session.binding_epoch == epoch {
+    if holds_reservation(session, epoch) {
         session.changing_binding = false;
         session.binding_owner = None;
         session.completed = None;
@@ -154,9 +162,9 @@ pub fn fail_bind(session: &mut Session, epoch: u64) -> Bound {
 /// checked the caller's lifetime), so bind the device unless devices were turned
 /// off or a newer bind passed this one.
 ///
-/// Only the bind that still owns the current epoch may touch the session: a
-/// superseded bind's late completion leaves the newer bind's reservation and
-/// recording alone.
+/// Only the live bind that still owns the current epoch may touch the session: a
+/// superseded or already-consumed bind's late completion leaves the newer bind's
+/// reservation and recording alone.
 pub fn finish_bind(
     session: &mut Session,
     thread_id: &str,
@@ -169,7 +177,7 @@ pub fn finish_bind(
         // throws it before its disabled check.
         return Ok(fail_bind(session, epoch));
     }
-    if session.binding_epoch != epoch {
+    if !holds_reservation(session, epoch) {
         return Err(words::refusal(TURNED_OFF_KEY));
     }
     session.changing_binding = false;
