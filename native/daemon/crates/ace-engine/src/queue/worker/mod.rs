@@ -25,7 +25,7 @@ const RESERVED: &str = "SELECT 1 FROM workspace_root_reservations WHERE root=? L
 const CWD: &str = "SELECT cwd FROM engine_sessions WHERE thread_id=?";
 
 /// `fenced(id)`: the thread is moving to another machine.
-fn fenced(core: &Core, thread: &str) -> Result<bool, EngineError> {
+pub(crate) fn fenced(core: &Core, thread: &str) -> Result<bool, EngineError> {
     Ok(ace_store::stmt_cache::get_row(
         core.store.conn(),
         FENCED,
@@ -49,7 +49,7 @@ fn session_cwd(core: &Core, thread: &str) -> Result<Option<String>, EngineError>
 }
 
 /// `store.workspaceReservations.reserved(cwd)`.
-fn workspace_reserved(core: &Core, cwd: &str) -> Result<bool, EngineError> {
+pub(crate) fn workspace_reserved(core: &Core, cwd: &str) -> Result<bool, EngineError> {
     Ok(ace_store::stmt_cache::get_row(
         core.store.conn(),
         RESERVED,
@@ -88,6 +88,9 @@ fn schedule_actor(core: &Core, thread: &str) {
 /// `wake(id)`: the thread's lanes run, unless it is closing, cleaning or moving. A wake while
 /// the store publishes history waits for writability, once per thread.
 pub fn wake(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
+    if core.with_state(|state| crate::cursor_reconcile::holds(state, thread))? {
+        return Ok(());
+    }
     if core.closing.get() || core.with_state(|state| state.repo.cleaning(thread))? {
         return Ok(());
     }
@@ -262,7 +265,9 @@ fn is_steer(core: &Core, thread: &str, intent: &IntentHeader) -> Result<bool, En
 /// One pass of a thread's sends lane (`index.ts:1300`).
 pub async fn work(core: Rc<Core>, thread: String) -> Result<(), EngineError> {
     actor::mailbox::task::flush(Rc::clone(&core), thread.clone(), None).await;
-    if core.with_state(|state| state.repo.cleaning(&thread))? {
+    if core.with_state(|state| {
+        state.repo.cleaning(&thread) || crate::cursor_reconcile::holds(state, &thread)
+    })? {
         return Ok(());
     }
     let Some(facts) = actor_facts(&core, &thread)? else {

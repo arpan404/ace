@@ -114,6 +114,46 @@ mod store {
     }
 
     #[test]
+    fn startup_reconciles_a_cut_off_cursor_turn_once_the_engine_is_ready() {
+        let conn = home("t", &crate::repository::testsupport::header("t"));
+        live_thread(&conn, "active");
+        conn.exec(r#"UPDATE threads SET status='{"state":"working","agents":1}' WHERE id='t'"#)
+            .unwrap();
+        crate::restart::ensure_ledgers(&conn).unwrap();
+        let engine = engine_on(&conn);
+        struct Budget;
+        impl crate::executor::Budget for Budget {
+            fn start(&mut self) {}
+            fn spent(&self, started: usize) -> bool {
+                started >= 1
+            }
+        }
+        let exited = || {
+            ace_store::stmt_cache::get_row(&conn,
+            "SELECT 1 FROM thread_state WHERE thread_id='t' AND json_type(state, '$.processExit')='object'",
+            Vec::new()).unwrap().is_some()
+        };
+        for _ in 0..256 {
+            engine.pump(&mut Budget);
+            if engine.is_ready() {
+                break;
+            }
+        }
+        assert!(engine.is_ready());
+        assert!(!exited(), "Cursor remains working through readiness");
+        for _ in 0..64 {
+            engine.pump(&mut Budget);
+            if exited() {
+                break;
+            }
+        }
+        assert!(
+            exited(),
+            "the reconcile settles the cut-off run when the session cannot be opened"
+        );
+    }
+
+    #[test]
     fn a_cut_off_cursor_turn_that_cannot_reconcile_fails_with_the_uncertainty_notice() {
         let conn = home("t", &crate::repository::testsupport::header("t"));
         live_thread(&conn, "active");

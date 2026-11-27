@@ -20,6 +20,7 @@ fn frame(seq: u64) -> SessionFrame {
 fn the_open_request_carries_everything_the_provider_is_told() {
     let request = OpenRequest {
         thread_id: "t".to_owned(),
+        provider: "pi".to_owned(),
         cwd: "/repo".to_owned(),
         model: Some("model".to_owned()),
         instance_id: Some("account".to_owned()),

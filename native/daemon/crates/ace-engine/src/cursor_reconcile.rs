@@ -4,8 +4,13 @@
 //! threads a startup marked: their lanes stay shut while a reconcile waits or runs, so a Resume
 //! cannot open a second session that fences it.
 
+use crate::executor::Lane;
+use crate::sessions::attach::OpenFailure;
+use crate::sessions::open_session::OpenRefusal;
 use ace_json::Value;
 use indexmap::IndexSet;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::{Core, EngineError, State};
 
@@ -18,12 +23,14 @@ pub struct CursorReconciles {
     pub(crate) held: IndexSet<String>,
     /// Close ran: nothing more is scheduled or opened.
     pub(crate) closed: bool,
+    timers: HashMap<String, u64>,
 }
 
 /// `add` (`cursor-reconcile.ts:247`): a thread whose cut-off Cursor work waits for its reconcile.
 pub fn mark(state: &mut crate::State, thread: &str) {
-    state.cursor.marked.insert(thread.to_owned());
-    state.cursor.held.insert(thread.to_owned());
+    if !state.cursor.closed && state.cursor.held.insert(thread.to_owned()) {
+        state.cursor.marked.insert(thread.to_owned());
+    }
 }
 
 /// `holds` (`:256`): true while a thread waits for or runs its reconcile, busy retries included.
@@ -38,12 +45,179 @@ pub fn close(state: &mut crate::State) {
 
 /// The threads startup marked, in marking order (`start`, `:259`).
 pub fn take_marked(state: &mut crate::State) -> Vec<String> {
-    state.cursor.marked.iter().cloned().collect()
+    std::mem::take(&mut state.cursor.marked)
+        .into_iter()
+        .collect()
 }
 
 /// `release` (`:307`): the thread's lanes open again.
 pub fn release(state: &mut crate::State, thread: &str) {
+    state.cursor.marked.shift_remove(thread);
     state.cursor.held.shift_remove(thread);
+}
+
+/// Start reconciles only after startup has published readiness.
+pub(crate) fn start(core: &Rc<Core>) {
+    let threads = match core.with_state(take_marked) {
+        Ok(threads) => threads,
+        Err(error) => {
+            core.ports.report(error.to_string());
+            return;
+        }
+    };
+    for thread in threads {
+        let owner = Rc::clone(core);
+        core.executor
+            .spawn(Lane::Work, async move { reconcile(&owner, &thread).await })
+            .detach();
+    }
+}
+
+pub(crate) fn cancel(core: &Core) {
+    let timers = core.with_state(|state| {
+        close(state);
+        std::mem::take(&mut state.cursor.timers)
+    });
+    if let Ok(timers) = timers {
+        for key in timers.into_values() {
+            core.ports.cancel_timer(key);
+        }
+    }
+}
+
+async fn reconcile(core: &Rc<Core>, thread: &str) {
+    match reconcile_once(core, thread).await {
+        Ok(()) => {}
+        Err(error) => {
+            core.ports.report(format!("{thread}: {error}"));
+            let mut waits = FailureWaits::new(&BUSY_RETRY_MS);
+            loop {
+                if core.closing.get() {
+                    return;
+                }
+                let outcome = core.store.atomic(|_| {
+                    core.with_state(|state| end_failed(core, state, thread, core.ports.now()))?
+                });
+                match outcome {
+                    Ok(()) => break,
+                    Err(error) => core.ports.report(format!("{thread}: {error}")),
+                }
+                if !sleep(core, thread, waits.next().unwrap_or(60_000.0)).await {
+                    return;
+                }
+            }
+        }
+    }
+    if core.closing.get() {
+        return;
+    }
+    let result = core
+        .with_state(|state| release(state, thread))
+        .and_then(|()| crate::queue::worker::wake(core, thread));
+    if let Err(error) = result {
+        core.ports.report(format!("{thread}: {error}"));
+    }
+}
+
+async fn sleep(core: &Core, thread: &str, ms: f64) -> bool {
+    if core.closing.get() {
+        return false;
+    }
+    let timer = core.ports.set_timer(ms);
+    if core
+        .with_state(|state| state.cursor.timers.insert(thread.to_owned(), timer.key))
+        .is_err()
+    {
+        core.ports.cancel_timer(timer.key);
+        return false;
+    }
+    let fired = timer.fired.await.is_ok();
+    let _ = core.with_state(|state| state.cursor.timers.remove(thread));
+    fired && !core.closing.get()
+}
+
+async fn reconcile_once(core: &Rc<Core>, thread: &str) -> Result<(), EngineError> {
+    if core.closing.get() || crate::queue::worker::fenced(core, thread)? {
+        return Ok(());
+    }
+    let was_running = root_active(core, thread)?;
+    let reserved = core.with_state(|state| state.reserve_slot(&core.store, thread))??;
+    if !reserved {
+        return Err(EngineError::ActorCapacityExceeded);
+    }
+    crate::actor::get_or_create(core, &thread.to_owned())?;
+    let mut waits = BUSY_RETRY_MS.into_iter();
+    loop {
+        match crate::sessions::connect::stored(core, thread).await {
+            Ok(()) => break,
+            Err(OpenFailure::Refused(
+                OpenRefusal::Closing
+                | OpenRefusal::Deleted
+                | OpenRefusal::Cleaning
+                | OpenRefusal::Fenced,
+            )) => return Ok(()),
+            Err(OpenFailure::Provider(message)) if message.contains("session_store_busy") => {
+                let Some(wait) = waits.next() else {
+                    return Err(EngineError::Records(message));
+                };
+                if !sleep(core, thread, wait).await {
+                    return Ok(());
+                }
+            }
+            Err(error) => {
+                return Err(EngineError::Records(format!(
+                    "Cursor restart could not open the session: {error:?}"
+                )));
+            }
+        }
+    }
+    crate::actor::mailbox::flush(Rc::clone(core), thread.to_owned(), core.executor.current()).await;
+    if core.closing.get() || crate::queue::worker::fenced(core, thread)? {
+        return Ok(());
+    }
+    if was_running && root_active(core, thread)? {
+        crate::sessions::attach::close_for_settle(core, &thread.to_owned()).await?;
+        if core.closing.get() || crate::queue::worker::fenced(core, thread)? {
+            return Ok(());
+        }
+        return Err(EngineError::Records(
+            "Cursor restart did not recover the active turn".into(),
+        ));
+    }
+    core.store.atomic(|_| {
+        core.with_state(|state| {
+            let at = core.ports.now();
+            if !was_running || finished(core, state, thread)? {
+                release_hold(core, state, thread, at)?;
+            } else {
+                let snapshot = state.repo.require_state(&core.store, thread)?;
+                let root = snapshot.borrow().state.root_key.clone();
+                let fact = crate::restart::interrupted_notice(root.as_deref(), at, "restart", None);
+                state.apply(
+                    &core.store,
+                    thread,
+                    &ace_json::to_string(&Value::Array(vec![fact].into())),
+                    at,
+                    None,
+                )?;
+            }
+            Ok(())
+        })?
+    })
+}
+
+fn root_active(core: &Core, thread: &str) -> Result<bool, EngineError> {
+    core.with_state(|state| {
+        let snapshot = state.repo.require_state(&core.store, thread)?;
+        let mut snapshot = snapshot.borrow_mut();
+        snapshot.hydrate_recovery()?;
+        Ok(snapshot
+            .state
+            .root_key
+            .as_deref()
+            .and_then(|root| snapshot.state.agents.get(root))
+            .is_some_and(|root| root.active_run.is_some()))
+    })?
 }
 
 // ---------------------------------------------------------------------------------------------

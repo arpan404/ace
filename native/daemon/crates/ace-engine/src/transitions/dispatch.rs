@@ -48,6 +48,9 @@ fn report(core: &Rc<Core>, thread: &str, outcome: Result<Result<(), EngineError>
 /// Claim and execute the transition intents `thread` has queued, up to the merge queue's
 /// capacity, so a restart with several merges runs all of them and none stays pending.
 pub fn run_thread(core: &Rc<Core>, state: &mut State, thread: &str) -> Result<(), EngineError> {
+    if crate::cursor_reconcile::holds(state, thread) {
+        return Ok(());
+    }
     for _ in 0..8 {
         let Some(header) = crate::intents::store::transition(core.store.conn(), thread)? else {
             return Ok(());

@@ -118,6 +118,15 @@ impl Engine {
         &self.core
     }
 
+    /// Bind the Rust session opener before pumping readiness.
+    pub fn bind_session_opener(
+        &self,
+        opener: Rc<dyn crate::sessions::attach::SessionOpener>,
+    ) -> Result<(), EngineError> {
+        self.core
+            .with_state(|state| state.sessions.opener = Some(opener))
+    }
+
     /// The pump's one turn; the shell schedules the continuation on `Rearm`.
     pub fn pump(&self, budget: &mut dyn Budget) -> Pump {
         let store = &self.core.store;
@@ -210,7 +219,11 @@ fn start_ready(core: Rc<Core>) {
     let task_core = Rc::clone(&core);
     let task = core.executor.spawn(Lane::Control, async move {
         let outcome = task_core.ready_steps().await;
+        let ready = outcome.is_ok();
         task_core.finish_ready(outcome);
+        if ready {
+            crate::cursor_reconcile::start(&task_core);
+        }
         start_open_fills(task_core);
     });
     core.tasks.borrow_mut().push(task);

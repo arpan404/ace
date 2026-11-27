@@ -43,6 +43,7 @@ pub(crate) async fn close_sequence(core: Rc<Core>) -> CloseOutcome {
     }
     core.phase.set("recovery close");
     core.with_state(recovery::close).ok();
+    crate::cursor_reconcile::cancel(&core);
     // Every actor's work is captured before any session closes: closing a provider expires its
     // open requests, so after the close nothing would show the agent was waiting (E5.8).
     if let Err(error) = recovery::capture::capture_all_restarts(&core) {

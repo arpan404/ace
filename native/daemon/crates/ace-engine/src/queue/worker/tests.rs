@@ -140,6 +140,23 @@ fn a_moving_thread_takes_no_new_work_here() {
     assert_eq!(pass.status("moving").as_deref(), Some("pending"));
 }
 
+#[test]
+fn a_cursor_reconcile_leaves_an_admitted_send_pending_until_the_hold_releases() {
+    let pass = Pass::new("INSERT INTO engine_queue (thread_id) VALUES ('t')", "");
+    pass.exec(&queued_send("behind-reconcile", "hello"));
+    pass.core()
+        .with_state(|state| crate::cursor_reconcile::mark(state, "t"))
+        .unwrap();
+    let held = pass.pass();
+    assert!(held.is_ok(), "{held:?}");
+    assert_eq!(pass.status("behind-reconcile").as_deref(), Some("pending"));
+    pass.core()
+        .with_state(|state| crate::cursor_reconcile::release(state, "t"))
+        .unwrap();
+    let _ = pass.pass();
+    assert_eq!(pass.status("behind-reconcile").as_deref(), Some("queued"));
+}
+
 /// A stored intent of any kind, as the TypeScript engine writes it.
 fn intent(kind: &str, delivery: &str, position: i64, extra: &str) -> String {
     format!(

@@ -18,6 +18,7 @@ pub use ace_adapter_api::{SessionExit, SessionFrame, SessionObserver};
 /// The open sessions (E5.6): their silence thresholds and the bindings a provider left behind.
 #[derive(Default)]
 pub struct Sessions {
+    pub(crate) opener: Option<std::rc::Rc<dyn attach::SessionOpener>>,
     pub silence: crate::meters::silence::SilenceThresholds,
     pub provider_sessions: ProviderSessions,
     /// The sessions open on a thread now, by thread.
@@ -30,6 +31,7 @@ pub struct Sessions {
 pub mod attach;
 pub mod background_ports;
 pub mod compact;
+pub(crate) mod connect;
 pub mod env;
 pub mod errors;
 pub mod failure_copy;

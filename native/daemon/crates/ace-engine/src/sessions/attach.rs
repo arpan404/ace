@@ -25,6 +25,7 @@ use crate::{Core, EngineError, ThreadId};
 #[derive(Debug, Clone, Default)]
 pub struct OpenRequest {
     pub thread_id: ThreadId,
+    pub provider: String,
     pub cwd: String,
     pub model: Option<String>,
     pub instance_id: Option<String>,
