@@ -239,14 +239,30 @@ impl Catalog {
                 return (Vec::new(), Vec::new(), None);
             }
             inner.removals.insert(instance.to_owned());
-            let mut flights = Vec::new();
+            // Every flight this instance ever started, not only its current row's.
+            let mut flights: Vec<crate::catalog::Flight> = inner
+                .row_flights
+                .get(instance)
+                .map(|gates| {
+                    gates
+                        .iter()
+                        .map(|gate| crate::catalog::Flight {
+                            done: gate.clone(),
+                            token: 0,
+                            generation: 0,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let mut invalidations = Vec::new();
             let tail = inner.write_tails.get(instance).cloned();
             if let Some(state) = inner.states.get(instance) {
                 if let Some(abort) = &state.abort {
                     abort.abort();
                 }
-                if let Some(flight) = &state.flight {
+                if let Some(flight) = &state.flight
+                    && !flights.iter().any(|known| known.done.same(&flight.done))
+                {
                     flights.push(flight.clone());
                 }
                 if let Some(pending) = &state.invalidating {
@@ -313,7 +329,16 @@ impl Catalog {
                 }
                 state.entry = None;
                 state.view = None;
-                let flights = state.flight.clone();
+                let mut flights = state.flight.clone();
+                if flights.is_none() {
+                    flights = inner.row_flights.get(id).and_then(|gates| {
+                        gates.first().map(|gate| crate::catalog::Flight {
+                            done: gate.clone(),
+                            token: 0,
+                            generation: 0,
+                        })
+                    });
+                }
                 let invalidations = state.invalidating.clone();
                 let tail = inner.write_tails.get(id).cloned();
                 Some((

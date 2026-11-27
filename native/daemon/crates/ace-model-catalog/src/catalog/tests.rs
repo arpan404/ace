@@ -574,7 +574,14 @@ fn an_invalidate_waits_out_a_refresh_whose_row_was_replaced() {
             None,
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    let invalidating = catalog.invalidate(ModelFilter::default());
+    let mut invalidating = Box::pin(catalog.invalidate(ModelFilter::default()));
+    // The replaced row's invalidation still waits for the refresh it replaced.
+    assert!(
+        poll_once(invalidating.as_mut()).is_pending(),
+        "the invalidation waits for the running flight"
+    );
+    assert!(poll_once(invalidating.as_mut()).is_pending());
+    gate.open();
     let (_, invalidated) =
         futures::executor::block_on(async move { futures::join!(flight, invalidating) });
     invalidated.unwrap_or_else(|error| panic!("{error}"));
@@ -610,7 +617,14 @@ fn a_removal_waits_out_a_refresh_whose_row_was_replaced() {
             None,
         )
         .unwrap_or_else(|error| panic!("{error}"));
-    let removing = catalog.remove_instance("account");
+    let mut removing = Box::pin(catalog.remove_instance("account"));
+    // The replacement's removal still waits for the refresh it replaced.
+    assert!(
+        poll_once(removing.as_mut()).is_pending(),
+        "the removal waits for the running flight"
+    );
+    assert!(poll_once(removing.as_mut()).is_pending());
+    gate.open();
     let (_, removed) = futures::executor::block_on(async move { futures::join!(flight, removing) });
     removed.unwrap_or_else(|error| panic!("{error}"));
     assert!(!catalog.has_instance("account"));
@@ -1143,7 +1157,14 @@ fn shutdown_aborts_flights_and_closes_after_they_settle() {
             .refresh_state("account", RefreshCause::Background)
             .await;
     }));
+    // Start the work before closing: its flight is registered and running.
+    assert_eq!(fixture.spawn.drain(), 1, "the flight started");
+    assert_eq!(fixture.discover.calls(), 1, "its discovery is running");
     let mut close = Box::pin(fixture.catalog.close());
+    assert!(
+        poll_once(close.as_mut()).is_pending(),
+        "close waits for the flight it aborted"
+    );
     let closed = loop {
         match poll_once(close.as_mut()) {
             std::task::Poll::Ready(result) => break result,

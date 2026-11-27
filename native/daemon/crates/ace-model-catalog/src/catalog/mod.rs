@@ -509,6 +509,8 @@ pub(crate) struct Inner {
     pub(crate) accepted_writes: Vec<crate::signals::Gate>,
     pub(crate) next_generation: u64,
     pub(crate) owned: Vec<crate::signals::Gate>,
+    /// The flights running for each instance, whatever row replaced them.
+    pub(crate) row_flights: BTreeMap<String, Vec<crate::signals::Gate>>,
     pub(crate) probe_signals: Vec<crate::signals::Signal>,
     pub(crate) listeners: Vec<Arc<dyn Fn(ModelFilter) + Send + Sync>>,
     pub(crate) installations: BTreeMap<String, String>,
@@ -584,6 +586,7 @@ impl Catalog {
             accepted_writes: Vec::new(),
             next_generation: 0,
             owned: Vec::new(),
+            row_flights: BTreeMap::new(),
             probe_signals: Vec::new(),
             listeners: Vec::new(),
             installations: BTreeMap::new(),
