@@ -1,16 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The transport (F1 of docs/forge/porting-guide.md): the runner (`command.ts`), `GhApi`
-//! (`http.ts`), write classification and `MutationDispatch`, read-only admission, pinned
-//! identities, readiness and error kinds. Every host request goes through it; one person's CLI
-//! process per request, through `ace-supervisor`. F0 declares the module and the runner's port
-//! bridge only; every probe defers to TypeScript.
+//! The transport (F1 of docs/forge/porting-guide.md): the runner every host request goes
+//! through, the fixed error categories, write classification and dispatch certainty,
+//! read-only admission and write scopes, `GhApi`'s caches, polling, read budgets, SSH host
+//! aliases and the repository key.
+//!
+//! Rules this module keeps (ADR 0224 §8, §8a): every request is one run of the person's own
+//! CLI through `ace-supervisor`; no CLI configuration, keychain or token is read, stored or
+//! logged; every reply, stderr tail and diagnostic is redacted before it is cached or
+//! returned; nothing secret leaves this boundary.
 
-use crate::error::Error;
+pub mod admission;
+pub mod command;
+pub mod error;
+pub mod http;
+pub mod http_errors;
+pub mod identity;
+pub mod incremental;
+pub mod key;
+pub mod limits;
+pub mod mutation;
+pub mod poll;
+pub mod readiness;
+pub mod redact;
+pub mod reported_capabilities;
+pub mod resource;
+pub mod revisions;
+pub mod ssh;
+pub mod tail;
 
-/// The part name the shell and the deferral payload use.
+/// The part name the probe and the deferral payload use.
 pub const PART: &str = "transport";
 
-/// `op`'s native entry point; F0's answer is the deferral.
-pub fn probe(op: &str) -> Result<String, Error> {
-    Err(Error::unimplemented(PART, op))
+/// `op`'s native entry point. F1 declares the module and its behaviour; the GitHub reader
+/// that drives it arrives with F2, so no operation is exposed as a probe yet.
+pub fn probe(op: &str) -> Result<String, crate::error::Error> {
+    Err(crate::error::Error::unimplemented(PART, op))
 }
