@@ -179,6 +179,15 @@ fn a_stale_agent_claim_after_a_person_hands_back_is_rejected_and_a_fresh_claim_s
         claim_for_agent(&mut session, &agent(), NOW),
         Ok(Claim::Take)
     );
+
+    // The fresh claim completes and the agent is the holder, not merely allowed.
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("fresh bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("fresh resume")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent takes it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
 }
 
 #[test]
@@ -195,6 +204,64 @@ fn a_stale_agent_claim_after_the_person_dropped_mid_takeover_is_rejected() {
         Ok(Claim::Take)
     );
     let _ = person_assign;
+
+    // The fresh claim completes and the agent is the holder, not merely allowed.
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("fresh bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("fresh resume")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent takes it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn a_person_who_took_control_and_disconnected_lets_the_agent_claim_and_hold_it() {
+    let mut session = Session::new("ios:AAAA");
+    let person_assign = begin_assign(&mut session, &person(), NOW).expect("the person takes");
+    finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("the person holds it");
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+
+    invalidate_pending_owner(&mut session, "person");
+    session.lease.release(Some("person"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert_eq!(
+        claim_for_agent(&mut session, &agent(), NOW),
+        Ok(Claim::Take)
+    );
+
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect("resume")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), NOW).expect("the agent takes it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn a_persons_expired_control_lets_the_agent_claim_and_hold_it() {
+    let mut session = Session::new("ios:AAAA");
+    let person_assign = begin_assign(&mut session, &person(), NOW).expect("the person takes");
+    finish_assign(&mut session, person_assign, Some(&person()), NOW).expect("the person holds it");
+    let later = NOW + crate::service::lease::LEASE_MS + 1.0;
+    assert_eq!(
+        session.lease.status(later).controller,
+        Controller::None,
+        "the lease ran out"
+    );
+    assert_eq!(
+        claim_for_agent(&mut session, &agent(), later),
+        Ok(Claim::Take)
+    );
+
+    let bind = start_bind_for_agent(&mut session, &agent(), later).expect("bind");
+    let assignment = resume_claim_for_agent(&mut session, &agent(), bind, false, true, later)
+        .expect("resume")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&agent()), later).expect("the agent takes it");
+    assert_eq!(session.thread_id.as_deref(), Some("t1"));
+    assert_eq!(session.lease.status(later).controller, Controller::Agent);
 }
 
 #[test]
