@@ -1341,6 +1341,43 @@ fn a_discovery_that_reports_success_after_its_timeout_never_commits() {
 }
 
 #[test]
+fn a_commit_held_past_its_deadline_never_writes_and_reports_a_timeout() {
+    within(15, "a commit held past its deadline", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let storage = SharedStorage::new(MemoryStorage::new());
+        let discover = always(vec![row(&codex, "gpt-6-sol")]);
+        let fixture = fixture(vec![codex], storage.clone(), discover.clone());
+        let catalog = fixture.catalog.clone();
+        // A writer holds the row's queue, so the discovery's commit cannot take its place.
+        let held = futures::executor::block_on(catalog.hold_turn("account"));
+        let mut flight = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(
+            poll_once(flight.as_mut()).is_pending(),
+            "the commit waits for the queue"
+        );
+        assert_eq!(
+            fixture.discover.calls(),
+            1,
+            "the discovery already answered"
+        );
+        // The deadline passes while the commit waits for the queue.
+        fixture.deadlines.fire(1_000.0 + 1_000.0);
+        drop(held);
+        let status = settle(flight, &fixture.spawn, "the flight whose queue was held");
+        assert_eq!(status.error, Some(StatusError::Timeout));
+        let mut storage = storage.clone();
+        assert!(
+            storage.load().unwrap_or_default().is_empty(),
+            "a discovery that outlived its deadline never reaches the cache"
+        );
+        assert!(
+            listed(&catalog).models.is_empty(),
+            "and never reaches the picker"
+        );
+    })
+}
+
+#[test]
 fn a_deadline_fired_before_the_discovery_arms_one_leaves_it_whole() {
     let codex = instance(ProviderKind::Codex, "account");
     let gate = crate::signals::Gate::new();

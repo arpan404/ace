@@ -312,14 +312,16 @@ impl Catalog {
             return;
         }
         // The deadline covers the discovery alone: an early refusal leaves no timer armed.
-        let cancel = self.options.deadline.arm(self.options.timeout_ms, {
+        // The deadline covers the discovery and the commit behind it: it stays armed until
+        // this flight returns, so a queue held past the deadline still aborts the write.
+        let _deadline = Armed(Some(self.options.deadline.arm(self.options.timeout_ms, {
             let flag = timed_out.clone();
             let signal = signal.clone();
             Box::new(move || {
                 flag.store(true, std::sync::atomic::Ordering::SeqCst);
                 signal.abort();
             })
-        });
+        })));
         let inflight = self.options.discover.discover(
             DiscoveryRequest {
                 instance: with_binary_path(
@@ -331,7 +333,6 @@ impl Catalog {
             sink,
         );
         let outcome = futures::future::select(inflight, Box::pin(signal.wait())).await;
-        cancel();
         let aborted = signal.is_aborted();
         let fired = timed_out.load(std::sync::atomic::Ordering::SeqCst);
         // A discovery that reports success after its abort, or one the deadline caught
@@ -386,7 +387,7 @@ impl Catalog {
                 self.fail(id, Some(failure), code, &failure_report);
             }
             Some(Ok(outcome)) => {
-                self.commit(id, outcome, started_at, &diagnostics, &fence)
+                self.commit(id, outcome, started_at, &diagnostics, &fence, &timed_out)
                     .await;
             }
         }
@@ -608,6 +609,9 @@ impl Catalog {
     }
 
     /// A successful discovery's commit: merged sources, entry, stored, then published.
+    ///
+    /// Every wait and both write boundaries re-check the flight, so work whose deadline
+    /// passed, or whose row a revocation took, never reaches the cache or the picker.
     async fn commit(
         &self,
         id: &str,
@@ -615,6 +619,7 @@ impl Catalog {
         started_at: f64,
         diagnostics: &DiscoveryDiagnostics,
         fence: &FlightFence<'_>,
+        timed_out: &std::sync::atomic::AtomicBool,
     ) {
         let FlightFence {
             flight, revision, ..
@@ -638,12 +643,26 @@ impl Catalog {
             return;
         }
         if !self.flight_current(id, fence) {
+            self.fenced_out(
+                id,
+                started_at,
+                diagnostics,
+                fence,
+                timed_out.load(std::sync::atomic::Ordering::SeqCst),
+            );
             return;
         }
         let release = self.hold_turn(id).await;
         // The row must still be this flight's after the wait: a revocation accepted while
         // the queue was held has already re-registered it.
         if !self.flight_current(id, fence) {
+            self.fenced_out(
+                id,
+                started_at,
+                diagnostics,
+                fence,
+                timed_out.load(std::sync::atomic::Ordering::SeqCst),
+            );
             return;
         }
         let previous = self.with_inner(|inner| {
@@ -655,6 +674,17 @@ impl Catalog {
         });
         if self.finish_deletion(id).is_err() {
             self.commit_failed(id, started_at, diagnostics, fence);
+            drop(release);
+            return;
+        }
+        if !self.flight_current(id, fence) {
+            self.fenced_out(
+                id,
+                started_at,
+                diagnostics,
+                fence,
+                timed_out.load(std::sync::atomic::Ordering::SeqCst),
+            );
             drop(release);
             return;
         }
@@ -708,10 +738,35 @@ impl Catalog {
             drop(release);
             return;
         }
+        // The persist boundary: nothing is stored for a flight that lost its place.
+        if !self.flight_current(id, fence) {
+            self.fenced_out(
+                id,
+                started_at,
+                diagnostics,
+                fence,
+                timed_out.load(std::sync::atomic::Ordering::SeqCst),
+            );
+            drop(release);
+            return;
+        }
         let mut storage = self.storage.clone();
         let stored = storage.replace(&entry);
         if stored.is_err() {
             self.commit_failed(id, started_at, diagnostics, fence);
+            drop(release);
+            return;
+        }
+        // The publish boundary: a row stored for a flight that lost its place while it was
+        // written is never served, exactly as the TypeScript's queue leaves it.
+        if !self.flight_current(id, fence) {
+            self.fenced_out(
+                id,
+                started_at,
+                diagnostics,
+                fence,
+                timed_out.load(std::sync::atomic::Ordering::SeqCst),
+            );
             drop(release);
             return;
         }
@@ -823,6 +878,32 @@ impl Catalog {
         self.notify_config(&config);
     }
 
+    /// A flight that lost its place before it could write: the deadline says so, a
+    /// revocation does not.
+    fn fenced_out(
+        &self,
+        id: &str,
+        started_at: f64,
+        diagnostics: &DiscoveryDiagnostics,
+        fence: &FlightFence<'_>,
+        fired: bool,
+    ) {
+        if !fired {
+            return;
+        }
+        self.fail(
+            id,
+            None,
+            FailureCode::Timeout,
+            &FailureReport {
+                started_at,
+                diagnostics,
+                revision: Some(fence.revision),
+                token: Some(fence.flight.token),
+            },
+        );
+    }
+
     fn commit_failed(
         &self,
         id: &str,
@@ -863,6 +944,18 @@ impl Catalog {
                 },
             );
             self.notify_config(&config);
+        }
+    }
+}
+
+/// An armed deadline that stays armed for as long as its flight owns it, and is cancelled
+/// when the flight ends, whichever way it ends.
+struct Armed(Option<crate::catalog::Cancel>);
+
+impl Drop for Armed {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.0.take() {
+            cancel();
         }
     }
 }
