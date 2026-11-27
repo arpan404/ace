@@ -197,6 +197,13 @@ pub fn handle(
     {
         return Ok(Some(error(&id, "workspace_change_in_progress")));
     }
+    // `handler.ts:403`: a transition or checkout holding the thread refuses a new send.
+    if kind == "thread.send"
+        && let Some(thread) = thread
+        && state.transition_guarded(&core.store, thread)?
+    {
+        return Ok(Some(error(&id, "thread_transition_in_progress")));
+    }
     if let Some(result) = crate::queue::commands::handle(core, state, command)? {
         return Ok(Some(result));
     }

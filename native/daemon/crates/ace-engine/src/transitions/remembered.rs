@@ -23,6 +23,27 @@ const GRANT_COUNT: &str = "SELECT COUNT(*) AS n FROM engine_handoff_grants WHERE
 const GRANT: &str = "INSERT INTO engine_handoff_grants VALUES (?, ?, ?)
       ON CONFLICT(recipient,source) DO UPDATE SET through_seq=MAX(through_seq,excluded.through_seq)";
 
+/// Whether the grant would fit, read before any irreversible effect. It writes nothing.
+pub fn grant_fits(
+    conn: &std::sync::Arc<ace_store::Connection>,
+    recipient: &str,
+    source: &str,
+) -> Result<(), EngineError> {
+    let found = stmt_cache::get_row(conn, GRANT_FOUND, vec![text(recipient), text(source)])?;
+    if found.is_some() {
+        return Ok(());
+    }
+    let count = stmt_cache::get_row(conn, GRANT_COUNT, vec![text(recipient)])?
+        .and_then(|row| row.get("n").and_then(cell_int))
+        .unwrap_or(0);
+    if count >= 8 {
+        return Err(EngineError::Records(
+            "Handoff history grant capacity exceeded".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Grant handoff history inside a caller's open transaction.
 pub fn grant_handoff(
     conn: &std::sync::Arc<ace_store::Connection>,

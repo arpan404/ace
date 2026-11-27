@@ -9,9 +9,10 @@
 
 use ace_json::Value;
 
+use crate::intents::header::IntentHeader;
 use crate::transitions::history;
 use crate::transitions::metadata::{admit_metadata, metadata_json};
-use crate::transitions::remembered::grant_handoff;
+use crate::transitions::remembered::{grant_fits, grant_handoff};
 use crate::{EngineError, EngineStore, State};
 
 /// `execute_merge` (`transitions.ts:72`-`:119`): the fork's summary and citations become one
@@ -20,6 +21,8 @@ pub struct MergeRequest<'a> {
     pub summary: &'a Value,
     pub citations: &'a Value,
     pub intent_id: i64,
+    /// The running intent this merge settles, in the same transaction as its own writes.
+    pub intent: Option<&'a IntentHeader>,
     pub patch_applied: bool,
     pub now: f64,
 }
@@ -35,6 +38,7 @@ pub fn merge(
         summary,
         citations,
         intent_id,
+        intent,
         patch_applied,
         now,
     } = request;
@@ -64,33 +68,53 @@ pub fn merge(
         })
         .unwrap_or_default();
     history::validate_citations(store, fork, &ids)?;
+    // The protocol's citation is the two ids; a client's extra fields are stripped, as the
+    // command's own schema parse strips them, before the context and the item are built.
+    let cited: Vec<Value> = citations
+        .as_array()
+        .map(|citations| {
+            citations
+                .iter()
+                .filter_map(|citation| {
+                    let mut citation_value = ace_json::Map::new();
+                    citation_value.insert("threadId", citation.get("threadId")?.clone());
+                    citation_value.insert("itemId", citation.get("itemId")?.clone());
+                    Some(Value::Object(citation_value))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let citations = Value::Array(cited.into());
     let text = format!(
         "{{\"type\":\"merged_fork_context\",\"sourceThreadId\":{},\"summary\":{},\"citations\":{}}}",
         ace_json::to_string(&Value::from(fork)),
         ace_json::to_string(summary),
-        ace_json::to_string(citations)
+        ace_json::to_string(&citations)
     );
     let previous = state.transition_get(store, source)?;
     let marker = format!(
         "\"sourceThreadId\":{}",
         ace_json::to_string(&Value::from(fork))
     );
-    if previous
+    let already = previous
         .context
         .iter()
-        .any(|entry| entry.contains("merged_fork_context") && entry.contains(marker.as_str()))
-    {
-        return Ok(());
-    }
+        .any(|entry| entry.contains("merged_fork_context") && entry.contains(marker.as_str()));
     let item_id = format!("merge:{intent_id}");
     let mut context = previous.context.clone();
-    context.push(text.clone());
+    if !already {
+        context.push(text.clone());
+    }
     let mut metadata = metadata_json(&previous);
     metadata.insert(
         "context",
         Value::Array(context.into_iter().map(Value::from).collect()),
     );
+    // Every constraint the commit would meet is checked first: the metadata's own bounds, the
+    // grant's capacity, and the transaction that follows. A patch merge's Git effect lands
+    // here, after these, and before the commit, when E5.5's worktree port brings it.
     let admitted = admit_metadata(&Value::Object(metadata.clone()))?;
+    grant_fits(store.conn(), source, fork)?;
     let through = store.head_seq()? as i64;
     store.atomic(|_tx| {
         grant_handoff(store.conn(), source, fork, through)?;
@@ -121,7 +145,14 @@ pub fn merge(
             &ace_json::to_string(&Value::Array(vec![Value::Object(fact)].into())),
             now,
             None,
-        )
+        )?;
+        if let Some(intent) = intent {
+            // The intent's settlement and the guards it held go in this same transaction: a
+            // crash can never leave the context written with the intent still queued.
+            crate::intents::lifecycle::mark(store, intent, "done", None)?;
+            state.transition_release_guards(store, &intent.command_id)?;
+        }
+        Ok(())
     })
 }
 
@@ -130,7 +161,11 @@ mod tests {
     use super::*;
     use crate::repository::testsupport::{Shell, header, home};
 
-    fn two_threads() -> (std::sync::Arc<ace_store::Connection>, EngineStore) {
+    fn two_threads() -> (
+        std::sync::Arc<ace_store::Connection>,
+        EngineStore,
+        std::rc::Rc<Shell>,
+    ) {
         let conn = home("t", &header("t"));
         conn.exec(&format!(
             "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, client) VALUES ('t2', 'workspace', 'Fork', 'claude', '{{\"state\":\"new\"}}', 0, 0, {})",
@@ -149,14 +184,38 @@ mod tests {
             )
         ))
         .expect("own item");
-        (conn.clone(), Shell::store(&conn))
+        let (store, shell) = Shell::store_with_controls(&conn);
+        (conn.clone(), store, shell)
+    }
+
+    /// The transcript events a merge wrote, as a client reads them: `(type, item)`.
+    fn merged_events(shell: &Shell) -> Vec<(String, ace_json::Value)> {
+        let mut items = Vec::new();
+        for (_, payload, _) in shell.events() {
+            let Ok(events) = ace_json::parse(&payload) else {
+                continue;
+            };
+            for event in events.as_array().into_iter().flatten() {
+                let kind = event
+                    .get("type")
+                    .and_then(ace_json::Value::as_str)
+                    .unwrap_or_default();
+                if matches!(kind, "item.created" | "item.updated")
+                    && let Some(item) = event.get("item")
+                    && item.get("mergedContext").is_some()
+                {
+                    items.push((kind.to_owned(), item.clone()));
+                }
+            }
+        }
+        items
     }
 
     // From `thread-merge-account.process.test.ts`: the merge cites the fork's own item, grants
     // its history, and leaves the merged context on the source.
     #[test]
     fn a_merge_grants_the_forks_history_and_writes_the_context() {
-        let (conn, store) = two_threads();
+        let (conn, store, shell) = two_threads();
         let mut state = State::default();
         state.repo.probe_passthrough = true;
         let citations = ace_json::json!([{ "threadId": "t2", "itemId": "own", "excerpt": "done" }]);
@@ -169,6 +228,7 @@ mod tests {
                 summary: &Value::from("The fork finished the export"),
                 citations: &citations,
                 intent_id: 7,
+                intent: None,
                 patch_applied: false,
                 now: 5.0,
             },
@@ -177,6 +237,28 @@ mod tests {
         let metadata = state.transition_get(&store, "t").expect("metadata");
         assert_eq!(metadata.context.len(), 1);
         assert!(metadata.context[0].contains("merged_fork_context"));
+        // The synthetic input is in the transcript, not only in the metadata.
+        let items = merged_events(&shell);
+        assert_eq!(items.len(), 1, "one merged-context item");
+        let item = &items[0].1;
+        assert_eq!(
+            item.get("mergedContext")
+                .and_then(|merged| merged.get("sourceThreadId"))
+                .and_then(ace_json::Value::as_str),
+            Some("t2")
+        );
+        assert_eq!(
+            item.get("synthetic").and_then(ace_json::Value::as_bool),
+            Some(true)
+        );
+        assert!(
+            item.get("parts")
+                .and_then(ace_json::Value::as_array)
+                .is_some_and(|parts| parts.iter().any(|part| part
+                    .get("text")
+                    .and_then(ace_json::Value::as_str)
+                    .is_some_and(|text| text.contains("merged_fork_context"))))
+        );
         let grant = ace_store::stmt_cache::get_row(
             &conn,
             "SELECT source FROM engine_handoff_grants WHERE recipient='t'",
@@ -195,7 +277,7 @@ mod tests {
     // Re-running the same merge must not append a second context entry.
     #[test]
     fn retrying_the_same_merge_keeps_one_context_entry() {
-        let (_conn, store) = two_threads();
+        let (_conn, store, shell) = two_threads();
         let mut state = State::default();
         state.repo.probe_passthrough = true;
         let citations = ace_json::json!([{ "threadId": "t2", "itemId": "own", "excerpt": "done" }]);
@@ -209,6 +291,7 @@ mod tests {
                 summary: &summary,
                 citations: &citations,
                 intent_id: 9,
+                intent: None,
                 patch_applied: false,
                 now: 5.0,
             },
@@ -223,6 +306,7 @@ mod tests {
                 summary: &summary,
                 citations: &citations,
                 intent_id: 9,
+                intent: None,
                 patch_applied: false,
                 now: 6.0,
             },
@@ -230,12 +314,25 @@ mod tests {
         .expect("retry");
         let metadata = state.transition_get(&store, "t").expect("metadata");
         assert_eq!(metadata.context.len(), 1);
+        let events = merged_events(&shell);
+        let created = events
+            .iter()
+            .filter(|(kind, _)| kind == "item.created")
+            .count();
+        assert_eq!(created, 1, "the retry does not add a second item");
+        let ids: Vec<&str> = events
+            .iter()
+            .filter_map(|(_, item)| item.get("id").and_then(ace_json::Value::as_str))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        assert_eq!(ids.len(), 1, "both events name the same item");
     }
 
     // The fork must still be the source's own; a re-parented lineage refuses.
     #[test]
     fn a_merge_refuses_a_fork_whose_lineage_changed() {
-        let (_conn, store) = two_threads();
+        let (_conn, store, _shell) = two_threads();
         let mut state = State::default();
         let error = merge(
             &store,
@@ -246,6 +343,7 @@ mod tests {
                 summary: &Value::from("summary"),
                 citations: &ace_json::json!([]),
                 intent_id: 1,
+                intent: None,
                 patch_applied: false,
                 now: 5.0,
             },

@@ -13,9 +13,7 @@ use ace_json::Value;
 use crate::commands::{command_id, error, ok, payload};
 use crate::intents::header::headers;
 use crate::transitions::history;
-use crate::transitions::switch_admission::{
-    AgentChoice, record_switch, resolve_switch, switch_agent,
-};
+use crate::transitions::switch_admission::{AgentChoice, resolve_switch, switch_agent};
 use crate::{Core, EngineError, State};
 
 /// The refusals `acceptTransition` returns.
@@ -173,19 +171,14 @@ fn accept_switch(core: &Core, state: &mut State, command: &Value) -> Result<Valu
         Err(_) => return Ok(fail(id, "provider_unavailable")),
     };
     let resolved = resolve_switch(core, state, thread_id, &requested, |_| capabilities.clone())?;
-    let selection = match resolved {
-        Ok(selection) => selection,
+    match resolved {
+        Ok(_) => {}
         Err(code) => return Ok(fail(id, &code)),
-    };
-    if !state.repo.reserve(&core.store, thread_id)? {
-        return Ok(fail(id, "engine_capacity_exceeded"));
     }
-    record_switch(core, state, thread_id, &selection, core.ports.now())?;
-    crate::intents::lifecycle::add(&core.store, command, thread_id, None, None)?;
-    if let Some(engine) = core.self_rc() {
-        crate::transitions::dispatch::schedule(&engine, thread_id);
-    }
-    Ok(ok(id, None))
+    // Every refusal above is the receipt's own. Executing the switch needs E5.6's sessions and
+    // models ports (close the source session, prepare the destination's model), so until that
+    // item lands a valid switch is refused rather than accepted and never run.
+    Err(EngineError::not_ported("a thread switch", "E5.6"))
 }
 
 /// `acceptTransition` (`transition-handler.ts:16`): the receipt's answer, or none when the
@@ -250,13 +243,16 @@ mod tests {
         }
     }
 
-    fn engine_on(conn: &Arc<ace_store::Connection>) -> Engine {
+    fn engine_on(conn: &Arc<ace_store::Connection>) -> (Engine, Rc<Shell>) {
         let (_, shell) = Shell::store_with_controls(conn);
-        Engine::new(
+        let engine = Engine::new(
             shell.clone(),
-            shell,
+            shell.clone(),
             Inputs::default(),
-            "[]",
+            r#"[
+                {"provider":"codex","backend":"acp","adapter":1,"capabilities":{}},
+                {"provider":"claude","backend":"sdk","adapter":2,"capabilities":{}}
+            ]"#,
             Box::new(ManualPump),
             conn,
             Rc::new(crate::actor::ActorDeps::production(
@@ -264,7 +260,14 @@ mod tests {
                 0.0,
             )),
         )
-        .expect("the test engine constructs")
+        .expect("the test engine constructs");
+        // E5.7's interaction ledger is not ported yet; its answers are the scaffold's, as every
+        // fold test in this crate does.
+        engine
+            .core()
+            .with_state(|state| state.repo.probe_passthrough = true)
+            .expect("the state is free");
+        (engine, shell)
     }
 
     /// A fork of `t` with an item of its own, so a merge has something to cite.
@@ -314,7 +317,7 @@ mod tests {
             )
         ))
         .expect("working root");
-        let engine = engine_on(&conn);
+        let (engine, _shell) = engine_on(&conn);
         let core = engine.core();
         let result = core
             .with_state(|state| {
@@ -331,6 +334,242 @@ mod tests {
         );
     }
 
+    struct Turn;
+
+    impl crate::executor::Budget for Turn {
+        fn start(&mut self) {}
+        fn spent(&self, started: usize) -> bool {
+            started >= 64
+        }
+    }
+
+    fn settle(engine: &Engine) {
+        for _ in 0..8 {
+            engine.pump(&mut Turn);
+        }
+    }
+
+    /// The merged-context items a client was sent, as `(event type, item)`.
+    fn merged_events(shell: &Shell) -> Vec<(String, Value)> {
+        let mut items = Vec::new();
+        for (_, payload, _) in shell.events() {
+            let Ok(events) = ace_json::parse(&payload) else {
+                continue;
+            };
+            for event in events.as_array().into_iter().flatten() {
+                let kind = event
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if matches!(kind, "item.created" | "item.updated")
+                    && let Some(item) = event.get("item")
+                    && item.get("mergedContext").is_some()
+                {
+                    items.push((kind.to_owned(), item.clone()));
+                }
+            }
+        }
+        items
+    }
+
+    fn intent_status(conn: &std::sync::Arc<ace_store::Connection>) -> Option<String> {
+        ace_store::stmt_cache::get_row(
+            conn,
+            "SELECT status FROM intents WHERE thread_id='t' ORDER BY id DESC LIMIT 1",
+            Vec::new(),
+        )
+        .expect("intent")
+        .and_then(|row| {
+            row.get("status")
+                .and_then(crate::repository::residency::cell_text)
+                .map(str::to_owned)
+        })
+    }
+
+    // From `thread-merge-account.process.test.ts`: the receipt's success is followed by the
+    // merge itself — one synthetic transcript item, the intent settled and its guards gone.
+    #[test]
+    fn a_merge_receipt_is_executed_and_visible() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        let result = core
+            .with_state(|state| handle(core, state, &merge_command(false)))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(result.get("ok"), Some(&Value::Bool(true)), "{result:?}");
+        settle(&engine);
+        let items = merged_events(&shell);
+        assert_eq!(items.len(), 1);
+        assert_eq!(intent_status(&conn).as_deref(), Some("done"));
+        let core = engine.core();
+        assert!(
+            !core
+                .with_state(|state| state.transition_guarded(&core.store, "t"))
+                .expect("the state is free")
+                .expect("guarded")
+        );
+    }
+
+    // A crash between the merge's write and its settlement, then the same intent again: one
+    // item, one context entry and one grant.
+    #[test]
+    fn retrying_a_merge_through_the_engine_writes_once() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        let (engine, shell) = engine_on(&conn);
+        let core = engine.core();
+        core.with_state(|state| handle(core, state, &merge_command(true)))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        settle(&engine);
+        // The crash's trace: the intent is queued again, as a restart would find it.
+        conn.exec("UPDATE intents SET status='pending' WHERE thread_id='t'")
+            .expect("requeue");
+        core.with_state(|state| crate::transitions::dispatch::run_thread(core, state, "t"))
+            .expect("the state is free")
+            .expect("retry");
+        let created = merged_events(&shell)
+            .iter()
+            .filter(|(kind, _)| kind == "item.created")
+            .count();
+        assert_eq!(created, 1, "the retry writes no second item");
+        let context = core
+            .with_state(|state| state.transition_get(&core.store, "t"))
+            .expect("the state is free")
+            .expect("metadata")
+            .context;
+        assert_eq!(context.len(), 1);
+        let grants = ace_store::stmt_cache::all_rows(
+            &conn,
+            "SELECT source FROM engine_handoff_grants WHERE recipient='t'",
+            Vec::new(),
+        )
+        .expect("grants");
+        assert_eq!(grants.len(), 1);
+    }
+
+    // `handler.ts:403`: a send aimed at a thread a checkout move guards is refused, and the
+    // restart's prune is what frees it when that command never became an intent.
+    #[test]
+    fn a_competing_send_is_refused_while_a_checkout_move_holds_the_thread() {
+        let conn = home("t", &header("t"));
+        let (store, _shell) = Shell::store_with_controls(&conn);
+        let mut state = crate::State::default();
+        state.transitions.rebuilt.insert("t".to_owned());
+        crate::moves::workspace::begin(
+            &store,
+            &mut state,
+            "t",
+            crate::moves::workspace::BeginRequest {
+                command_id: "move-1",
+                now: 5.0,
+                reservation: &crate::moves::workspace::Reservation {
+                    roots: vec!["/w".into()],
+                    ..Default::default()
+                },
+                has_owned_work: &|_| false,
+                canonicalize: &|path| path.to_owned(),
+            },
+        )
+        .expect("begin");
+        let send = ace_json::parse(
+            r#"{"id":"send-1","deviceId":"d","payload":{"type":"thread.send","threadId":"t","input":[{"type":"text","text":"hi"}]}}"#,
+        )
+        .expect("command");
+        let (engine, _shell) = engine_on(&conn);
+        let core = engine.core();
+        let result = core
+            .with_state(|state| handle(core, state, &send))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(
+            result.get("error").and_then(Value::as_str),
+            Some("thread_transition_in_progress")
+        );
+    }
+
+    // A merge that cannot land is terminal: the intent says why and the guards it held are
+    // released in the same transaction, so nothing stays pending or guarded.
+    #[test]
+    fn a_merge_that_cannot_land_fails_and_releases_its_guards() {
+        let conn = home("t", &header("t"));
+        fork_of_t(&conn);
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t','cmd-bad')")
+            .expect("source guard");
+        conn.exec("INSERT INTO engine_transition_guards VALUES ('t2','cmd-bad')")
+            .expect("fork guard");
+        conn.exec(&format!(
+            "INSERT INTO intents (command_id,thread_id,kind,payload,status,position) VALUES ('cmd-bad','t','thread.merge',{},'pending',1)",
+            sql_text(
+                r#"{"id":"cmd-bad","deviceId":"d","payload":{"type":"thread.merge","threadId":"t2","summary":"s","citations":[{"threadId":"t2","itemId":"missing"}],"patch":"diff"}}"#
+            )
+        ))
+        .expect("intent");
+        let (engine, _shell) = engine_on(&conn);
+        let core = engine.core();
+        core.with_state(|state| crate::transitions::dispatch::recover_thread(core, state, "t"))
+            .expect("the state is free")
+            .expect("dispatch");
+        assert_eq!(intent_status(&conn).as_deref(), Some("failed"));
+        let failure = ace_store::stmt_cache::get_row(
+            &conn,
+            "SELECT error FROM intents WHERE command_id='cmd-bad'",
+            Vec::new(),
+        )
+        .expect("intent")
+        .and_then(|row| {
+            row.get("error")
+                .and_then(crate::repository::residency::cell_text)
+                .map(str::to_owned)
+        });
+        assert_eq!(failure.as_deref(), Some("Citation does not belong to fork"));
+        let guards = ace_store::stmt_cache::all_rows(
+            &conn,
+            "SELECT thread_id FROM engine_transition_guards WHERE command_id='cmd-bad'",
+            Vec::new(),
+        )
+        .expect("guards");
+        assert!(guards.is_empty(), "no thread stays guarded");
+    }
+
+    // A switch the receipt can validate is still refused: its execution needs E5.6's sessions
+    // and models, and a success with nothing run would leave the thread as it was.
+    #[test]
+    fn a_switch_is_refused_until_its_execution_lands() {
+        let conn = home("t", &header("t"));
+        conn.exec("INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES ('t','/w',NULL,'native','acp','a',NULL)")
+            .expect("session");
+        let (engine, _shell) = engine_on(&conn);
+        let core = engine.core();
+        let switch = ace_json::parse(
+            r#"{"id":"sw-1","deviceId":"d","payload":{"type":"thread.switch","threadId":"t","selection":{"provider":"codex"}}}"#,
+        )
+        .expect("command");
+        let result = core
+            .with_state(|state| handle(core, state, &switch))
+            .expect("the state is free")
+            .expect("receipt")
+            .expect("a receipt");
+        assert_eq!(result.get("ok"), Some(&Value::Bool(false)));
+        assert!(
+            result
+                .get("error")
+                .and_then(Value::as_str)
+                .is_some_and(|error| error.contains("lands in E5.6")),
+            "{result:?}"
+        );
+        assert_eq!(
+            crate::intents::store::command_status(&conn, "sw-1").expect("status"),
+            None,
+            "no intent is queued for work nothing can run"
+        );
+    }
+
     // From `transition-regressions`: a patch merge waits for the source tree, and a first send
     // the provider accepted but has not started a run is still live work.
     #[test]
@@ -342,7 +581,7 @@ mod tests {
              VALUES ('send-1','t','thread.send','{\"type\":\"thread.send\"}','pending',1,1)",
         )
         .expect("awaiting send");
-        let engine = engine_on(&conn);
+        let (engine, _shell) = engine_on(&conn);
         let core = engine.core();
         let result = core
             .with_state(|state| handle(core, state, &merge_command(true)))
