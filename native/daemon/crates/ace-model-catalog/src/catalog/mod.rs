@@ -13,6 +13,7 @@ mod actor;
 mod commands;
 mod flights;
 mod lifecycle;
+mod notify;
 mod refresh;
 mod registration;
 mod storage;
@@ -505,7 +506,6 @@ pub(crate) struct Inner {
     pub(crate) observers: usize,
     pub(crate) flight_token: u64,
     pub(crate) removals: BTreeMap<String, Removal>,
-    pub(crate) close_result: Option<Result<(), CatalogError>>,
 }
 
 /// Catalog-owned work waiting for its place in an instance's queue.
@@ -521,6 +521,11 @@ pub(crate) enum PendingOp {
 pub struct Catalog {
     pub(crate) sender: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
     pub(crate) options: Arc<CatalogOptions>,
+    /// A successful close is final: every later call answers with this result.
+    closed: Arc<Mutex<Option<Result<(), CatalogError>>>>,
+    join: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
+    /// The ids the actor held, so a closed catalog still answers `has_instance`.
+    instances: Arc<Mutex<BTreeSet<String>>>,
 }
 
 impl std::fmt::Debug for Catalog {
@@ -580,26 +585,58 @@ impl Catalog {
             observers: 0,
             flight_token: 0,
             removals: BTreeMap::new(),
-            close_result: None,
         };
         let (sender, receiver) = std::sync::mpsc::sync_channel(COMMAND_CAPACITY);
         let sender = Arc::new(Mutex::new(sender));
         let options = Arc::new(options);
+        // Work the actor owns reports on its own unbounded queue; the actor keeps only a
+        // weak name of the callers' mailbox, so dropping every handle ends it.
+        let (completions, completions_receiver) = std::sync::mpsc::channel();
+        let reporter = commands::Reporter {
+            completions: Arc::new(Mutex::new(completions)),
+            commands: Arc::downgrade(&sender),
+        };
+        let closed = Arc::new(Mutex::new(None));
+        let instance_ids = Arc::new(Mutex::new(BTreeSet::new()));
         let actor = actor::Actor::new(
             inner,
             stored,
             options.clone(),
             storage,
             limiter,
-            sender.clone(),
+            reporter,
+            actor::Shared {
+                close_result: closed.clone(),
+                instance_ids: instance_ids.clone(),
+            },
         );
-        std::thread::Builder::new()
-            .name("ace-model-catalog".to_owned())
-            .spawn(move || actor.run(receiver))
-            .map_err(|_| CatalogError::Closed)?;
-        let catalog = Self { sender, options };
+        let join = Arc::new(Mutex::new(Some(
+            std::thread::Builder::new()
+                .name("ace-model-catalog".to_owned())
+                .spawn(move || actor.run(receiver, completions_receiver))
+                .map_err(|_| CatalogError::Closed)?,
+        )));
+        let catalog = Self {
+            sender,
+            options,
+            closed,
+            join: join.clone(),
+            instances: instance_ids,
+        };
         for instance in instances {
-            catalog.register_instance(instance, None)?;
+            if let Err(error) = catalog.register_instance(instance, None) {
+                // A construction that fails leaves no thread behind: closing the mailbox
+                // ends the actor, and the join proves it is gone before the error returns.
+                drop(catalog);
+                if let Some(handle) = join
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take()
+                {
+                    let _ = handle.join();
+                }
+                return Err(error);
+            }
         }
         Ok(catalog)
     }
@@ -669,8 +706,9 @@ impl Catalog {
                 .ok()?;
         }
         // The acknowledgement makes the first poll mean what the TypeScript's synchronous
-        // queue meant: the command has been taken, not merely queued. The actor never
-        // blocks inside a command, so this wait is bounded by one handler.
+        // queue meant: the command has been taken, not merely queued. It is a hand-off
+        // bounded by one handler (the actor never blocks inside a command); the reply,
+        // which may wait on discovery or storage, is awaited without blocking the thread.
         self.wait_ack(ack_receiver)?;
         receiver.await.ok()
     }
@@ -752,11 +790,18 @@ impl Catalog {
     }
 
     pub fn has_instance(&self, instance: &str) -> bool {
-        self.ask(|reply| Command::HasInstance {
+        match self.ask(|reply| Command::HasInstance {
             id: instance.to_owned(),
             reply,
-        })
-        .unwrap_or(false)
+        }) {
+            Some(value) => value,
+            // The actor is gone after a close; the rows it held are still an answer.
+            None => self
+                .instances
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .contains(instance),
+        }
     }
 
     /// The instance as registered now, for a session to report into later.
@@ -996,11 +1041,41 @@ impl Catalog {
     }
 
     /// Shuts the catalog down: abort flights, drain every spawned task, flush deletions,
-    /// close storage. Concurrent callers share one attempt and its result.
+    /// close storage. A successful close is final and repeated calls answer with it; a
+    /// failed one leaves the catalog usable so a later call can retry the deletions.
     pub async fn close(&self) -> Result<(), CatalogError> {
-        self.request(|reply| Command::Close { reply })
+        // Only a successful close is final. A failed one left durable deletion markers
+        // behind, so a later call retries instead of replaying the failure forever.
+        if matches!(
+            self.closed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_ref(),
+            Some(Ok(()))
+        ) {
+            return Ok(());
+        }
+        let result = self
+            .request(|reply| Command::Close { reply })
             .await
-            .unwrap_or(Err(CatalogError::Closed))
+            .unwrap_or(Err(CatalogError::Closed));
+        if result.is_ok() {
+            *self
+                .closed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Ok(()));
+            // The actor left its loop after recording the result; joining it proves every
+            // row, timer and storage handle it owned is gone before close returns.
+            if let Some(handle) = self
+                .join
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
+                let _ = handle.join();
+            }
+        }
+        result
     }
 
     /// Poll only CLI connection metadata; unchanged metadata never starts discovery.
@@ -1012,11 +1087,12 @@ impl Catalog {
             return Ok(());
         };
         for id in ids {
-            let closed = self
-                .request(|reply| Command::Probe { id, reply })
-                .await
-                .unwrap_or(Err(CatalogError::Closed));
-            closed?;
+            // Shutdown skips an account rather than failing the loop that already ran;
+            // an actor that is gone for the same reason ends the loop quietly.
+            match self.request(|reply| Command::Probe { id, reply }).await {
+                Some(Ok(())) | Some(Err(CatalogError::Closed)) | None => {}
+                Some(Err(error)) => return Err(error),
+            }
         }
         Ok(())
     }

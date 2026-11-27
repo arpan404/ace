@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use ace_models::instance::ModelInstance;
 
-use crate::catalog::commands::{Command, Envelope, FlightOutcome};
+use crate::catalog::commands::{Command, FlightOutcome, Reporter};
 use crate::catalog::{Admit, DiagnosticSink};
 use crate::catalog::{CatalogOptions, DiscoveryDiagnostics, DiscoveryOutcome, DiscoveryRequest};
 use crate::signals::{Gate, Limiter, Signal};
@@ -37,7 +37,7 @@ pub(crate) struct Job {
 /// Runs one flight and reports it. Deadlines and fences are the actor's; this task only
 /// stops when its signal says so.
 pub(crate) async fn run(
-    commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    reporter: Reporter,
     options: Arc<CatalogOptions>,
     limiter: Limiter,
     job: Job,
@@ -62,13 +62,13 @@ pub(crate) async fn run(
         match futures::future::select(Box::pin(limiter.acquire()), Box::pin(signal.wait())).await {
             futures::future::Either::Left((permit, _)) => permit,
             futures::future::Either::Right(((), _)) => {
-                send_with(&commands, empty(FlightOutcome::None, options.clock.now()));
+                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
                 return;
             }
         };
     if signal.is_aborted() {
         drop(permit);
-        send_with(&commands, empty(FlightOutcome::None, options.clock.now()));
+        send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
         return;
     }
     // A failed home/identity guard revokes cached choices and never launches the provider.
@@ -78,20 +78,20 @@ pub(crate) async fn run(
             futures::future::Either::Left((Err(error), _)) => {
                 drop(permit);
                 send_with(
-                    &commands,
+                    &reporter,
                     empty(FlightOutcome::Admission(error), options.clock.now()),
                 );
                 return;
             }
             futures::future::Either::Right(((), _)) => {
                 drop(permit);
-                send_with(&commands, empty(FlightOutcome::None, options.clock.now()));
+                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
                 return;
             }
         }
         if signal.is_aborted() {
             drop(permit);
-            send_with(&commands, empty(FlightOutcome::None, options.clock.now()));
+            send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
             return;
         }
     }
@@ -100,31 +100,18 @@ pub(crate) async fn run(
             futures::future::Either::Left(((), _)) => {}
             futures::future::Either::Right(((), _)) => {
                 drop(permit);
-                send_with(&commands, empty(FlightOutcome::None, options.clock.now()));
+                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
                 return;
             }
         }
     }
     // The actor arms the deadline and re-checks ownership and revision before launching.
     let (reply, decision) = futures::channel::oneshot::channel();
-    {
-        let sender = commands
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if sender
-            .send(Envelope {
-                command: Command::FlightAdmit {
-                    id: id.clone(),
-                    token,
-                    reply,
-                },
-                ack: None,
-            })
-            .is_err()
-        {
-            return;
-        }
-    }
+    reporter.report(Command::FlightAdmit {
+        id: id.clone(),
+        token,
+        reply,
+    });
     if !decision.await.unwrap_or(false) {
         // The actor already settled this flight (aborted, replaced or too old).
         return;
@@ -156,7 +143,7 @@ pub(crate) async fn run(
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone();
             send_with(
-                &commands,
+                &reporter,
                 Command::FlightOutcome {
                     id,
                     token,
@@ -170,7 +157,7 @@ pub(crate) async fn run(
     };
     drop(permit);
     if signal.is_aborted() {
-        send_with(&commands, empty(FlightOutcome::None, started_at));
+        send_with(&reporter, empty(FlightOutcome::None, started_at));
         return;
     }
     let diagnostics = diagnostics
@@ -182,7 +169,7 @@ pub(crate) async fn run(
         Err(failure) => FlightOutcome::Failed(Box::new(failure)),
     };
     send_with(
-        &commands,
+        &reporter,
         Command::FlightOutcome {
             id,
             token,
@@ -193,11 +180,8 @@ pub(crate) async fn run(
     );
 }
 
-fn send_with(commands: &Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>, command: Command) {
-    let sender = commands
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _ = sender.send(Envelope { command, ack: None });
+fn send_with(reporter: &Reporter, command: Command) {
+    reporter.report(command);
 }
 
 fn merge(current: &mut DiscoveryDiagnostics, metadata: DiscoveryDiagnostics) {

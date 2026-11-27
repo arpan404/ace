@@ -408,3 +408,157 @@ fn a_stalled_admission_and_a_held_turn_do_not_block_abort_or_close() {
         // The admission gate is still closed: neither close nor the deadline needed it.
     })
 }
+
+/// Storage that reports when the last owner drops it.
+struct DropProbeStorage {
+    inner: MemoryStorage,
+    dropped: Arc<AtomicBool>,
+}
+
+impl CatalogStorage for DropProbeStorage {
+    fn load(&mut self) -> Result<Vec<CacheEntry>, crate::cache::CacheError> {
+        self.inner.load()
+    }
+
+    fn replace(&mut self, entry: &CacheEntry) -> Result<(), crate::cache::CacheError> {
+        self.inner.replace(entry)
+    }
+
+    fn remove(&mut self, instance: &str) -> Result<(), crate::cache::CacheError> {
+        self.inner.remove(instance)
+    }
+
+    fn close(&mut self) -> Result<(), crate::cache::CacheError> {
+        self.inner.close()
+    }
+}
+
+impl Drop for DropProbeStorage {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn dropping_every_handle_after_close_ends_the_actor_and_releases_storage() {
+    within(15, "the actor after close", || {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let storage = SharedStorage::new(DropProbeStorage {
+            inner: MemoryStorage::new(),
+            dropped: dropped.clone(),
+        });
+        let fixture = fixture(
+            vec![instance(ProviderKind::Codex, "account")],
+            storage,
+            always(Vec::new()),
+        );
+        let catalog = fixture.catalog.clone();
+        settle(catalog.close(), &fixture.spawn, "the close")
+            .unwrap_or_else(|error| panic!("{error}"));
+        // A later close answers the recorded success rather than reaching a dead actor.
+        settle(catalog.close(), &fixture.spawn, "the repeated close")
+            .unwrap_or_else(|error| panic!("{error}"));
+        drop(catalog);
+        drop(fixture);
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "the actor's rows and storage are gone with it"
+        );
+    })
+}
+
+#[test]
+fn a_failed_construction_leaves_no_thread_holding_storage() {
+    within(15, "a failed construction", || {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut broken = instance(ProviderKind::Codex, "account");
+        broken.id = String::new();
+        let options = CatalogOptions::new(
+            SharedStorage::new(DropProbeStorage {
+                inner: MemoryStorage::new(),
+                dropped: dropped.clone(),
+            }),
+            always(Vec::new()),
+            TestClock::new(1_000.0),
+            TestDeadlines::new(),
+            TestSpawn::new(),
+        )
+        .instances(vec![broken]);
+        assert_eq!(
+            Catalog::new(options).err(),
+            Some(CatalogError::InvalidInstance)
+        );
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "the actor thread that was started ended with the failed construction"
+        );
+    })
+}
+
+#[test]
+fn a_listener_that_reads_the_catalog_never_blocks_the_actor() {
+    within(15, "a listener that lists", || {
+        let codex = instance(ProviderKind::Codex, "account");
+        let fixture = fixture(
+            vec![codex],
+            SharedStorage::new(MemoryStorage::new()),
+            always(vec![row(
+                &instance(ProviderKind::Codex, "account"),
+                "gpt-6-sol",
+            )]),
+        );
+        let catalog = fixture.catalog.clone();
+        let (ran, ran_rx) = std::sync::mpsc::channel();
+        let reader = catalog.clone();
+        let _listener = catalog
+            .listen(Arc::new(move |_| {
+                let _ = reader.list(ModelFilter::default(), 0, 100);
+                let _ = ran.send(());
+            }))
+            .unwrap_or_else(|error| panic!("{error}"));
+        settle(
+            catalog.refresh(ModelFilter::default()),
+            &fixture.spawn,
+            "the refresh",
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        ran_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap_or_else(|error| panic!("the listener never ran: {error}"));
+    })
+}
+
+struct PanicSpawn;
+
+impl Spawn for PanicSpawn {
+    fn spawn(&self, _task: BoxFuture<'static, ()>) {
+        panic!("the spawner refused the task");
+    }
+}
+
+#[test]
+fn a_spawner_that_panics_still_settles_its_task() {
+    within(15, "a panicking spawner", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let options = CatalogOptions::new(
+            SharedStorage::new(MemoryStorage::new()),
+            always(vec![row(&account, "gpt-6-sol")]),
+            TestClock::new(1_000.0),
+            TestDeadlines::new(),
+            Arc::new(PanicSpawn),
+        )
+        .instances(vec![account]);
+        let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
+        let statuses = settle(
+            catalog.refresh(ModelFilter::default()),
+            &TestSpawn::new(),
+            "a refresh whose spawner panics",
+        );
+        assert!(
+            statuses.is_ok(),
+            "the refused task settles as aborted, not as a hung refresh"
+        );
+        settle(catalog.close(), &TestSpawn::new(), "the close")
+            .unwrap_or_else(|error| panic!("{error}"));
+    })
+}

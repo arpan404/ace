@@ -5,7 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -13,8 +14,9 @@ use futures::future::BoxFuture;
 use ace_models::instance::ModelInstance;
 use ace_protocol::generated::ProviderKind;
 
-use crate::catalog::commands::{Command, Envelope, FlightOutcome, Reply};
+use crate::catalog::commands::{Command, Envelope, FlightOutcome, Reply, Reporter};
 use crate::catalog::flights::Commit;
+use crate::catalog::notify::NotifyLane;
 use crate::catalog::turns;
 use crate::catalog::{
     CatalogError, CatalogOptions, DiscoveryDiagnostics, DiscoveryFailure, ErrorReport, Inner,
@@ -51,23 +53,25 @@ pub(crate) struct InvalidationBatch {
 }
 
 /// Reports its task's end on every path, including a panic, a drop before the first poll,
-/// or a normal return. Close waits for these.
+/// or a normal return. Close waits for these. The report never blocks: it goes to the
+/// unbounded completion queue, not the callers' bounded mailbox.
 struct TaskGuard {
     task: u64,
-    commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    reporter: Reporter,
 }
 
 impl Drop for TaskGuard {
     fn drop(&mut self) {
-        let sender = self
-            .commands
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = sender.send(Envelope {
-            command: Command::TaskSettled { task: self.task },
-            ack: None,
-        });
+        self.reporter
+            .report(Command::TaskSettled { task: self.task });
     }
+}
+
+/// State the catalog handle shares with the actor so a closed catalog can still answer
+/// what it held and what its final close returned.
+pub(crate) struct Shared {
+    pub(crate) close_result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
+    pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
 }
 
 pub(crate) struct Actor {
@@ -75,7 +79,13 @@ pub(crate) struct Actor {
     pub(crate) options: Arc<CatalogOptions>,
     pub(crate) storage: crate::cache::SharedStorage,
     pub(crate) limiter: Limiter,
-    pub(crate) commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    /// A weak name of the callers' mailbox: the actor never keeps itself alive for it.
+    pub(crate) commands: Weak<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+    pub(crate) reporter: Reporter,
+    notify: NotifyLane,
+    terminate: bool,
+    close_result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
+    pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
     in_flight: BTreeMap<u64, TaskKind>,
     next_task: u64,
     pub(crate) flight_waiters: BTreeMap<u64, Vec<Reply<InstanceStatus>>>,
@@ -110,7 +120,8 @@ impl Actor {
         options: Arc<CatalogOptions>,
         storage: crate::cache::SharedStorage,
         limiter: Limiter,
-        commands: Arc<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+        reporter: Reporter,
+        shared: Shared,
     ) -> Self {
         for entry in stored {
             if entry.provider == ProviderKind::Acp {
@@ -136,7 +147,12 @@ impl Actor {
             options,
             storage,
             limiter,
-            commands,
+            commands: reporter.commands.clone(),
+            reporter,
+            notify: NotifyLane::new(),
+            terminate: false,
+            close_result: shared.close_result,
+            instance_ids: shared.instance_ids,
             in_flight: BTreeMap::new(),
             next_task: 0,
             flight_waiters: BTreeMap::new(),
@@ -165,17 +181,55 @@ impl Actor {
         }
     }
 
-    pub(crate) fn run(mut self, receiver: std::sync::mpsc::Receiver<Envelope>) {
-        while let Ok(envelope) = receiver.recv() {
-            self.handle_command(envelope.command);
-            if let Some(ack) = envelope.ack {
-                let _ = ack.send(());
+    /// Runs until the callers' mailbox closes or a successful close asks the thread to
+    /// end. Work the actor owns reports on its own queue, checked before every wait, so a
+    /// completion never waits behind a full callers' mailbox.
+    pub(crate) fn run(
+        mut self,
+        receiver: std::sync::mpsc::Receiver<Envelope>,
+        completions: std::sync::mpsc::Receiver<Envelope>,
+    ) {
+        loop {
+            while let Ok(envelope) = completions.try_recv() {
+                self.handle_envelope(envelope);
+            }
+            if self.terminate {
+                self.finish_run();
+                return;
+            }
+            match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(envelope) => self.handle_envelope(envelope),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    // Every handle is gone: finish what was already reported and leave.
+                    while let Ok(envelope) = completions.try_recv() {
+                        self.handle_envelope(envelope);
+                    }
+                    self.finish_run();
+                    return;
+                }
+            }
+            if self.terminate {
+                self.finish_run();
+                return;
             }
         }
     }
 
+    fn handle_envelope(&mut self, envelope: Envelope) {
+        self.handle_command(envelope.command);
+        if let Some(ack) = envelope.ack {
+            let _ = ack.send(());
+        }
+    }
+
+    fn finish_run(&mut self) {
+        self.notify.shutdown();
+    }
+
     fn handle_command(&mut self, command: Command) {
         match command {
+            Command::Wake => {}
             Command::List {
                 filter,
                 offset,
@@ -429,10 +483,10 @@ impl Actor {
             .map(|state| status_of(&self.options, &self.inner, state))
     }
 
-    /// Calls every listener, containing a panicking one so the actor keeps running.
+    /// Hands every listener its notification on the listener lane. The actor never calls
+    /// user code, so a listener that blocks or reads the catalog cannot stall it.
     pub(crate) fn notify(&mut self, config: &ModelInstance) {
-        let listeners: Vec<_> = self.inner.listeners.values().cloned().collect();
-        if listeners.is_empty() {
+        if self.inner.listeners.is_empty() {
             return;
         }
         let filter = ModelFilter {
@@ -440,9 +494,8 @@ impl Actor {
             instance: Some(config.id.clone()),
             ..ModelFilter::default()
         };
-        for listener in listeners {
-            let filter = filter.clone();
-            let _ = catch_unwind(AssertUnwindSafe(|| listener(filter)));
+        for listener in self.inner.listeners.values() {
+            self.notify.notify(listener.clone(), filter.clone());
         }
     }
 
@@ -453,20 +506,27 @@ impl Actor {
     }
 
     /// Spawns one task the actor owns. Its end is reported however it leaves, including a
-    /// panic, so close can always finish.
+    /// panic, so close can always finish. A spawner that itself panics is contained here
+    /// and the task it was given still settles its token.
     pub(crate) fn spawn(&mut self, kind: TaskKind, future: BoxFuture<'static, ()>) {
         let task = self.next_task;
         self.next_task += 1;
         self.in_flight.insert(task, kind);
-        let commands = self.commands.clone();
         // The guard is a captured value, so dropping the task before its first poll still
         // reports it: close never waits on work the spawner threw away.
-        let guard = TaskGuard { task, commands };
+        let guard = TaskGuard {
+            task,
+            reporter: self.reporter.clone(),
+        };
         let guarded = Box::pin(async move {
             let _guard = guard;
             let _ = AssertUnwindSafe(future).catch_unwind().await;
         });
-        self.options.spawn.spawn(guarded);
+        if catch_unwind(AssertUnwindSafe(|| self.options.spawn.spawn(guarded))).is_err() {
+            // The task was dropped with the panic (or the spawner kept it): settle now so
+            // no reservation is left behind, and later reports for it are no-ops.
+            self.task_settled(task);
+        }
     }
 
     fn task_settled(&mut self, task: u64) {
@@ -806,6 +866,14 @@ impl Actor {
         self.settle_flight(id, token);
     }
 
+    /// Whether a flight token still owns a running row flight.
+    pub(crate) fn flight_alive(&self, id: &str, token: u64) -> bool {
+        self.inner
+            .row_flights
+            .get(id)
+            .is_some_and(|flights| flights.iter().any(|flight| flight.token == token))
+    }
+
     fn complete_refresh(&mut self, id: &str, status: InstanceStatus) {
         let batches: Vec<u64> = self
             .refresh_batches
@@ -896,20 +964,14 @@ impl Actor {
         if self.flight_cancels.contains_key(&token) {
             return;
         }
-        let commands = self.commands.clone();
+        let reporter = self.reporter.clone();
         let deadline_id = id.to_owned();
         let cancel = self.options.deadline.arm(
             self.options.timeout_ms,
             Box::new(move || {
-                let sender = commands
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let _ = sender.send(Envelope {
-                    command: Command::Deadline {
-                        id: deadline_id.clone(),
-                        token,
-                    },
-                    ack: None,
+                reporter.report(Command::Deadline {
+                    id: deadline_id.clone(),
+                    token,
                 });
             }),
         );
@@ -1300,7 +1362,16 @@ impl Actor {
         }
         let result = self.finish_close();
         self.closing = false;
-        self.inner.close_result = Some(result.clone());
+        *self
+            .close_result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result.clone());
+        // A successful close is final: the thread ends once the result is recorded. A
+        // failed one keeps the catalog usable, because its durable deletion markers are
+        // exactly what a later close retries.
+        if result.is_ok() {
+            self.terminate = true;
+        }
         for waiter in self.close_waiters.drain(..) {
             let _ = waiter.send(result.clone());
         }
@@ -1317,13 +1388,21 @@ impl Actor {
     }
 
     fn close(&mut self, reply: Reply<Result<(), CatalogError>>) {
-        if let Some(result) = &self.inner.close_result {
+        let recorded = self
+            .close_result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(result) = recorded {
             if result.is_ok() {
                 let _ = reply.send(Ok(()));
                 return;
             }
             // Storage was never closed: a later close retries the deletions.
-            self.inner.close_result = None;
+            *self
+                .close_result
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         }
         self.close_waiters.push(reply);
         if self.closing {

@@ -5,12 +5,14 @@
 //! arms its deadline once admission passed, fences every result against the row and
 //! revision it started under, and commits results in the instance's turn order.
 
+use std::sync::Arc;
+
 use ace_models::instance::ModelInstance;
 use ace_protocol::generated::ProviderKind;
 use futures::FutureExt;
 
 use crate::catalog::actor::{Actor, RefreshBatch, TaskKind};
-use crate::catalog::commands::{Command, Envelope, Reply};
+use crate::catalog::commands::{Command, Reply};
 use crate::catalog::flights::{self, Job};
 use crate::catalog::{
     Catalog, CatalogError, DiscoveryFailure, Flight, InstanceStatus, ModelFilter, ProbeFlight,
@@ -28,11 +30,16 @@ pub(crate) enum FlightStart {
 }
 
 impl Actor {
-    pub(crate) fn catalog_handle(&self) -> Catalog {
-        Catalog {
-            sender: self.commands.clone(),
+    /// A handle for work the actor spawned, while the caller that caused it still holds
+    /// the catalog. The actor itself keeps only a weak name of the mailbox.
+    pub(crate) fn catalog_handle(&self) -> Option<Catalog> {
+        Some(Catalog {
+            sender: self.commands.upgrade()?,
             options: self.options.clone(),
-        }
+            closed: Arc::new(std::sync::Mutex::new(None)),
+            join: Arc::new(std::sync::Mutex::new(None)),
+            instances: self.instance_ids.clone(),
+        })
     }
 
     pub(crate) fn start_flight(&mut self, id: &str, cause: RefreshCause) -> FlightStart {
@@ -125,7 +132,7 @@ impl Actor {
                 token,
             },
             flights::run(
-                self.commands.clone(),
+                self.reporter.clone(),
                 self.options.clone(),
                 self.limiter.clone(),
                 Job {
@@ -155,7 +162,14 @@ impl Actor {
         }
         match self.start_flight(id, cause) {
             FlightStart::Started(token) | FlightStart::Running(token) => {
-                self.flight_waiters.entry(token).or_default().push(reply);
+                // A spawner that refuses the task settles it before this point; never
+                // wait on a flight that is already over.
+                if self.flight_alive(id, token) {
+                    self.flight_waiters.entry(token).or_default().push(reply);
+                } else {
+                    let status = self.status(id).unwrap_or_else(|| empty_status(id));
+                    let _ = reply.send(status);
+                }
             }
             FlightStart::Skipped => {
                 let _ = reply.send(status);
@@ -239,8 +253,13 @@ impl Actor {
                 continue;
             }
             match self.start_flight(id, cause) {
-                FlightStart::Started(_) | FlightStart::Running(_) => {
-                    pending.insert(id.clone());
+                // Only a flight that is still running may be waited on: a spawner that
+                // refused the task already settled it (and this batch is not registered
+                // yet, so its settlement could not answer it).
+                FlightStart::Started(token) | FlightStart::Running(token) => {
+                    if self.flight_alive(id, token) {
+                        pending.insert(id.clone());
+                    }
                 }
                 FlightStart::Skipped => {}
             }
@@ -302,7 +321,9 @@ impl Actor {
             return;
         }
         self.inner.connections_checked_at = Some(now);
-        let catalog = self.catalog_handle();
+        let Some(catalog) = self.catalog_handle() else {
+            return;
+        };
         self.spawn(
             TaskKind::Other,
             Box::pin(async move {
@@ -460,22 +481,15 @@ impl Actor {
             .entry(id.to_owned())
             .or_default()
             .push(reply);
-        let commands = self.commands.clone();
+        let reporter = self.reporter.clone();
         let cancel = self.options.deadline.arm(
             self.options.timeout_ms,
             Box::new({
-                let commands = commands.clone();
                 let deadline_id = id.to_owned();
                 move || {
-                    let sender = commands
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    let _ = sender.send(Envelope {
-                        command: Command::ProbeDeadline {
-                            id: deadline_id.clone(),
-                            token,
-                        },
-                        ack: None,
+                    reporter.report(Command::ProbeDeadline {
+                        id: deadline_id.clone(),
+                        token,
                     });
                 }
             }),
@@ -483,6 +497,7 @@ impl Actor {
         self.probe_cancels.insert(token, cancel);
         let request = with_binary_path(&config, self.configuration(&config).binary_path.as_deref());
         let id = id.to_owned();
+        let reporter = self.reporter.clone();
         self.spawn(
             TaskKind::Probe {
                 id: id.clone(),
@@ -498,19 +513,13 @@ impl Actor {
                     futures::future::Either::Left((result, _)) => Some(result),
                     futures::future::Either::Right(((), _)) => None,
                 };
-                let sender = commands
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let _ = sender.send(Envelope {
-                    command: Command::ProbeOutcome {
-                        id,
-                        token,
-                        generation,
-                        revision,
-                        started_at: now,
-                        result,
-                    },
-                    ack: None,
+                reporter.report(Command::ProbeOutcome {
+                    id,
+                    token,
+                    generation,
+                    revision,
+                    started_at: now,
+                    result,
                 });
             }),
         );

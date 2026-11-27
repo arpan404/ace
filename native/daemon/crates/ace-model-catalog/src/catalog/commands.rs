@@ -5,7 +5,7 @@
 //! reply receiver; the actor still finishes the operation and settles everything it
 //! admitted, which is how cancellation is handled here.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use ace_models::instance::ModelInstance;
 use serde_json::Value;
@@ -25,6 +25,40 @@ pub(crate) type Reply<T> = futures::channel::oneshot::Sender<T>;
 pub(crate) struct Envelope {
     pub(crate) command: Command,
     pub(crate) ack: Option<Reply<()>>,
+}
+
+/// How work the actor owns reports back: never through the callers' bounded mailbox.
+///
+/// The completion queue is unbounded, so a spawned task, a timer or the storage lane can
+/// always report without blocking; the wake message only interrupts the actor's wait on
+/// the callers' queue and is dropped when that queue is full (the actor is then busy and
+/// drains completions on its own).
+#[derive(Clone)]
+pub(crate) struct Reporter {
+    pub(crate) completions: Arc<Mutex<std::sync::mpsc::Sender<Envelope>>>,
+    pub(crate) commands: Weak<Mutex<std::sync::mpsc::SyncSender<Envelope>>>,
+}
+
+impl Reporter {
+    pub(crate) fn report(&self, command: Command) {
+        let sender = self
+            .completions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if sender.send(Envelope { command, ack: None }).is_err() {
+            return;
+        }
+        drop(sender);
+        if let Some(commands) = self.commands.upgrade() {
+            let sender = commands
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _ = sender.try_send(Envelope {
+                command: Command::Wake,
+                ack: None,
+            });
+        }
+    }
 }
 
 /// Every message the actor thread accepts, from a caller or from work it spawned.
@@ -164,6 +198,8 @@ pub(crate) enum Command {
     },
 
     // Work the actor spawned, reporting back.
+    /// Interrupts the actor's wait on the callers' queue; it carries no work of its own.
+    Wake,
     TaskSettled {
         task: u64,
     },

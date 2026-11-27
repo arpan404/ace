@@ -11,7 +11,7 @@ use futures::future::BoxFuture;
 
 use crate::backoff::DiscoveryBackoff;
 use crate::catalog::actor::{Actor, TaskKind};
-use crate::catalog::commands::{Command, Envelope, Reply};
+use crate::catalog::commands::{Command, Reply};
 use crate::catalog::{
     CatalogError, Invalidation, ModelFilter, PendingOp, Removal, State, identity_revision,
     selection, validate_instance,
@@ -184,6 +184,10 @@ impl Actor {
         self.inner.states.insert(config.id.clone(), state);
         self.inner.order.retain(|id| id != &config.id);
         self.inner.order.push(config.id.clone());
+        self.instance_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(config.id.clone());
         self.inner
             .providers
             .entry(config.provider)
@@ -432,6 +436,10 @@ impl Actor {
         }
         self.inner.states.remove(&instance);
         self.inner.order.retain(|id| id != &instance);
+        self.instance_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&instance);
         self.inner.persisted.remove(&instance);
         self.inner.persisted_order.retain(|id| id != &instance);
         self.inner.acp_loaded.remove(&instance);
@@ -444,7 +452,7 @@ impl Actor {
             },
         );
         let storage = self.storage.clone();
-        let commands = self.commands.clone();
+        let reporter = self.reporter.clone();
         let id = instance.clone();
         let task: BoxFuture<'static, ()> = Box::pin(async move {
             for flight in flights {
@@ -458,16 +466,10 @@ impl Actor {
             }
             let mut storage = storage;
             let result = storage.remove(&id);
-            let sender = commands
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let _ = sender.send(Envelope {
-                command: Command::RemovalDone {
-                    id: id.clone(),
-                    token,
-                    result,
-                },
-                ack: None,
+            reporter.report(Command::RemovalDone {
+                id: id.clone(),
+                token,
+                result,
             });
         });
         self.spawn(
@@ -596,7 +598,7 @@ impl Actor {
             if let Some(batch) = self.invalidation_batches.get_mut(&batch) {
                 batch.remaining += 1;
             }
-            let commands = self.commands.clone();
+            let reporter = self.reporter.clone();
             let task_id = id.clone();
             let task: BoxFuture<'static, ()> = Box::pin(async move {
                 if let Some(flight) = flight {
@@ -605,13 +607,7 @@ impl Actor {
                 if let Some(previous) = previous {
                     previous.wait().await;
                 }
-                let sender = commands
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let _ = sender.send(Envelope {
-                    command: Command::InvalidationDone { id: task_id, token },
-                    ack: None,
-                });
+                reporter.report(Command::InvalidationDone { id: task_id, token });
             });
             self.spawn(
                 TaskKind::Invalidation {

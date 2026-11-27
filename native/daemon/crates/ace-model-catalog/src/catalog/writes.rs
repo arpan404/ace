@@ -222,16 +222,10 @@ impl Actor {
             })));
         // The write runs from its place, once its task reports; a task dropped before it
         // runs still lets the write (and close) settle.
-        let commands = self.commands.clone();
+        let reporter = self.reporter.clone();
         let task_id = id.clone();
         let task: futures::future::BoxFuture<'static, ()> = Box::pin(async move {
-            let sender = commands
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let _ = sender.send(crate::catalog::commands::Envelope {
-                command: Command::PermissionReady { id: task_id, place },
-                ack: None,
-            });
+            reporter.report(Command::PermissionReady { id: task_id, place });
         });
         self.spawn(
             crate::catalog::actor::TaskKind::Permission { id, place },
