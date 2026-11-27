@@ -15,6 +15,16 @@ const state = (sink: RecordingSink) =>
     | null
     | undefined;
 
+/** The view's pane reports, in order: its subscribes and its capture updates. */
+const paneReports = (requested: unknown[]) =>
+  requested.filter(
+    (request): request is { type: string } =>
+      typeof request === "object" &&
+      request !== null &&
+      "type" in request &&
+      (request.type === "browser.subscribe" || request.type === "browser.capture"),
+  );
+
 describe("Live browser view", () => {
   test("hardware HEVC is named first in the view's subscribe", async () => {
     Object.assign(host, { video: { decoders: () => ["hvc1.1.6.L153.B0", "avc1.42E033"] } });
@@ -151,14 +161,7 @@ describe("Live browser view", () => {
 
   test("the page's sound reaches this phone only once the person turns it on, and every view starts muted", async () => {
     const { sink, view, requested } = await live();
-    const reports = () =>
-      requested.filter(
-        (request): request is { type: string } =>
-          typeof request === "object" &&
-          request !== null &&
-          "type" in request &&
-          (request.type === "browser.subscribe" || request.type === "browser.capture"),
-      );
+    const reports = () => paneReports(requested);
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
     expect(reports().at(-1)).not.toHaveProperty("viewport.audio");
@@ -180,6 +183,47 @@ describe("Live browser view", () => {
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => reports().at(-1)?.type === "browser.subscribe", "subscribed again");
     expect(reports().at(-1)).not.toHaveProperty("viewport.audio");
+  });
+
+  test("turning the sound on or off while the subscribe is on its way reaches the daemon once it lands", async () => {
+    // On: the subscribe went out muted.
+    const on = await live({ holdSubscribes: true });
+    on.view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => paneReports(on.requested).length === 1, "the subscribe");
+    on.view.action({ kind: "audio", on: true });
+    expect(paneReports(on.requested)).toHaveLength(1);
+    on.releaseSubscribes();
+    await until(() => paneReports(on.requested).length === 2, "sound reported");
+    expect(paneReports(on.requested).at(-1)).toMatchObject({
+      type: "browser.capture",
+      viewport: { audio: true },
+    });
+
+    // Off: a resubscribe (the session came back) went out with sound on, and the person muted
+    // it before its reply.
+    const off = await live({ holdSubscribes: true });
+    off.view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => paneReports(off.requested).length === 1, "the subscribe");
+    off.releaseSubscribes();
+    await until(() => state(off.sink) != null, "browser state");
+    off.view.action({ kind: "audio", on: true });
+    const before = paneReports(off.requested).length;
+    off.daemon.disconnectAll();
+    await until(
+      () =>
+        paneReports(off.requested)
+          .slice(before)
+          .some((r) => r.type === "browser.subscribe"),
+      "the resubscribe",
+    );
+    expect(paneReports(off.requested).at(-1)).toMatchObject({ viewport: { audio: true } });
+    const sent = paneReports(off.requested).length;
+    off.view.action({ kind: "audio", on: false });
+    expect(paneReports(off.requested)).toHaveLength(sent);
+    off.releaseSubscribes();
+    await until(() => paneReports(off.requested).length > sent, "mute reported");
+    expect(paneReports(off.requested).at(-1)).toMatchObject({ type: "browser.capture" });
+    expect(paneReports(off.requested).at(-1)).not.toHaveProperty("viewport.audio");
   });
 
   test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {

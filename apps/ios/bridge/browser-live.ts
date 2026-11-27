@@ -107,6 +107,16 @@ function captureFor(watch: Watch): BrowserCaptureViewport {
   return watch.audio ? { ...size, audio: true } : size;
 }
 
+/** Whether two pane reports say the same: same size, scale and sound. */
+function sameReport(a: BrowserCaptureViewport, b: BrowserCaptureViewport): boolean {
+  return (
+    a.width === b.width &&
+    a.height === b.height &&
+    a.devicePixelRatio === b.devicePixelRatio &&
+    a.audio === b.audio
+  );
+}
+
 /** What the view reads from the open thread, beyond the browser itself. */
 export interface BrowserThreadContext {
   /** The agent's display name, for "Claude is using this page". */
@@ -601,13 +611,15 @@ export class BrowserLive {
           this.#media.abandon(watch.threadId, begun.generation),
         )
       : undefined;
+    // What this subscribe reports; a change made while it is on its way is sent once it lands.
+    const reported = captureFor(watch);
     void this.#owner
       .request({
         type: "browser.subscribe",
         threadId: watch.threadId,
         subscriberId,
         binaryFrames: true,
-        viewport: captureFor(watch),
+        viewport: reported,
         video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
         ...(media ? { media } : {}),
         mediaClient,
@@ -634,6 +646,8 @@ export class BrowserLive {
           void this.#engine.readDefault();
           watch.retry?.();
           watch.retry = undefined;
+          // The sound turned on or off, or the size changed, while the subscribe was on its way.
+          if (!sameReport(reported, captureFor(watch))) this.#report(watch);
           // Answered without delivery: asked again on the unserved ladder, never giving up.
           if (this.#media.unserved(watch.threadId))
             watch.unserved.failed(() => {
