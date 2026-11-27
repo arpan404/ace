@@ -1,14 +1,16 @@
 //! `relay-socket.ts` has no test file of its own; these prove the behaviour it names: the
 //! relay's close code and reason survive, a local close carries `channel.close` last, the
-//! unconfirmed output budget ends the session, and a paused reader stops taking frames.
+//! unconfirmed output budget ends the session, a revoked credential ends the channel through
+//! every read and write, and a paused reader stops taking frames.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use super::{
-    Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState, ended_by,
-    slice_utf16,
+    CredentialGuard, Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState,
+    ended_by, slice_utf16,
 };
 use crate::error::RelayError;
 use crate::nk::admission::{Cancel, NK_LIMITS, NkAdmission, NkClock, NkSession};
@@ -33,31 +35,42 @@ struct Channel {
     cause: Option<RelayError>,
 }
 
-impl HostChannel for Channel {
+/// A channel the test keeps a handle on after the socket takes ownership of it.
+#[derive(Clone, Default)]
+struct Shared(Arc<Mutex<Channel>>);
+
+impl Shared {
+    fn get(&self) -> std::sync::MutexGuard<'_, Channel> {
+        self.0.lock().unwrap()
+    }
+}
+
+impl HostChannel for Shared {
     fn receive(&mut self) -> Option<Frame> {
-        (!self.incoming.is_empty()).then(|| self.incoming.remove(0))
+        let mut channel = self.get();
+        (!channel.incoming.is_empty()).then(|| channel.incoming.remove(0))
     }
 
     fn closed_cause(&self) -> Option<RelayError> {
-        self.cause.clone()
+        self.get().cause.clone()
     }
 
     fn send_text(&mut self, text: &str, deflate: bool) -> Result<(), RelayError> {
-        self.texts.push((text.to_owned(), deflate));
+        self.get().texts.push((text.to_owned(), deflate));
         Ok(())
     }
 
     fn send_binary(&mut self, bytes: &[u8]) -> Result<(), RelayError> {
-        self.binaries.push(bytes.to_vec());
+        self.get().binaries.push(bytes.to_vec());
         Ok(())
     }
 
     fn buffered_bytes(&self) -> usize {
-        self.buffered
+        self.get().buffered
     }
 
     fn close_after_flush(&mut self) {
-        self.closed = true;
+        self.get().closed = true;
     }
 }
 
@@ -67,9 +80,48 @@ fn session() -> NkSession {
         .unwrap()
 }
 
+/// A paired credential whose generation a test can replace or revoke.
+#[derive(Clone, Default)]
+struct PairedRegistry(Arc<Mutex<Option<(String, String)>>>);
+
+impl PairedRegistry {
+    fn new(device: &str, generation: &str) -> Self {
+        Self(Arc::new(Mutex::new(Some((
+            device.to_owned(),
+            generation.to_owned(),
+        )))))
+    }
+
+    fn guard(&self) -> CredentialGuard {
+        let registry = Arc::clone(&self.0);
+        CredentialGuard::paired("phone", "gen-1", move |device, generation| {
+            registry
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(current, current_generation)| {
+                    current == device && current_generation == generation
+                })
+        })
+    }
+
+    fn revoke(&self) {
+        *self.0.lock().unwrap() = None;
+    }
+}
+
+fn relay_socket(deflate: bool, channel: &Shared, guard: CredentialGuard) -> RelaySocket {
+    RelaySocket::new(deflate, Box::new(channel.clone()), guard)
+}
+
 #[test]
 fn the_hello_the_relay_read_is_the_first_message_and_order_holds() {
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     assert_eq!(
         socket.start(b"{\"type\":\"hello\"}"),
         RelayedEvent::Message {
@@ -95,7 +147,12 @@ fn the_hello_the_relay_read_is_the_first_message_and_order_holds() {
 
 #[test]
 fn a_relayed_close_keeps_its_code_and_reason_and_any_other_failure_is_1006() {
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     let relayed = socket.ended(Some(&RelayError::Closed {
         code: 4003,
         reason: "Peer closed".to_owned(),
@@ -129,9 +186,13 @@ fn a_relayed_close_keeps_its_code_and_reason_and_any_other_failure_is_1006() {
 
 #[test]
 fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
-    let mut socket = RelaySocket::new(false);
-    let mut channel = Channel::default();
-    let event = socket.close(5000, "bye", &mut channel);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
+    let event = socket.close(5000, "bye");
     assert_eq!(
         event,
         Some(RelayedEvent::Close {
@@ -141,11 +202,11 @@ fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
         })
     );
     // A second close is a no-op.
-    assert_eq!(socket.close(4001, "again", &mut channel), None);
-    assert!(channel.closed);
-    let (text, deflate) = channel.texts.last().unwrap();
+    assert_eq!(socket.close(4001, "again"), None);
+    assert!(channel.get().closed);
+    let (text, deflate) = channel.get().texts.last().unwrap().clone();
     assert!(!deflate);
-    let goodbye = ace_json::parse(text).unwrap();
+    let goodbye = ace_json::parse(&text).unwrap();
     assert_eq!(
         goodbye.get("code").and_then(ace_json::Value::as_u64),
         Some(1000)
@@ -154,15 +215,15 @@ fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
         goodbye.get("type").and_then(ace_json::Value::as_str),
         Some("channel.close")
     );
-    assert_eq!(
-        goodbye.get("code").and_then(ace_json::Value::as_u64),
-        Some(1000)
-    );
     // A reason is cut to 123 UTF-16 units: 61 emoji, not 123.
-    let mut socket = RelaySocket::new(false);
-    let mut channel = Channel::default();
-    socket.close(4001, &"😀".repeat(200), &mut channel);
-    let goodbye = ace_json::parse(&channel.texts.last().unwrap().0).unwrap();
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
+    socket.close(4001, &"😀".repeat(200));
+    let goodbye = ace_json::parse(&channel.get().texts.last().unwrap().0).unwrap();
     assert_eq!(
         goodbye
             .get("reason")
@@ -178,22 +239,31 @@ fn a_local_close_sends_channel_close_last_with_the_clamped_code_and_reason() {
 
 #[test]
 fn terminate_is_1006_with_no_reason_and_closes_the_channel() {
-    let mut socket = RelaySocket::new(false);
-    let mut channel = Channel::default();
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     assert_eq!(
-        socket.terminate(&mut channel),
+        socket.terminate(),
         RelayedEvent::Close {
             code: 1006,
             reason: String::new()
         }
     );
-    assert!(channel.closed);
+    assert!(channel.get().closed);
     assert_eq!(socket.ready_state(), RelayedState::Closed);
 }
 
 #[test]
 fn a_paused_reader_takes_no_frames_until_it_resumes() {
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     socket.pause();
     assert!(socket.is_paused());
     // The frame comes back rather than vanishing, so the shell can keep it.
@@ -205,50 +275,55 @@ fn a_paused_reader_takes_no_frames_until_it_resumes() {
 
 #[test]
 fn before_confirmation_output_past_256_kib_ends_the_session() {
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     socket.hold_session(session());
-    let mut channel = Channel::default();
-    socket
-        .send_text(&"x".repeat(200 * 1024), true, &mut channel)
-        .unwrap();
-    assert_eq!(channel.texts.len(), 1);
-    let error = socket
-        .send_text(&"x".repeat(57 * 1024), true, &mut channel)
-        .unwrap_err();
+    socket.send_text(&"x".repeat(200 * 1024), true).unwrap();
+    assert_eq!(channel.get().texts.len(), 1);
+    let error = socket.send_text(&"x".repeat(57 * 1024), true).unwrap_err();
     assert!(error.to_string().contains("output budget"));
-    assert!(channel.closed);
+    assert!(channel.get().closed);
     assert_eq!(socket.ready_state(), RelayedState::Closed);
     // Nothing more goes out.
-    assert!(socket.send_text("after", true, &mut channel).is_err());
+    assert!(socket.send_text("after", true).is_err());
 }
 
 #[test]
 fn deflate_reaches_text_when_the_peer_takes_it_and_binary_never_carries_it() {
-    let mut socket = RelaySocket::new(true);
-    let mut channel = Channel::default();
-    socket.send_text("bulk", true, &mut channel).unwrap();
-    socket.send_text("plain", false, &mut channel).unwrap();
-    socket
-        .send_bytes(&[1, 2, 3], true, true, &mut channel)
-        .unwrap();
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        true,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
+    socket.send_text("bulk", true).unwrap();
+    socket.send_text("plain", false).unwrap();
+    socket.send_bytes(&[1, 2, 3], true, true).unwrap();
     assert_eq!(
-        channel.texts,
+        channel.get().texts,
         vec![("bulk".to_owned(), true), ("plain".to_owned(), false)]
     );
-    assert_eq!(channel.binaries, vec![vec![1, 2, 3]]);
+    assert_eq!(channel.get().binaries, vec![vec![1, 2, 3]]);
     // Bytes a caller marks as text go as text, deflated too.
-    socket
-        .send_bytes(b"{\"a\":1}", false, true, &mut channel)
-        .unwrap();
+    socket.send_bytes(b"{\"a\":1}", false, true).unwrap();
     assert_eq!(
-        channel.texts.last().unwrap(),
+        channel.get().texts.last().unwrap(),
         &("{\"a\":1}".to_owned(), true)
     );
 }
 
 #[test]
 fn an_unconfirmed_session_s_continuations_come_first_and_a_refusal_terminates() {
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     socket.hold_session(session());
     let events = socket.after_confirmation(true, &[b"subscribe".to_vec()]);
     assert_eq!(
@@ -258,7 +333,12 @@ fn an_unconfirmed_session_s_continuations_come_first_and_a_refusal_terminates() 
             binary: false
         }]
     );
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     assert_eq!(
         socket.after_confirmation(false, &[]),
         vec![RelayedEvent::Close {
@@ -270,67 +350,66 @@ fn an_unconfirmed_session_s_continuations_come_first_and_a_refusal_terminates() 
 
 #[test]
 fn the_buffered_amount_is_the_channel_s_own() {
-    let socket = RelaySocket::new(false);
-    let channel = Channel {
-        buffered: 1234,
-        ..Default::default()
-    };
-    assert_eq!(socket.buffered_amount(&channel), 1234);
+    let channel = Shared::default();
+    channel.get().buffered = 1234;
+    let socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
+    assert_eq!(socket.buffered_amount(), 1234);
 }
 
 #[test]
 fn dropping_a_relay_socket_with_an_unconfirmed_session_releases_it_even_when_cloned() {
     let held_session = session();
     assert!(held_session.reserve_bytes(1024));
-    let mut socket = RelaySocket::new(false);
+    let channel = Shared::default();
+    let mut socket = relay_socket(
+        false,
+        &channel,
+        PairedRegistry::new("phone", "gen-1").guard(),
+    );
     socket.hold_session(held_session.clone());
     drop(socket);
     assert!(held_session.closed());
 }
 
 #[test]
-fn a_revoked_device_cannot_keep_a_relayed_socket_open_for_send_receive_or_confirm() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    // Revoked before send: terminates channel, releases unconfirmed session, refuses send.
-    let admitted = Arc::new(AtomicBool::new(true));
-    let held_session = session();
-    let mut socket = RelaySocket::new(false);
-    socket.hold_session(held_session.clone());
-    let flag = Arc::clone(&admitted);
-    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
-
-    let mut channel = Channel::default();
-    socket.send_text("ok", false, &mut channel).unwrap();
-    assert_eq!(channel.texts.len(), 1);
-    admitted.store(false, Ordering::SeqCst);
-    let err = socket
-        .send_text("after-revoke", false, &mut channel)
-        .unwrap_err();
-    assert!(err.to_string().contains("no longer admitted"));
-    assert!(channel.closed);
+fn a_revoked_paired_generation_cannot_send_receive_or_confirm() {
+    // Revoked before send: closes the channel, releases the unconfirmed session, refuses send.
+    let registry = PairedRegistry::new("phone", "gen-1");
+    let channel = Shared::default();
+    let held = session();
+    let mut socket = relay_socket(false, &channel, registry.guard());
+    socket.hold_session(held.clone());
+    socket.send_text("ok", false).unwrap();
+    assert_eq!(channel.get().texts.len(), 1);
+    registry.revoke();
+    let error = socket.send_text("after-revoke", false).unwrap_err();
+    assert!(error.to_string().contains("no longer admitted"));
+    assert!(channel.get().closed);
     assert_eq!(socket.ready_state(), RelayedState::Closed);
-    assert!(held_session.closed());
+    assert!(held.closed());
 
-    // Revoked before receive: refuses frame and closes socket.
-    let admitted = Arc::new(AtomicBool::new(true));
-    let mut socket = RelaySocket::new(false);
-    let flag = Arc::clone(&admitted);
-    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+    // Revoked before receive: refuses the frame and closes the channel.
+    let registry = PairedRegistry::new("phone", "gen-1");
+    let channel = Shared::default();
+    let mut socket = relay_socket(false, &channel, registry.guard());
     assert!(socket.receive(Frame::Text("ok".to_owned())).is_ok());
-    admitted.store(false, Ordering::SeqCst);
+    registry.revoke();
     let frame = Frame::Text("late".to_owned());
     assert_eq!(socket.receive(frame.clone()), Err(frame));
+    assert!(channel.get().closed);
     assert_eq!(socket.ready_state(), RelayedState::Closed);
 
-    // Revoked before confirmation: refuses continuations and closes.
-    let admitted = Arc::new(AtomicBool::new(false));
+    // Revoked before confirmation: refuses continuations, closes the channel, releases the hold.
+    let registry = PairedRegistry::new("phone", "gen-1");
+    let channel = Shared::default();
     let held = session();
-    let mut socket = RelaySocket::new(false);
+    let mut socket = relay_socket(false, &channel, registry.guard());
     socket.hold_session(held.clone());
-    let flag = Arc::clone(&admitted);
-    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
+    registry.revoke();
     assert_eq!(
         socket.after_confirmation(true, &[b"sub".to_vec()]),
         vec![RelayedEvent::Close {
@@ -338,22 +417,55 @@ fn a_revoked_device_cannot_keep_a_relayed_socket_open_for_send_receive_or_confir
             reason: String::new(),
         }]
     );
+    assert!(channel.get().closed);
     assert!(held.closed());
 
-    // Explicit recheck closes immediately.
+    // A generation replaced under the same device id is a refusal too.
+    let registry = PairedRegistry::new("phone", "gen-2");
+    let channel = Shared::default();
+    let mut socket = relay_socket(false, &channel, registry.guard());
+    let frame = Frame::Text("replaced".to_owned());
+    assert_eq!(socket.receive(frame.clone()), Err(frame));
+    assert!(channel.get().closed);
+}
+
+#[test]
+fn an_account_grant_deadline_ends_the_channel_even_while_the_account_stays_admitted() {
     let admitted = Arc::new(AtomicBool::new(true));
-    let mut socket = RelaySocket::new(false);
-    let flag = Arc::clone(&admitted);
-    socket.set_still_admitted(move || flag.load(Ordering::SeqCst));
-    let mut channel = Channel::default();
-    assert_eq!(socket.check_admitted(&mut channel), None);
+    let now = Arc::new(AtomicI64::new(1_000));
+    let guard = {
+        let admitted = Arc::clone(&admitted);
+        let now = Arc::clone(&now);
+        CredentialGuard::account(
+            move || admitted.load(Ordering::SeqCst),
+            Some(2_000),
+            move || now.load(Ordering::SeqCst),
+        )
+    };
+    let channel = Shared::default();
+    let mut socket = relay_socket(false, &channel, guard);
+    assert!(socket.receive(Frame::Text("ok".to_owned())).is_ok());
+    now.store(2_000, Ordering::SeqCst);
+    let frame = Frame::Text("expired".to_owned());
+    assert_eq!(socket.receive(frame.clone()), Err(frame));
+    assert!(channel.get().closed);
+    assert_eq!(socket.ready_state(), RelayedState::Closed);
+
+    // An account device whose access was revoked is refused the same way.
+    let admitted = Arc::new(AtomicBool::new(true));
+    let guard = {
+        let admitted = Arc::clone(&admitted);
+        CredentialGuard::account(move || admitted.load(Ordering::SeqCst), None, || 0)
+    };
+    let channel = Shared::default();
+    let mut socket = relay_socket(false, &channel, guard);
     admitted.store(false, Ordering::SeqCst);
     assert_eq!(
-        socket.check_admitted(&mut channel),
+        socket.check_admitted(),
         Some(RelayedEvent::Close {
             code: 1006,
             reason: String::new(),
         })
     );
-    assert!(channel.closed);
+    assert!(channel.get().closed);
 }

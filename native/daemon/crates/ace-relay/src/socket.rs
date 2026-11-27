@@ -5,6 +5,13 @@
 //! close sends `channel.close` with its code and reason as the channel's last message; the
 //! relay's own close keeps its code and reason ("Peer closed" when the far end went away), and
 //! any other failure is an abnormal 1006 with what broke.
+//!
+//! An admitted socket carries its credential from construction: a paired device's generation and
+//! an account grant's deadline are part of the socket, not an optional recheck a caller may
+//! forget to install. Every read, write and confirmation rechecks it, and a refusal closes the
+//! channel the socket owns.
+
+use std::sync::Arc;
 
 use crate::error::RelayError;
 use crate::nk::admission::NkSession;
@@ -80,16 +87,105 @@ pub fn ended_by(cause: Option<&RelayError>) -> (u16, String) {
     }
 }
 
+/// What an admitted relay channel's credential must still satisfy. It is fixed at construction:
+/// a paired device must still hold the generation it was admitted with, and an account grant
+/// must be before its deadline and still admitted by the account backend. A socket built without
+/// one cannot exist.
+pub struct CredentialGuard {
+    paired: Option<PairedCredential>,
+    grant: Option<GrantCredential>,
+}
+
+type GenerationCheck = Arc<dyn Fn(&str, &str) -> bool + Send + Sync>;
+type AdmissionCheck = Arc<dyn Fn() -> bool + Send + Sync>;
+type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
+
+struct PairedCredential {
+    device_id: String,
+    generation: String,
+    current: GenerationCheck,
+}
+
+struct GrantCredential {
+    still_admitted: AdmissionCheck,
+    expires_at: Option<i64>,
+    now: Clock,
+}
+
+impl CredentialGuard {
+    /// A paired device's credential: `current(device_id, generation)` reports whether that
+    /// generation is still the device's current, unrevoked one.
+    pub fn paired(
+        device_id: impl Into<String>,
+        generation: impl Into<String>,
+        current: impl Fn(&str, &str) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            paired: Some(PairedCredential {
+                device_id: device_id.into(),
+                generation: generation.into(),
+                current: Arc::new(current),
+            }),
+            grant: None,
+        }
+    }
+
+    /// An account device's grant: `still_admitted` is the account backend's cached verdict, and
+    /// `expires_at` (Unix milliseconds) is the grant's deadline, if it has one.
+    pub fn account(
+        still_admitted: impl Fn() -> bool + Send + Sync + 'static,
+        expires_at: Option<i64>,
+        now: impl Fn() -> i64 + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            paired: None,
+            grant: Some(GrantCredential {
+                still_admitted: Arc::new(still_admitted),
+                expires_at,
+                now: Arc::new(now),
+            }),
+        }
+    }
+
+    /// Whether the credential is admitted right now.
+    pub fn admitted(&self) -> bool {
+        if let Some(paired) = &self.paired {
+            return (paired.current)(&paired.device_id, &paired.generation);
+        }
+        let Some(grant) = &self.grant else {
+            return false;
+        };
+        if !(grant.still_admitted)() {
+            return false;
+        }
+        grant
+            .expires_at
+            .is_none_or(|expires_at| expires_at > (grant.now)())
+    }
+}
+
+impl std::fmt::Debug for CredentialGuard {
+    /// The device id and whether a deadline exists; never a bearer or a grant.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialGuard")
+            .field("paired", &self.paired.is_some())
+            .field(
+                "grant",
+                &self.grant.as_ref().map(|grant| grant.expires_at.is_some()),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// A relayed main channel a socket handler can read, write and close.
 pub struct RelaySocket {
     deflate: bool,
+    channel: Box<dyn HostChannel>,
+    credential: CredentialGuard,
     state: RelayedState,
     paused: bool,
     /// Before confirmation: the session whose output budget applies.
     session: Option<NkSession>,
-    /// Live admission check (`stillAdmitted`): checked on confirmation, receive, send and explicit
-    /// polls so a revoked or expired device cannot keep a relayed session open.
-    still_admitted: Option<Box<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl Drop for RelaySocket {
@@ -99,14 +195,16 @@ impl Drop for RelaySocket {
 }
 
 impl RelaySocket {
-    /// `deflate`: the peer said it inflates (`hello.compression`), so bulk text may go deflated.
-    pub fn new(deflate: bool) -> Self {
+    /// `channel` is the byte stream the socket owns and closes; `credential` is the admission it
+    /// was constructed with. There is no way to open one without a live credential check.
+    pub fn new(deflate: bool, channel: Box<dyn HostChannel>, credential: CredentialGuard) -> Self {
         Self {
             deflate,
+            channel,
+            credential,
             state: RelayedState::Open,
             paused: false,
             session: None,
-            still_admitted: None,
         }
     }
 
@@ -118,23 +216,18 @@ impl RelaySocket {
         }
     }
 
-    /// Install a live admission recheck (paired device revocation/expiry or account `stillAdmitted`).
-    pub fn set_still_admitted(&mut self, check: impl Fn() -> bool + Send + Sync + 'static) {
-        self.still_admitted = Some(Box::new(check));
-    }
-
     /// Whether the session's credential is still admitted right now.
     pub fn is_still_admitted(&self) -> bool {
-        self.still_admitted.as_ref().is_none_or(|check| check())
+        self.credential.admitted()
     }
 
     /// Recheck live admission and close the channel at once if the device has been revoked or
     /// expired. Returns `Some(Close)` when this call closed the socket.
-    pub fn check_admitted(&mut self, channel: &mut dyn HostChannel) -> Option<RelayedEvent> {
+    pub fn check_admitted(&mut self) -> Option<RelayedEvent> {
         if self.state != RelayedState::Open || self.is_still_admitted() {
             return None;
         }
-        Some(self.terminate(channel))
+        Some(self.terminate())
     }
 
     pub fn ready_state(&self) -> RelayedState {
@@ -145,8 +238,9 @@ impl RelaySocket {
         self.paused
     }
 
-    pub fn buffered_amount(&self, channel: &dyn HostChannel) -> usize {
-        channel.buffered_bytes()
+    /// The channel's own queued bytes.
+    pub fn buffered_amount(&self) -> usize {
+        self.channel.buffered_bytes()
     }
 
     /// Deliver `first` (the hello the relay host already read) as the channel's first message.
@@ -166,12 +260,7 @@ impl RelaySocket {
         continuations: &[Vec<u8>],
     ) -> Vec<RelayedEvent> {
         if !confirmed || !self.is_still_admitted() {
-            self.release_unconfirmed();
-            self.state = RelayedState::Closed;
-            return vec![RelayedEvent::Close {
-                code: 1006,
-                reason: String::new(),
-            }];
+            return vec![self.terminate()];
         }
         self.session = None;
         continuations
@@ -191,13 +280,13 @@ impl RelaySocket {
 
     /// A frame the channel received, in order. While paused or no longer open the frame is handed
     /// back, so a shell that already took it from the channel can keep it instead of losing it.
+    /// A refused credential closes the channel and hands the frame back too.
     pub fn receive(&mut self, frame: Frame) -> Result<RelayedEvent, Frame> {
         if self.state != RelayedState::Open || self.paused {
             return Err(frame);
         }
         if !self.is_still_admitted() {
-            self.release_unconfirmed();
-            self.state = RelayedState::Closed;
+            self.terminate();
             return Err(frame);
         }
         Ok(match frame {
@@ -221,14 +310,10 @@ impl RelaySocket {
     }
 
     /// Text, deflated when the peer takes it and the caller hasn't opted out.
-    pub fn send_text(
-        &mut self,
-        text: &str,
-        compress: bool,
-        channel: &mut dyn HostChannel,
-    ) -> Result<(), RelayError> {
-        self.budget(text.len(), channel)?;
-        channel.send_text(text, self.deflate && compress)
+    pub fn send_text(&mut self, text: &str, compress: bool) -> Result<(), RelayError> {
+        self.budget(text.len())?;
+        let deflate = self.deflate && compress;
+        self.channel.send_text(text, deflate)
     }
 
     /// Bytes: binary as a `ws` socket sends them, unless the caller says they are text.
@@ -237,29 +322,30 @@ impl RelaySocket {
         bytes: &[u8],
         binary: bool,
         compress: bool,
-        channel: &mut dyn HostChannel,
     ) -> Result<(), RelayError> {
-        self.budget(bytes.len(), channel)?;
+        self.budget(bytes.len())?;
         if binary {
-            return channel.send_binary(bytes);
+            return self.channel.send_binary(bytes);
         }
-        channel.send_text(&String::from_utf8_lossy(bytes), self.deflate && compress)
+        let deflate = self.deflate && compress;
+        self.channel
+            .send_text(&String::from_utf8_lossy(bytes), deflate)
     }
 
     /// Before confirmation at most 256 KiB goes out (ADR 0155). Anything past it ends the
     /// session, so nothing waits anywhere for a client that hasn't confirmed.
-    fn budget(&mut self, size: usize, channel: &mut dyn HostChannel) -> Result<(), RelayError> {
+    fn budget(&mut self, size: usize) -> Result<(), RelayError> {
         if self.state != RelayedState::Open {
             return Err(RelayError::Protocol("Relay channel closed"));
         }
         if !self.is_still_admitted() {
-            self.terminate(channel);
+            self.terminate();
             return Err(RelayError::Protocol("Device no longer admitted"));
         }
         if let Some(session) = &self.session
             && !session.output(size)
         {
-            self.terminate(channel);
+            self.terminate();
             return Err(RelayError::Protocol("Unconfirmed output budget spent"));
         }
         Ok(())
@@ -268,12 +354,7 @@ impl RelaySocket {
     /// A local close: the goodbye is queued behind earlier messages, so it arrives last; then the
     /// channel ends. The relay has no close frame, so `channel.close` carries the code.
     /// Idempotent per socket: a socket already closing keeps its own code, and returns `None`.
-    pub fn close(
-        &mut self,
-        code: u16,
-        reason: &str,
-        channel: &mut dyn HostChannel,
-    ) -> Option<RelayedEvent> {
+    pub fn close(&mut self, code: u16, reason: &str) -> Option<RelayedEvent> {
         if self.state != RelayedState::Open {
             return None;
         }
@@ -291,16 +372,16 @@ impl RelaySocket {
         goodbye.insert("code", ace_json::Value::from(frame_code));
         goodbye.insert("reason", ace_json::Value::String(reason.clone().into()));
         let text = ace_json::to_string(&ace_json::Value::Object(goodbye));
-        let _ = channel.send_text(&text, false);
-        channel.close_after_flush();
+        let _ = self.channel.send_text(&text, false);
+        self.channel.close_after_flush();
         self.state = RelayedState::Closed;
         self.release_unconfirmed();
         Some(RelayedEvent::Close { code, reason })
     }
 
     /// Ends the channel with an abnormal 1006 and no reason.
-    pub fn terminate(&mut self, channel: &mut dyn HostChannel) -> RelayedEvent {
-        channel.close_after_flush();
+    pub fn terminate(&mut self) -> RelayedEvent {
+        self.channel.close_after_flush();
         self.state = RelayedState::Closed;
         self.release_unconfirmed();
         RelayedEvent::Close {

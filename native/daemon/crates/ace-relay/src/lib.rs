@@ -57,8 +57,8 @@ pub use noise::{
 };
 pub use route::{RelayPairingRoute, RelayRoute, relay_pairing, relay_route};
 pub use socket::{
-    Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState, ended_by,
-    slice_utf16,
+    CredentialGuard, Frame, HostChannel, MAX_CLOSE_REASON, RelaySocket, RelayedEvent, RelayedState,
+    ended_by, slice_utf16,
 };
 pub use wire::{
     CONTROL_PROLOGUE, NK_REFUSAL_MS, NK_STREAM_PROLOGUE, PAIRED_MARKER, STREAM_PROLOGUE,

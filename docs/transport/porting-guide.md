@@ -51,6 +51,13 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    cases move into `#[cfg(test)]` beside the Rust function that replaces their module. No parity
    harness, no second suite.
 
+**Stricter than the TypeScript (a shared bug is fixed in Rust first):**
+
+- A relayed main channel's admission is construction-time state (`CredentialGuard`): a paired
+  device's current generation and an account grant's deadline are required, rechecked on every
+  read, write and confirmation, and a refusal closes the channel the socket owns. The TypeScript
+  `RelaySocket` takes `stillAdmitted` as an optional field and can be opened without it.
+
 ## Who writes the code
 
 The owner's rule (2026-11-23): Opus plans and reviews; code is always written by DeepSeek Flash or
