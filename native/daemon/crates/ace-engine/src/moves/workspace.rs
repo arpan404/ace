@@ -242,13 +242,14 @@ fn peer_is_live(
     // A peer outside the resident set has no live state to read, but its persisted one still
     // holds the approvals, provider work and intents a restart left behind: load it, as
     // `workspace-change.ts:166` reads `repo.state(owner)`.
-    if owner != moving && !state.repo.snapshots.contains_key(owner) {
-        if state.repo.state(store, owner)?.is_none() {
-            // A peer with no stored state has none of the work a resident tree could hold; its
-            // queued intents are still the persisted record that it has work.
-            return Ok(live_pending(store, state, owner)?
-                || crate::intents::store::awaiting(store.conn(), owner)?.is_some());
-        }
+    if owner != moving
+        && !state.repo.snapshots.contains_key(owner)
+        && state.repo.state(store, owner)?.is_none()
+    {
+        // A peer with no stored state has none of the work a resident tree could hold; its
+        // queued intents are still the persisted record that it has work.
+        return Ok(live_pending(store, state, owner)?
+            || crate::intents::store::awaiting(store.conn(), owner)?.is_some());
     }
     if !quiescent(store, state, owner)? || live_pending(store, state, owner)? {
         return Ok(true);
