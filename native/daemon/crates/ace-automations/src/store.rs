@@ -63,10 +63,10 @@ pub struct AutomationStore {
     pub(crate) depth: Cell<u32>,
     /// Where the bounded `finished_at` backfill resumes, and how many rows it last examined.
     /// The cursor is persisted in `automation_migration`, so a restart resumes rather than
-    /// re-reading history from the start.
+    /// re-reading history from the start; the run's latest sequence says whether it has caught up.
     idle_cursor: Cell<i64>,
-    idle_complete: Cell<bool>,
     idle_examined: Cell<usize>,
+    idle_changed: Cell<usize>,
     /// The index state read from `sqlite_master`, cached until this store repairs or builds it.
     finished_index: Cell<Option<FinishedIndex>>,
 }
@@ -116,14 +116,12 @@ impl AutomationStore {
             conn,
             depth: Cell::new(0),
             idle_cursor: Cell::new(0),
-            idle_complete: Cell::new(false),
             idle_examined: Cell::new(0),
+            idle_changed: Cell::new(0),
             finished_index: Cell::new(None),
         };
         store.ensure_schema()?;
-        let (cursor, complete) = store.load_migration()?;
-        store.idle_cursor.set(cursor);
-        store.idle_complete.set(complete);
+        store.idle_cursor.set(store.load_migration()?);
         Ok(store)
     }
 
@@ -229,15 +227,25 @@ impl AutomationStore {
     /// One bounded append of the `finished_at` backfill (`store.ts:92`), keyed by `seq` so each
     /// call reads at most `limit` rows and holds the write lock for at most `limit` updates.
     /// Rows written by the TypeScript or an older build otherwise read as unfinished forever.
+    ///
+    /// Returns how many rows this step **examined**, so the host keeps going while it gets a full
+    /// batch even when those rows already had a finish time; [`AutomationStore::idle_changed`]
+    /// reports the updates separately. A malformed body is skipped, never ending the batch.
     pub fn backfill_finished_at(&self, limit: usize) -> Result<usize> {
         self.idle_examined.set(0);
-        if limit == 0 || self.idle_complete.get() {
+        self.idle_changed.set(0);
+        if limit == 0 {
             return Ok(0);
         }
         self.repair_run_indexes()?;
+        // The latest sequence is one indexed read; once the cursor reaches it every row has been
+        // examined and further idle steps do nothing.
+        if self.latest_seq()? <= self.idle_cursor.get() {
+            return Ok(0);
+        }
         let limit = limit.min(i64::MAX as usize) as i64;
         let rows = self.query(
-            "SELECT seq,json_extract(body,'$.finishedAt') FROM automation_runs WHERE seq > ? ORDER BY seq LIMIT ?",
+            "SELECT seq,CASE WHEN json_valid(body) THEN json_extract(body,'$.finishedAt') END FROM automation_runs WHERE seq > ? ORDER BY seq LIMIT ?",
             &[
                 Some(SqlValue::Integer(self.idle_cursor.get())),
                 Some(SqlValue::Integer(limit)),
@@ -245,8 +253,6 @@ impl AutomationStore {
         )?;
         self.idle_examined.set(rows.len());
         if rows.is_empty() {
-            self.idle_complete.set(true);
-            self.save_migration()?;
             return Ok(0);
         }
         let mut changed = 0;
@@ -265,43 +271,54 @@ impl AutomationStore {
             }
             Ok(())
         })?;
+        self.idle_changed.set(changed);
         if let Some(last) = rows.last().and_then(|row| row_int(row, 0)) {
             self.idle_cursor.set(last);
         }
         self.save_migration()?;
-        Ok(changed)
+        Ok(rows.len())
     }
 
-    fn load_migration(&self) -> Result<(i64, bool)> {
+    fn load_migration(&self) -> Result<i64> {
         Ok(self
-            .query(
-                "SELECT cursor,complete FROM automation_migration WHERE id=1",
-                &[],
-            )?
+            .query("SELECT cursor FROM automation_migration WHERE id=1", &[])?
             .first()
-            .map(|row| {
-                (
-                    row_int(row, 0).unwrap_or(0),
-                    row_int(row, 1).unwrap_or(0) != 0,
-                )
-            })
-            .unwrap_or((0, false)))
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0))
     }
 
     fn save_migration(&self) -> Result<()> {
         self.execute(
-            "INSERT INTO automation_migration VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET cursor=excluded.cursor, complete=excluded.complete",
-            &[
-                Some(SqlValue::Integer(self.idle_cursor.get())),
-                Some(SqlValue::Integer(i64::from(self.idle_complete.get()))),
-            ],
+            "INSERT INTO automation_migration VALUES(1,?) ON CONFLICT(id) DO UPDATE SET cursor=excluded.cursor",
+            &[Some(SqlValue::Integer(self.idle_cursor.get()))],
         )
+    }
+
+    /// The highest run sequence, one indexed read.
+    fn latest_seq(&self) -> Result<i64> {
+        Ok(self
+            .query("SELECT coalesce(max(seq),0) FROM automation_runs", &[])?
+            .first()
+            .and_then(|row| row_int(row, 0))
+            .unwrap_or(0)
+            .max(0))
+    }
+
+    /// Whether the backfill has examined every stored run.
+    fn migration_current(&self) -> Result<bool> {
+        Ok(self.latest_seq()? <= self.idle_cursor.get())
     }
 
     /// Rows the last [`AutomationStore::backfill_finished_at`] examined, for the bounded-work
     /// test and the host's idle metrics.
     pub fn idle_examined(&self) -> usize {
         self.idle_examined.get()
+    }
+
+    /// Rows the last [`AutomationStore::backfill_finished_at`] updated, separately from the
+    /// progress it returns.
+    pub fn idle_changed(&self) -> usize {
+        self.idle_changed.get()
     }
 
     /// Heal the run indexes without history-sized work: a small file (the TypeScript's old
@@ -966,15 +983,12 @@ impl AutomationStore {
     /// The query plan for [`AutomationStore::inbox`] with a finish time, through the same
     /// index decision the inbox makes.
     pub fn inbox_query_plan(&self, finished_after: i64) -> Result<Vec<String>> {
-        let where_clause = vec![
-            "seq < ?".to_owned(),
-            format!("coalesce(finished_at, {NOT_FINISHED}) > ?"),
-        ];
+        let where_clause = vec!["seq < ?".to_owned(), self.finished_filter()?];
         let values = vec![
             Some(SqlValue::Integer(NOT_FINISHED)),
             Some(SqlValue::Integer(finished_after)),
         ];
-        let indexed = self.finished_index()? == FinishedIndex::Current;
+        let indexed = self.migration_current()? && self.finished_index()? == FinishedIndex::Current;
         let (sql, values) = inbox_query(50, &where_clause, values, indexed);
         Ok(self
             .query(&format!("EXPLAIN QUERY PLAN {sql}"), &values)?
@@ -1201,6 +1215,19 @@ impl AutomationStore {
         })
     }
 
+    /// The finished-after comparison. Until the bounded backfill has reached every row, a row
+    /// whose finish time only lives in its body must still be read correctly, so the expression
+    /// falls back to it (and the indexed path waits).
+    fn finished_filter(&self) -> Result<String> {
+        Ok(if self.migration_current()? {
+            format!("coalesce(finished_at, {NOT_FINISHED}) > ?")
+        } else {
+            format!(
+                "coalesce(finished_at, CASE WHEN json_valid(body) THEN json_extract(body,'$.finishedAt') END, {NOT_FINISHED}) > ?"
+            )
+        })
+    }
+
     /// One page of run history, newest first (`store.ts:631`).
     pub fn inbox(
         &self,
@@ -1218,10 +1245,12 @@ impl AutomationStore {
             values.push(text_of(automation_id));
         }
         if let Some(finished_after) = finished_after {
-            where_clause.push(format!("coalesce(finished_at, {NOT_FINISHED}) > ?"));
+            where_clause.push(self.finished_filter()?);
             values.push(Some(SqlValue::Integer(finished_after)));
         }
-        let indexed = finished_after.is_some() && self.finished_index()? == FinishedIndex::Current;
+        let indexed = finished_after.is_some()
+            && self.migration_current()?
+            && self.finished_index()? == FinishedIndex::Current;
         let (sql, values) = inbox_query(limit, &where_clause, values, indexed);
         let rows = self.query(&sql, &values)?;
         let mut runs = Vec::new();

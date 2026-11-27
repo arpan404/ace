@@ -208,6 +208,8 @@ fn idle_repairs_the_previous_rust_index_for_a_small_file() {
         store.finished_index().expect("index"),
         ace_automations::store::FinishedIndex::Current
     );
+    // The indexed inbox path waits until the backfill has reached every row.
+    while store.backfill_finished_at(5).expect("idle") > 0 {}
     let plan = store.inbox_query_plan(0).expect("plan");
     assert!(
         plan.iter()
@@ -450,6 +452,167 @@ fn a_legacy_home_without_the_status_index_answers_startup_from_partial_indexes()
     assert!(
         !waiting.iter().any(|step| step == "SCAN automation_runs"),
         "{waiting:?}"
+    );
+    store.close().expect("close");
+}
+
+#[test]
+fn a_full_batch_of_already_populated_rows_reports_progress_over_later_legacy_rows() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let _store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    for (index, populated) in [(0, true), (1, true), (2, false)] {
+        let statement = raw
+      .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,?)")
+      .expect("prepare");
+        statement
+            .bind(&[
+                Some(Value::Text(format!("run-{index}"))),
+                Some(Value::Text("a".to_owned())),
+                Some(Value::Text(format!("run-{index}"))),
+                Some(Value::Text("succeeded".to_owned())),
+                Some(Value::Text(format!(
+                    r#"{{"id":"run-{index}","finishedAt":{}}}"#,
+                    1_704_099_600_000i64 + index
+                ))),
+                populated.then_some(Value::Integer(1_704_099_600_000i64 + index)),
+            ])
+            .expect("bind");
+        statement.step().expect("insert");
+    }
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+
+    let store = open(&path);
+    assert_eq!(store.backfill_finished_at(2).expect("first batch"), 2);
+    assert_eq!(
+        store.idle_changed(),
+        0,
+        "the first two rows already had their finish time"
+    );
+    assert_eq!(store.backfill_finished_at(2).expect("second batch"), 1);
+    assert_eq!(store.idle_changed(), 1);
+    assert_eq!(store.backfill_finished_at(2).expect("done"), 0);
+    store.close().expect("close");
+}
+
+#[test]
+fn a_malformed_body_is_skipped_without_stopping_later_backfill_batches() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let _store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    let statement = raw
+    .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+    .expect("prepare");
+    statement
+        .bind(&[
+            Some(Value::Text("broken".to_owned())),
+            Some(Value::Text("a".to_owned())),
+            Some(Value::Text("broken".to_owned())),
+            Some(Value::Text("succeeded".to_owned())),
+            Some(Value::Text("not json".to_owned())),
+        ])
+        .expect("bind");
+    statement.step().expect("insert");
+    let statement = raw
+    .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+    .expect("prepare");
+    statement
+        .bind(&[
+            Some(Value::Text("good".to_owned())),
+            Some(Value::Text("a".to_owned())),
+            Some(Value::Text("good".to_owned())),
+            Some(Value::Text("succeeded".to_owned())),
+            Some(Value::Text(
+                r#"{"id":"good","finishedAt":1704099601000}"#.to_owned(),
+            )),
+        ])
+        .expect("bind");
+    statement.step().expect("insert");
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+
+    let store = open(&path);
+    assert_eq!(store.backfill_finished_at(2).expect("batch"), 2);
+    assert_eq!(store.idle_changed(), 1);
+    assert_eq!(store.backfill_finished_at(2).expect("done"), 0);
+    store.close().expect("close");
+}
+
+#[test]
+fn a_legacy_finish_time_in_the_body_is_used_until_the_backfill_reaches_it() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let _store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("BEGIN IMMEDIATE").expect("begin");
+    let statement = raw
+    .prepare("INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,NULL,NULL)")
+    .expect("prepare");
+    statement
+        .bind(&[
+            Some(Value::Text("legacy".to_owned())),
+            Some(Value::Text("a".to_owned())),
+            Some(Value::Text("legacy".to_owned())),
+            Some(Value::Text("succeeded".to_owned())),
+            Some(Value::Text(
+                r#"{"id":"legacy","finishedAt":1704099600000}"#.to_owned(),
+            )),
+        ])
+        .expect("bind");
+    statement.step().expect("insert");
+    raw.exec("COMMIT").expect("commit");
+    raw.close().expect("close");
+
+    let store = open(&path);
+    assert!(
+        store
+            .inbox(50, None, None, Some(1_704_099_600_001))
+            .expect("before backfill")
+            .0
+            .is_empty(),
+        "the body's finish time is honored before the column is filled"
+    );
+    assert_eq!(
+        store
+            .inbox(50, None, None, Some(1_704_099_599_999))
+            .expect("after cutoff")
+            .0
+            .len(),
+        1
+    );
+    store.backfill_finished_at(10).expect("backfill");
+    assert!(
+        store
+            .inbox(50, None, None, Some(1_704_099_600_001))
+            .expect("after backfill")
+            .0
+            .is_empty()
     );
     store.close().expect("close");
 }

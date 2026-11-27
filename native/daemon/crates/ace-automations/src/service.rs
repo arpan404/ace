@@ -890,9 +890,10 @@ impl<'a> Service<'a> {
         self.store.create_run_indexes()
     }
 
-    /// One bounded idle step for the store's migration: fill up to `limit` runs' finish times
-    /// from their bodies and return how many changed, so the host loops until it returns less
-    /// than `limit`. Never history-sized work at open (ADR 0170).
+    /// One bounded idle step for the store's migration: examine up to `limit` runs and fill their
+    /// finish times from their bodies. Returns how many rows it examined (progress), so the host
+    /// loops while it gets a full batch even if those rows needed no update; the store reports
+    /// the updates separately. Never history-sized work at open (ADR 0170).
     pub fn idle_step(&mut self, limit: usize) -> Result<usize> {
         self.store.backfill_finished_at(limit)
     }
