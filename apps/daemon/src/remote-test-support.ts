@@ -1,10 +1,18 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach } from "vitest";
 import { DeviceId, PairingResponse, SocketTicket } from "@ace/protocol";
 import { loadIdentity } from "./tls-identity.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
-export const identity = loadIdentity(tlsFixtureHome());
+const binary = () => process.env.ACE_TEST_DAEMON_BINARY;
+
+/** The fixture's pinned identity, or an empty stand-in when the binary makes its own. */
+export const identity = binary()
+  ? { key: Buffer.alloc(0), cert: Buffer.alloc(0), fingerprint: "" }
+  : loadIdentity(tlsFixtureHome());
 export const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -15,11 +23,26 @@ export async function setup(
   withStore?: Parameters<typeof fixture>[1],
 ) {
   let time = 1000;
+  // The binary advances its clock through a file, so ticket expiry and rate
+  // windows need no real wait. Both modes start at 1000.
+  const clockFile = join(mkdtempSync(join(tmpdir(), "ace-remote-clock-")), "offset");
+  writeFileSync(clockFile, "0");
   const f = await fixture(
     {
       ...serverOptions,
       now: () => time,
       remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity },
+      ...(binary()
+        ? {
+            binaryEnv: {
+              ACE_TEST_CLOCK_BASE_MS: "1000",
+              ACE_TEST_CLOCK_FILE: clockFile,
+              ...(typeof serverOptions.pairingAddress === "function"
+                ? { ACE_TEST_PAIRING_ADDRESSES: "distinct" }
+                : {}),
+            },
+          }
+        : {}),
     },
     withStore,
   );
@@ -30,8 +53,9 @@ export async function setup(
   const local = f.server.httpUrl;
   const request = (path: string, options: Parameters<typeof accessRequest>[2] = {}) =>
     accessRequest(local, path, options);
+  const fingerprint = f.server.fingerprint ?? identity.fingerprint;
   const remoteRequest = (path: string, options: Parameters<typeof accessRequest>[2] = {}) =>
-    accessRequest(remote, path, { ...options, fingerprint: identity.fingerprint });
+    accessRequest(remote, path, { ...options, fingerprint });
   const pairing = async (scopes = ["read", "operate"]) => {
     return PairingResponse.parse(
       await request("/v1/pairings", { method: "POST", token, body: { scopes } }),
@@ -62,6 +86,7 @@ export async function setup(
     connectTicket: connect,
     advance: (ms: number) => {
       time += ms;
+      if (binary()) writeFileSync(clockFile, String(time - 1000));
     },
   };
 }

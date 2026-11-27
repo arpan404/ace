@@ -53,11 +53,17 @@ merged.
 1. **The program and the wire's front door.**
    - Adds: configuration and environment, the home, its single-instance lock and stop ownership
      (ADR 0186, behaviour as the TS), the endpoint and token files, signals and shutdown, the
-     store's open (`ace-store`, ADR 0170: no history-sized work at open), the transport's listeners
-     serving in-process (no proxy), hello, authentication and device identity (T2), and
+     store's open (`ace-store`, ADR 0170: no history-sized work at open) and its schema,
+     generated from `apps/daemon/src/migrations.ts` so a home either daemon writes opens in the
+     other, the process journal and its recovery (`ace-supervisor`: a previous run's verified
+     orphans ended by evidence, what can't be proven left alone and counted), the transport's
+     listeners serving in-process (no proxy), hello, authentication and device identity (T2), and
      `ace serve --json`.
-   - Proof: `cold-start`, `remote-restart`, `late-setup`, the hello and auth server files, and the
-     exit codes.
+   - Proof: `cold-start`, `remote-restart`, `late-setup`, the hello and auth server files, the
+     exit codes, and `cross-mode.process` (one home booted alternately by both daemons).
+     `daemon-unverified-startup` runs against the binary up to its `ace project list` line, which
+     needs slice 2's command lanes and slice 5's projects; its stranded-group case is ported as
+     this crate's program test, named for it.
    - Needs: what exists.
 2. **A client can see its threads.**
    - Adds: subscriptions and fan-out (T3), sidebar placement, activity reads, reads to the wire
@@ -90,6 +96,10 @@ merged.
 7. **HTTP and relay.**
    - Adds: T5's routes and T6's relay.
    - Needs: slice 1.
+   - Blocked: the relay's file (attachment) credit channel. `native/files` exposes only `files-safe`
+     and `files-io` today, with no attachment or credit API, so the Rust relay has no owner to
+     hand an attachment to; it stays unbuilt until those crates expose one (no seam is invented in
+     the meantime). Everything else in T6 proceeds without it.
 8. **Default on.** ADR 0226's amended gate: every server and process file passes against
    `ace-daemon-bin` on macOS, Linux and the Windows VM, the cross-mode runs pass both ways,
    `bench:daemon` is no worse, and §8's rollback runs pass.

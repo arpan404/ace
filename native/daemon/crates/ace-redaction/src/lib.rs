@@ -40,7 +40,7 @@ mod token_counters;
 #[cfg(test)]
 mod tests;
 
-pub use context::Context;
+pub use context::{Context, environment_matcher, environment_values};
 pub use environment::{EnvironmentMatcher, EnvironmentSpan};
 pub use literal_spans::{SensitiveSpan, redact_original_text, redact_with_marker, sensitive_spans};
 pub use redactor::{ChunkTooLarge, Redactor, is_sensitive_field};

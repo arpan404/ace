@@ -125,6 +125,8 @@ impl PairingRequest {
         };
         let ttl_ms = match object.get("ttlMs") {
             None => None,
+            // A field that is present but not one of the schema's integers is invalid, not
+            // absent.
             Some(value) => match integer_field(value) {
                 Some(ttl) if LINK_TTLS.contains(&ttl) => Some(ttl),
                 _ => return None,

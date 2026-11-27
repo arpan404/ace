@@ -23,3 +23,4 @@ pub mod raw;
 pub mod row;
 pub mod search;
 pub mod source;
+pub mod text;

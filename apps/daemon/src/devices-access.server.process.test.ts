@@ -3,7 +3,27 @@ import { WebSocket } from "ws";
 import { DeviceClient, type DeviceTransportEvents } from "@ace/devices/client";
 import { DevicePlatform, DevicesService } from "@ace/devices";
 import { DeviceId, SocketTicket, type DeviceScope } from "@ace/protocol";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
+
+const binary = () => Boolean(process.env.ACE_TEST_DAEMON_BINARY);
+
+/** A device paired over HTTP from the host token, for a binary daemon with no store. */
+async function pairedDevice(f: { server: { httpUrl: string } }, scopes: DeviceScope[]) {
+  const issued = await fetch(`${f.server.httpUrl}/v1/pairings`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ scopes }),
+  });
+  const pairing = await issued.json();
+  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
+  const redeemed = await fetch(`${f.server.httpUrl}/v1/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, name: "Viewer" }),
+  });
+  if (!redeemed.ok) throw new Error(`pairing failed: ${redeemed.status}`);
+  return (await redeemed.json()) as { device: { id: string }; token: string };
+}
 
 async function setup(scopes: DeviceScope[], available = true) {
   const platform = new DevicePlatform({ platform: "linux", home: "/unused", env: {} });
@@ -24,8 +44,13 @@ async function setup(scopes: DeviceScope[], available = true) {
       },
     },
   });
-  const f = await fixture(available ? { devices } : {});
-  const credential = f.store.devices.create("Viewer", scopes, 1);
+  const f = await fixture({
+    ...(available ? { devices } : {}),
+    ...(binary() ? { remote: {} as never } : {}),
+  });
+  const credential = binary()
+    ? await pairedDevice(f, scopes)
+    : f.store.devices.create("Viewer", scopes, 1);
   const ticketResponse = await fetch(f.server.url.replace("ws:", "http:") + "/v1/tickets", {
     method: "POST",
     headers: { Authorization: `Bearer ${credential.token}` },

@@ -76,8 +76,8 @@
     "cursor.auth.start": "js:main",
     "cursor.auth.status": "js:main",
     "device.standing": "js:main",
-    "devices.ack": "js:main",
-    "devices.request": "js:main",
+    "devices.ack": "rust:ace-daemon-bin",
+    "devices.request": "rust:ace-daemon-bin",
     "diagnostics.health": "js:main",
     "diagnostics.request": "js:main",
     "entities.page": "js:main",
@@ -274,7 +274,7 @@
     {
       "listener": "loopback",
       "stage": "access",
-      "owner": "js"
+      "owner": "rust:ace-daemon-bin"
     },
     {
       "listener": "remote",
@@ -324,7 +324,7 @@
     {
       "listener": "remote",
       "stage": "access",
-      "owner": "js"
+      "owner": "rust:ace-daemon-bin"
     }
   ]
 }
