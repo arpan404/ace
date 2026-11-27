@@ -397,8 +397,10 @@ fn the_services_maintenance_call_heals_run_indexes() {
         },
     )
     .expect("raw");
-    raw.exec("DROP INDEX IF EXISTS automation_finished")
-        .expect("drop");
+    raw.exec(
+        "DROP INDEX IF EXISTS automation_finished; DROP INDEX IF EXISTS automation_unfinished; DROP INDEX IF EXISTS automation_history; DROP INDEX IF EXISTS automation_active; DROP INDEX IF EXISTS automation_status",
+    )
+    .expect("drop");
     raw.close().expect("close");
     assert_eq!(
         h.store.finished_index().expect("index"),
@@ -409,6 +411,15 @@ fn the_services_maintenance_call_heals_run_indexes() {
         h.store.finished_index().expect("index"),
         ace_automations::store::FinishedIndex::Current
     );
+    for name in [
+        "automation_history",
+        "automation_active",
+        "automation_status",
+        "automation_unfinished",
+        "automation_finished",
+    ] {
+        assert!(h.store.has_index(name).expect("index"), "{name} is healed");
+    }
 }
 
 #[test]

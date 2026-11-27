@@ -336,12 +336,22 @@ fn idle_heals_a_typescript_home_that_lacks_the_finished_indexes() {
         store.finished_index().expect("index"),
         ace_automations::store::FinishedIndex::Missing
     );
-    // A small file heals in idle, bounded by the same threshold as the rebuild.
+    // A small file heals in idle, bounded by the same threshold as the rebuild; every missing
+    // run index is checked and built, not only the finish one.
     store.backfill_finished_at(1).expect("idle");
     assert_eq!(
         store.finished_index().expect("index"),
         ace_automations::store::FinishedIndex::Current
     );
+    for name in [
+        "automation_history",
+        "automation_active",
+        "automation_status",
+        "automation_unfinished",
+        "automation_finished",
+    ] {
+        assert!(store.has_index(name).expect("index"), "{name} is healed");
+    }
     let plan = store.inbox_query_plan(0).expect("plan");
     assert!(
         plan.iter()
@@ -614,5 +624,116 @@ fn a_legacy_finish_time_in_the_body_is_used_until_the_backfill_reaches_it() {
             .0
             .is_empty()
     );
+    store.close().expect("close");
+}
+
+#[test]
+fn a_current_finish_index_does_not_suppress_healing_the_other_run_indexes() {
+    let dir = tempfile::tempdir().expect("temp");
+    let path = dir.path().join("auto.sqlite");
+    let _store = open(&path);
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    legacy_runs(&raw, "succeeded", 3, false);
+    raw.close().expect("close");
+
+    let store = open(&path);
+    for name in [
+        "automation_history",
+        "automation_active",
+        "automation_status",
+        "automation_unfinished",
+    ] {
+        let raw = Connection::open(
+            path.to_str().expect("utf8"),
+            OpenOptions {
+                read_only: false,
+                timeout_ms: 5000,
+            },
+        )
+        .expect("raw");
+        raw.exec(&format!("DROP INDEX {name}")).expect("drop");
+        raw.close().expect("close");
+        assert!(!store.has_index(name).expect("index"), "{name} is gone");
+        assert_eq!(
+            store.finished_index().expect("index"),
+            ace_automations::store::FinishedIndex::Current,
+            "the finish index stays current while another is healed"
+        );
+        store.backfill_finished_at(10).expect("idle");
+        assert!(store.has_index(name).expect("index"), "{name} is healed");
+    }
+
+    // Each index has a query it bounds.
+    let active = store.startup_query_plan(false).expect("active plan");
+    assert!(
+        active.iter().any(|step| step.contains("automation_active")),
+        "{active:?}"
+    );
+    let waiting = store.startup_query_plan(true).expect("waiting plan");
+    assert!(
+        waiting
+            .iter()
+            .any(|step| step.contains("automation_unfinished")),
+        "{waiting:?}"
+    );
+    let inbox = store.inbox_query_plan(0).expect("inbox plan");
+    assert!(
+        inbox
+            .iter()
+            .any(|step| step.contains("automation_finished")),
+        "{inbox:?}"
+    );
+    let raw = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: true,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    let statement = raw
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT body FROM automation_runs WHERE automation_id='a' ORDER BY seq DESC LIMIT 1",
+        )
+        .expect("prepare");
+    statement.bind(&[]).expect("bind");
+    let mut steps = Vec::new();
+    while let Some(row) = statement.step().expect("step") {
+        if let Some(Value::Text(step)) = row.get(3) {
+            steps.push(step.clone());
+        }
+    }
+    assert!(
+        steps.iter().any(|step| step.contains("automation_history")),
+        "{steps:?}"
+    );
+    // With the unfinished index gone, the status index answers the waiting query.
+    let writable = Connection::open(
+        path.to_str().expect("utf8"),
+        OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("writable");
+    writable
+        .exec("DROP INDEX automation_unfinished")
+        .expect("drop");
+    writable.close().expect("close");
+    let waiting = store.startup_query_plan(true).expect("waiting plan");
+    assert!(
+        waiting
+            .iter()
+            .any(|step| step.contains("automation_status")),
+        "{waiting:?}"
+    );
+    raw.close().expect("close");
     store.close().expect("close");
 }
