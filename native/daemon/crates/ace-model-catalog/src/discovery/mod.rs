@@ -8,8 +8,10 @@
 
 pub mod http;
 pub mod opencode;
+pub mod opencode_report;
 pub mod process;
 
 pub use http::{HttpGet, HttpReply, HttpRequest};
 pub use opencode::read_opencode_catalog;
+pub use opencode_report::{build_report, parse_connections, supplement, supplement_failed};
 pub use process::{ProcessCommand, ProcessOutput, ProcessRunner};

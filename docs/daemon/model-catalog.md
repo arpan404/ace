@@ -235,3 +235,5 @@ backoff, and is rechecked on explicit refresh, login change or cache max age.
 ## Intended differences from the TypeScript
 
 - Cutting text at a limit (`resolve.ts`'s 1024, `discovery-failure.ts`'s 8192, `cli-versions.ts`'s 4096) counts UTF-16 code units as the TypeScript does, but a cut never splits an astral character, so the last character of a truncated string is whole where the TypeScript could leave an unpaired surrogate.
+- The CLI's `models` listing is parsed with its JSON metadata, so an id the listing describes keeps its name, context and efforts; the TypeScript appends an id-only row for the same line.
+- A discovery built without a process runner (a caller that only has the HTTP port) takes the server's catalog unfiltered, because no connection status can be read.
