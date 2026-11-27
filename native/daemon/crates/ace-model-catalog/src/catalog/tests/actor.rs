@@ -804,3 +804,94 @@ fn a_hung_admission_loses_its_deadline_and_frees_the_discovery_slot() {
         );
     })
 }
+
+#[test]
+fn a_refresh_over_its_batch_capacity_is_refused() {
+    within(20, "refresh batches at capacity", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let gate = crate::signals::Gate::new();
+        let held = gate.clone();
+        let discover = FakeDiscover::new(move |request, _signal| {
+            let held = held.clone();
+            Box::pin(async move {
+                held.wait().await;
+                Ok(models(&request.instance, &["gpt-6-sol"]))
+            })
+        });
+        let fixture = fixture(
+            vec![account],
+            SharedStorage::new(MemoryStorage::new()),
+            discover,
+        );
+        let catalog = fixture.catalog.clone();
+        let mut batches = Vec::new();
+        for _ in 0..crate::catalog::REFRESH_BATCH_LIMIT {
+            let mut batch = Box::pin(catalog.refresh(ModelFilter::instance("account")));
+            assert!(poll_once(batch.as_mut()).is_pending());
+            batches.push(batch);
+        }
+        let mut refused = Box::pin(catalog.refresh(ModelFilter::instance("account")));
+        let result = match poll_once(refused.as_mut()) {
+            std::task::Poll::Ready(result) => result,
+            std::task::Poll::Pending => panic!("the batch over the bound waits anyway"),
+        };
+        assert!(
+            matches!(result, Err(CatalogError::Busy)),
+            "the batch over the bound is refused at once"
+        );
+        drop(refused);
+        drop(batches);
+        gate.open();
+        fixture.spawn.drain();
+        // Close drains whatever the dropped callers left and still ends.
+        let mut closing = Box::pin(catalog.close());
+        let closed = loop {
+            match poll_once(closing.as_mut()) {
+                std::task::Poll::Ready(result) => break result,
+                std::task::Poll::Pending => {
+                    fixture.spawn.drain();
+                }
+            }
+        };
+        closed.unwrap_or_else(|error| panic!("{error}"));
+    })
+}
+
+#[test]
+fn dropped_refresh_callers_are_not_retained() {
+    within(20, "dropped refresh callers", || {
+        let account = instance(ProviderKind::Codex, "account");
+        let gate = crate::signals::Gate::new();
+        let held = gate.clone();
+        let discover = FakeDiscover::new(move |request, _signal| {
+            let held = held.clone();
+            Box::pin(async move {
+                held.wait().await;
+                Ok(models(&request.instance, &["gpt-6-sol"]))
+            })
+        });
+        let fixture = fixture(
+            vec![account],
+            SharedStorage::new(MemoryStorage::new()),
+            discover,
+        );
+        let catalog = fixture.catalog.clone();
+        for _ in 0..64 {
+            let mut waiting = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+            assert!(poll_once(waiting.as_mut()).is_pending());
+            drop(waiting);
+        }
+        // A live caller prunes the receivers that went away.
+        let mut live = Box::pin(catalog.refresh_state("account", RefreshCause::Background));
+        assert!(poll_once(live.as_mut()).is_pending());
+        assert!(
+            catalog.retained_replies() <= 2,
+            "sixty-four dropped callers left {} replies behind",
+            catalog.retained_replies()
+        );
+        drop(live);
+        gate.open();
+        fixture.spawn.drain();
+        let _ = settle(catalog.close(), &fixture.spawn, "the close");
+    })
+}

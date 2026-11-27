@@ -280,6 +280,16 @@ over a row that moved on. Listener callbacks run on their own lane, never on the
 a listener that reads the catalog cannot deadlock it; notifications are hints whose
 overflow is dropped.
 
+Every admission that can outlive the mailbox is bounded: refresh batches (256, then
+the catalog answers `Catalog is busy`), the callers retained on one flight, probe or
+removal (1024; a refresh's extra caller gets the row as it stands, a probe's gets the
+busy error), session writes (64), invalidations and removals (128 each) and pending
+deletions (1152). A reply whose caller went away is never retained where the actor can
+see it is closed, and an invocation that prunes drops them. A session payload over its
+provider's documented byte budget (4 MiB, or 256 KiB for an ACP agent's row) is refused
+at admission with the persistence byte-backpressure error, so it never becomes pending
+work.
+
 A session's metadata and permission modes bind to the registration token it saw
 (`Catalog.registration`), not to whichever registration later shares its login and cache
 revision. A report under a superseded token is refused with the session-generation error,

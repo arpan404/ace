@@ -527,3 +527,53 @@ fn a_write_behind_a_held_turn_refuses_a_revision_settings_changed_under_it() {
         "the write refuses a revision the row no longer has"
     );
 }
+
+#[test]
+fn an_oversized_session_payload_is_refused_before_it_is_queued() {
+    let agent = instance(ProviderKind::Acp, "account");
+    let fixture = fixture(
+        vec![agent.clone()],
+        SharedStorage::new(MemoryStorage::new()),
+        always(Vec::new()),
+    );
+    let catalog = fixture.catalog.clone();
+    let model = |index: usize| {
+        json!({
+            "modelId": format!("model-{index}"),
+            "name": format!("Model {index}"),
+            "description": "x".repeat(1_000),
+        })
+    };
+    let options: Vec<Value> = (0..512)
+        .map(|index| json!({ "value": format!("model-{index}"), "name": format!("Model {index}") }))
+        .collect();
+    let metadata = json!({
+        "availableModels": (0..512).map(model).collect::<Vec<_>>(),
+        "currentModelId": "model-0",
+        "configOptions": [{
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "model-0",
+            "options": options,
+        }],
+    });
+    let refused = settle(
+        catalog.update_from_session(agent.clone(), token(&catalog, "account"), &metadata),
+        &fixture.spawn,
+        "an oversized session payload",
+    );
+    assert_eq!(
+        refused,
+        Err(CatalogError::Cache(
+            crate::cache::CacheError::PayloadTooLarge
+        )),
+        "the documented byte budget refuses the write at admission"
+    );
+    assert_eq!(
+        catalog.pending_session_writes(),
+        0,
+        "the refused write never became pending work"
+    );
+}

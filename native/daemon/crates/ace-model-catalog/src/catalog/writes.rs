@@ -47,6 +47,27 @@ pub(crate) fn entry(
     rows: Vec<ace_protocol::generated::CatalogModel>,
     previous: Option<&Arc<CacheEntry>>,
 ) -> CacheEntry {
+    entry_for(
+        &write.input,
+        &write.revision,
+        &write.identity,
+        write.refreshed_at,
+        write.permission_modes.clone(),
+        rows,
+        previous,
+    )
+}
+
+/// The entry a session's rows become under one revision and time.
+pub(crate) fn entry_for(
+    input: &ModelInstance,
+    revision: &str,
+    identity: &str,
+    refreshed_at: f64,
+    permission_modes: Vec<Value>,
+    rows: Vec<ace_protocol::generated::CatalogModel>,
+    previous: Option<&Arc<CacheEntry>>,
+) -> CacheEntry {
     let combined = crate::sources::refreshed_sources(
         crate::cleanup::clean_catalog(&rows)
             .into_iter()
@@ -54,18 +75,18 @@ pub(crate) fn entry(
             .collect(),
         None,
         previous.map(|entry| entry.as_ref()),
-        write.refreshed_at,
+        refreshed_at,
     );
     CacheEntry {
-        provider: write.input.provider,
-        instance: write.input.id.clone(),
-        login_revision: Some(write.input.login_revision.clone()),
-        revision: write.revision.clone(),
-        refreshed_at: write.refreshed_at,
+        provider: input.provider,
+        instance: input.id.clone(),
+        login_revision: Some(input.login_revision.clone()),
+        revision: revision.to_owned(),
+        refreshed_at,
         models: combined.models,
         sources: Some(combined.sources),
-        permission_modes: Some(write.permission_modes.clone()),
-        identity_revision: Some(write.identity.clone()),
+        permission_modes: Some(permission_modes),
+        identity_revision: Some(identity.to_owned()),
         connection_revision: None,
     }
 }
@@ -121,6 +142,31 @@ impl Actor {
         let revision = self.revision(&input);
         let identity = identity_revision(&input);
         let refreshed_at = self.now();
+        // The documented byte budget is checked before the write is queued, so an
+        // oversized session payload never becomes pending work.
+        let previous = self
+            .inner
+            .states
+            .get(&input.id)
+            .and_then(|state| state.entry.clone());
+        let budget = writes::entry_for(
+            &input,
+            &revision,
+            &identity,
+            refreshed_at,
+            permission_modes.clone(),
+            crate::learned::keep_learned_options(
+                rows.clone(),
+                previous.as_ref().map(|entry| entry.models.as_slice()),
+            ),
+            previous.as_ref(),
+        );
+        if crate::cache::entry_over_budget(&budget) {
+            let _ = reply.send(Err(CatalogError::Cache(
+                crate::cache::CacheError::PayloadTooLarge,
+            )));
+            return;
+        }
         self.inner.session_writes += 1;
         let write = SessionWrite {
             input,

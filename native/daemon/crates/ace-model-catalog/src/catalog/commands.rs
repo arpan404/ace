@@ -197,6 +197,10 @@ pub(crate) enum Command {
     PendingWork {
         reply: Reply<usize>,
     },
+    /// Test inspection: how many caller replies the actor retains for later work.
+    RetainedReplies {
+        reply: Reply<usize>,
+    },
     /// Test inspection: the row's connection fingerprint and whether it reports an error.
     Inspect {
         id: String,

@@ -163,11 +163,19 @@ impl Actor {
             FlightStart::Started(token) | FlightStart::Running(token) => {
                 // A spawner that refuses the task settles it before this point; never
                 // wait on a flight that is already over.
-                if self.flight_alive(id, token) {
-                    self.flight_waiters.entry(token).or_default().push(reply);
-                } else {
+                if !self.flight_alive(id, token) {
                     let status = self.status(id).unwrap_or_else(|| empty_status(id));
                     let _ = reply.send(status);
+                } else {
+                    let waiters = self.flight_waiters.entry(token).or_default();
+                    waiters.retain(|waiter| !waiter.is_canceled());
+                    if waiters.len() >= crate::catalog::WAITER_LIMIT {
+                        // At the bound the caller gets the row as it stands now.
+                        let status = self.status(id).unwrap_or_else(|| empty_status(id));
+                        let _ = reply.send(status);
+                    } else if !reply.is_canceled() {
+                        waiters.push(reply);
+                    }
                 }
             }
             FlightStart::Skipped => {
@@ -184,6 +192,10 @@ impl Actor {
     ) {
         if self.inner.closed {
             let _ = reply.send(Err(CatalogError::Closed));
+            return;
+        }
+        if self.refresh_batches.len() >= crate::catalog::REFRESH_BATCH_LIMIT {
+            let _ = reply.send(Err(CatalogError::Busy));
             return;
         }
         let mut ids = selection(&self.inner, &filter);
@@ -435,8 +447,12 @@ impl Actor {
             .and_then(|state| state.probe.as_ref().map(|probe| probe.token))
         {
             // A poll joins the probe this registration started, even while it hangs.
-            if !reply.is_canceled() {
-                self.probe_waiters.entry(token).or_default().push(reply);
+            let waiters = self.probe_waiters.entry(token).or_default();
+            waiters.retain(|waiter| !waiter.is_canceled());
+            if waiters.len() >= crate::catalog::WAITER_LIMIT {
+                let _ = reply.send(Err(CatalogError::Busy));
+            } else if !reply.is_canceled() {
+                waiters.push(reply);
             }
             return;
         }
@@ -476,7 +492,9 @@ impl Actor {
         self.inner.probes += 1;
         self.probe_signals.insert(token, signal.clone());
         self.probe_rows.insert(token, id.to_owned());
-        self.probe_waiters.entry(token).or_default().push(reply);
+        if !reply.is_canceled() {
+            self.probe_waiters.entry(token).or_default().push(reply);
+        }
         let reporter = self.reporter.clone();
         let cancel = self.options.deadline.arm(
             self.options.timeout_ms,

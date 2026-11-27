@@ -57,6 +57,10 @@ pub const DEFAULT_ACP_PROBE_INTERVAL_MS: f64 = 60_000.0;
 pub const DEFAULT_CONCURRENCY: usize = 4;
 /// Commands that may wait for the actor before a caller blocks.
 const COMMAND_CAPACITY: usize = 256;
+/// Refresh batches that may be outstanding at once.
+pub(crate) const REFRESH_BATCH_LIMIT: usize = 256;
+/// Callers that may wait on one flight, probe or removal.
+pub(crate) const WAITER_LIMIT: usize = 1024;
 
 /// A row registration's token. A session reports metadata under the token it saw, so a
 /// replacement registration (even with the same login) cannot adopt an old session's
@@ -313,6 +317,8 @@ pub enum CatalogError {
     DiscoveryCleanupLimit,
     InvalidListOptions,
     UnknownInstance,
+    /// Retained work is at its bound; the caller may retry once it drains.
+    Busy,
 }
 
 impl std::fmt::Display for CatalogError {
@@ -335,6 +341,7 @@ impl std::fmt::Display for CatalogError {
             Self::DiscoveryCleanupLimit => "Discovery cleanup limit reached",
             Self::InvalidListOptions => "Invalid model list options",
             Self::UnknownInstance => "Unknown instance",
+            Self::Busy => "Catalog is busy",
         })
     }
 }
@@ -1045,7 +1052,13 @@ impl Catalog {
         });
     }
 
-    /// Waits until the actor has no spawned work left. Test plumbing only.
+    /// Test plumbing: the caller replies the actor retains for later work.
+    #[allow(dead_code)]
+    pub(crate) fn retained_replies(&self) -> usize {
+        self.ask(|reply| Command::RetainedReplies { reply })
+            .unwrap_or(0)
+    }
+
     #[allow(dead_code)]
     pub(crate) fn pending_session_writes(&self) -> usize {
         self.ask(|reply| Command::PendingWork { reply })

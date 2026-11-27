@@ -335,6 +335,26 @@ pub fn encode_entry(entry: &CacheEntry) -> Result<Value, CacheError> {
     Ok(Value::Object(root))
 }
 
+/// The documented payload budget one provider's entry may not exceed.
+pub fn payload_limit(provider: ProviderKind) -> usize {
+    if provider == ProviderKind::Acp {
+        MAX_ACP_PAYLOAD_BYTES
+    } else {
+        MAX_PAYLOAD_BYTES
+    }
+}
+
+/// Whether an entry is already over its provider's budget before it is queued.
+pub fn entry_over_budget(entry: &CacheEntry) -> bool {
+    let Ok(payload) = encode_entry(entry) else {
+        return true;
+    };
+    let Ok(text) = serde_json::to_string(&payload) else {
+        return true;
+    };
+    text.len() > payload_limit(entry.provider)
+}
+
 /// The row checks a cached entry must pass before it is stored (`CachedEntry.refine`).
 pub fn validate_entry(entry: &CacheEntry) -> Result<(), CacheError> {
     if entry.models.len() > MAX_ROWS {

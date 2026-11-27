@@ -466,6 +466,9 @@ impl Actor {
             Command::PendingWork { reply } => {
                 let _ = reply.send(self.inner.session_writes);
             }
+            Command::RetainedReplies { reply } => {
+                let _ = reply.send(self.retained_replies());
+            }
             Command::Quiesce { reply } => {
                 if self.quiesce_ready() {
                     let _ = reply.send(());
@@ -639,6 +642,25 @@ impl Actor {
             TaskKind::Other => {}
         }
         self.release_quiesce_waiters();
+    }
+
+    fn retained_replies(&self) -> usize {
+        self.flight_waiters.values().map(Vec::len).sum::<usize>()
+            + self
+                .refresh_ok_waiters
+                .values()
+                .map(Vec::len)
+                .sum::<usize>()
+            + self.probe_waiters.values().map(Vec::len).sum::<usize>()
+            + self
+                .inner
+                .removals
+                .values()
+                .map(|removal| removal.waiters.len())
+                .sum::<usize>()
+            + self.close_waiters.len()
+            + self.quiesce_waiters.len()
+            + self.refresh_batches.len()
     }
 
     /// Whether no spawned task and no storage job is outstanding.
