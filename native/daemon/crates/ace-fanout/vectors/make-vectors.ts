@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { DeliveryEvent, type ServerMessage } from "@ace/protocol";
 import { EventEncodings } from "../../../../../apps/daemon/src/event-encodings.ts";
 import { WireEncoder, type EventShape } from "../../../../../apps/daemon/src/wire-encoder.ts";
-import { writeVectors } from "./vectors-io.ts";
+import { writeVectors } from "../../../vectors/vectors-io.ts";
 
 type Events = Extract<ServerMessage, { type: "events" }>;
 

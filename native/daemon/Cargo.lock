@@ -345,6 +345,7 @@ version = "0.1.0"
 dependencies = [
  "ace-json",
  "ace-projection",
+ "ace-protocol",
  "base64",
  "libsqlite3-sys",
  "serde",

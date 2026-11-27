@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { Command, DeviceId } from "@ace/protocol";
 import { commandLane } from "../../../../../apps/daemon/src/command-lanes.ts";
 import { commandState } from "../../../../../apps/daemon/src/command-status.ts";
-import { writeVectors } from "./vectors-io.ts";
+import { writeVectors } from "../../../vectors/vectors-io.ts";
 
 const device = "phone" as DeviceId;
 

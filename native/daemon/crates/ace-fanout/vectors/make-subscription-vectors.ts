@@ -23,7 +23,7 @@ import { Store } from "../../../../../apps/daemon/src/store.ts";
 import { subscribe } from "../../../../../apps/daemon/src/subscription.ts";
 import type { SnapshotTail } from "../../../../../apps/daemon/src/thread-reads.ts";
 import { WireEncoder } from "../../../../../apps/daemon/src/wire-encoder.ts";
-import { stable, writeVectors } from "./vectors-io.ts";
+import { stable, writeVectors } from "../../../vectors/vectors-io.ts";
 
 const encoder = new WireEncoder();
 

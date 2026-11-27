@@ -38,19 +38,24 @@ execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
-// The fan-out vectors (T3): each is generated from the TypeScript it proves (the encoder, the
-// trims, the subscription, the sidebar subscription, command lanes and status). Regenerated and
-// compared here, a TypeScript change that moves a byte fails this check instead of leaving Rust
-// green on stale vectors.
-for (const generator of [
-  "make-vectors.ts",
-  "make-trim-vectors.ts",
-  "make-subscription-vectors.ts",
-  "make-sidebar-vectors.ts",
-  "make-command-vectors.ts",
-  "make-read-vectors.ts",
-]) {
-  execFileSync("bun", [`crates/ace-fanout/vectors/${generator}`, "--check"], {
+// The wire vectors T3 and T4 build: each is generated from the TypeScript it proves (the
+// encoder, the trims, the subscriptions, command lanes and status, the core reads, the
+// stored-row decode, and bounded item pages/windows). Regenerated and compared here, a TypeScript
+// change that moves a byte fails this check instead of leaving Rust green on stale vectors.
+const generators = [
+  "crates/ace-fanout/vectors/make-vectors.ts",
+  "crates/ace-fanout/vectors/make-trim-vectors.ts",
+  "crates/ace-fanout/vectors/make-subscription-vectors.ts",
+  "crates/ace-fanout/vectors/make-sidebar-vectors.ts",
+  "crates/ace-fanout/vectors/make-command-vectors.ts",
+  "crates/ace-fanout/vectors/make-read-vectors.ts",
+  "crates/ace-store/vectors/make-stored-vectors.ts",
+  "crates/ace-store/vectors/make-item-page-vectors.ts",
+  "crates/ace-store/vectors/make-item-page-sql-vectors.ts",
+  "crates/ace-store/vectors/make-item-window-vectors.ts",
+];
+for (const generator of generators) {
+  execFileSync("bun", [generator, "--check"], {
     cwd: fileURLToPath(new URL("../native/daemon/", import.meta.url)),
     stdio: "inherit",
   });

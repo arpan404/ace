@@ -13,7 +13,7 @@
 
 import { join } from "node:path";
 import { CoreClientMessage } from "@ace/protocol";
-import { writeVectors } from "./vectors-io.ts";
+import { writeVectors } from "../../../vectors/vectors-io.ts";
 
 const message = (value: unknown) => CoreClientMessage.parse(value);
 

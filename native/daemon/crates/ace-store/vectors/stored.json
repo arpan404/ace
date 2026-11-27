@@ -1,0 +1,166 @@
+{
+  "items": [
+    {
+      "name": "a message missing its defaults",
+      "input": "{\"id\":\"m0\",\"agentId\":\"root\",\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"createdAt\":1}",
+      "expected": "{\"id\":\"m0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":true,\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"synthetic\":false,\"raw\":[]}"
+    },
+    {
+      "name": "a message with a field this build strips",
+      "input": "{\"id\":\"m0\",\"agentId\":\"root\",\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"createdAt\":1,\"complete\":false,\"later\":true}",
+      "expected": "{\"id\":\"m0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":false,\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"synthetic\":false,\"raw\":[]}"
+    },
+    {
+      "name": "a tool call with stripped inner fields",
+      "input": "{\"id\":\"t0\",\"agentId\":\"root\",\"type\":\"tool_call\",\"createdAt\":1,\"call\":{\"id\":\"t0\",\"agentId\":\"root\",\"kind\":\"shell\",\"title\":\"ls\",\"status\":\"succeeded\",\"detail\":{\"kind\":\"shell\",\"command\":\"ls\",\"retired\":true},\"startedAt\":1,\"raw\":[{\"type\":\"message_stop\",\"data\":{\"blob\":\"A\"}}],\"unknownField\":\"dropped\"}}",
+      "expected": "{\"id\":\"t0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":true,\"type\":\"tool_call\",\"call\":{\"id\":\"t0\",\"agentId\":\"root\",\"kind\":\"shell\",\"title\":\"ls\",\"status\":\"succeeded\",\"detail\":{\"kind\":\"shell\",\"command\":\"ls\"},\"startedAt\":1,\"raw\":[{\"type\":\"message_stop\",\"data\":{\"blob\":\"A\"}}]}}"
+    },
+    {
+      "name": "an item kind this build does not know",
+      "input": "{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"type\":\"future.item\",\"detail\":{\"a\":1}}",
+      "expected": "{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"complete\":true,\"type\":\"unknown\",\"raw\":[],\"data\":{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"type\":\"future.item\",\"detail\":{\"a\":1}}}"
+    }
+  ],
+  "payloads": [
+    {
+      "name": "a created item carries the decoded item",
+      "input": "{\"type\":\"item.created\",\"item\":{\"id\":\"m0\",\"agentId\":\"root\",\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"createdAt\":1}}",
+      "expected": "{\"type\":\"item.created\",\"item\":{\"id\":\"m0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":true,\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"synthetic\":false,\"raw\":[]}}"
+    },
+    {
+      "name": "an updated unknown item kind",
+      "input": "{\"type\":\"item.updated\",\"item\":{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"type\":\"future.item\",\"detail\":{\"a\":1}}}",
+      "expected": "{\"type\":\"item.updated\",\"item\":{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"complete\":true,\"type\":\"unknown\",\"raw\":[],\"data\":{\"id\":\"x0\",\"agentId\":\"root\",\"createdAt\":2,\"type\":\"future.item\",\"detail\":{\"a\":1}}}}"
+    },
+    {
+      "name": "a thread update with a legacy switch recommendation",
+      "input": "{\"type\":\"thread.updated\",\"title\":\"renamed\",\"switch\":{\"selection\":{\"provider\":\"codex\"},\"state\":\"applied\",\"lossy\":false,\"recommendation\":\"delegate_task\",\"at\":5,\"later\":\"stripped\"},\"extra\":true}",
+      "expected": "{\"type\":\"thread.updated\",\"title\":\"renamed\",\"switch\":{\"selection\":{\"provider\":\"codex\",\"options\":{}},\"state\":\"applied\",\"lossy\":false,\"recommendation\":\"delegate\",\"at\":5}}"
+    },
+    {
+      "name": "a thread update with a title only",
+      "input": "{\"type\":\"thread.updated\",\"title\":\"plain\",\"extra\":1}",
+      "expected": "{\"type\":\"thread.updated\",\"title\":\"plain\"}"
+    },
+    {
+      "name": "an event kind this build does not know",
+      "input": "{\"type\":\"future.event\",\"threadId\":\"t\",\"payload\":{\"deep\":[1,2,3]}}",
+      "expected": "{\"type\":\"unknown\",\"raw\":{\"type\":\"future.event\",\"threadId\":\"t\",\"payload\":{\"deep\":[1,2,3]}}}"
+    }
+  ],
+  "rows": [
+    {
+      "name": "a trusted row is its payload text in the envelope",
+      "row": {
+        "seq": 10,
+        "id": "e10",
+        "thread_id": "t1",
+        "at": 1800000000000,
+        "payload": "{\"type\":\"thread.updated\",\"title\":\"trusted\"}"
+      },
+      "trust": {
+        "from": 5,
+        "rejected": []
+      },
+      "event": "{\"seq\":10,\"id\":\"e10\",\"at\":1800000000000,\"threadId\":\"t1\",\"payload\":{\"type\":\"thread.updated\",\"title\":\"trusted\"}}",
+      "bytes": 110
+    },
+    {
+      "name": "an untrusted row is decoded",
+      "row": {
+        "seq": 3,
+        "id": "e3",
+        "thread_id": "t1",
+        "at": 1800000000001,
+        "payload": "{\"type\":\"thread.updated\",\"title\":\"decoded\",\"extra\":1}"
+      },
+      "trust": {
+        "from": 5,
+        "rejected": []
+      },
+      "event": "{\"seq\":3,\"id\":\"e3\",\"at\":1800000000001,\"threadId\":\"t1\",\"payload\":{\"type\":\"thread.updated\",\"title\":\"decoded\"}}",
+      "bytes": 108
+    },
+    {
+      "name": "a rejected sequence in the trusted range is decoded",
+      "row": {
+        "seq": 7,
+        "id": "e7",
+        "thread_id": "t1",
+        "at": 1800000000002,
+        "payload": "{\"type\":\"item.created\",\"item\":{\"id\":\"m0\",\"agentId\":\"root\",\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"createdAt\":1}}"
+      },
+      "trust": {
+        "from": 5,
+        "rejected": [
+          7
+        ]
+      },
+      "event": "{\"seq\":7,\"id\":\"e7\",\"at\":1800000000002,\"threadId\":\"t1\",\"payload\":{\"type\":\"item.created\",\"item\":{\"id\":\"m0\",\"agentId\":\"root\",\"createdAt\":1,\"complete\":true,\"type\":\"message\",\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}],\"synthetic\":false,\"raw\":[]}}}",
+      "bytes": 258
+    }
+  ],
+  "trustCases": [
+    {
+      "name": "nothing until open",
+      "trust": {
+        "from": null,
+        "rejected": []
+      },
+      "seqs": [
+        {
+          "seq": 0,
+          "trusted": false
+        },
+        {
+          "seq": 1,
+          "trusted": false
+        }
+      ]
+    },
+    {
+      "name": "every row from the mark",
+      "trust": {
+        "from": 5,
+        "rejected": []
+      },
+      "seqs": [
+        {
+          "seq": 4,
+          "trusted": false
+        },
+        {
+          "seq": 5,
+          "trusted": true
+        },
+        {
+          "seq": 9,
+          "trusted": true
+        }
+      ]
+    },
+    {
+      "name": "a rejected sequence is decoded",
+      "trust": {
+        "from": 5,
+        "rejected": [
+          7
+        ]
+      },
+      "seqs": [
+        {
+          "seq": 6,
+          "trusted": true
+        },
+        {
+          "seq": 7,
+          "trusted": false
+        },
+        {
+          "seq": 8,
+          "trusted": true
+        }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 
 // Split by root so no file outgrows the source limit.
 // What Zod's parse keeps, in schema order, with the defaults it inserts.
-// Depth 6: the deepest Shape nesting, which bounds the walk; the walk follows
+// Depth 13: the deepest Shape nesting, which bounds the walk; the walk follows
 // this table, never the value.
 
 mod thread_client_column;
@@ -17,4 +17,42 @@ mod thread_details_2;
 mod thread_details_3;
 mod thread_provider_metadata;
 pub use thread_provider_metadata::THREAD_PROVIDER_METADATA;
+mod event;
 mod thread_provider_metadata_2;
+pub use event::EVENT;
+mod event_2;
+mod event_3;
+pub use event_3::QUEUE_STATE;
+mod event_4;
+mod event_5;
+mod event_6;
+pub use event_6::AGENT;
+mod event_7;
+mod event_8;
+pub use event_8::RUN;
+mod event_10;
+mod event_11;
+mod event_12;
+mod event_13;
+mod event_14;
+mod event_15;
+mod event_16;
+mod event_17;
+mod event_18;
+mod event_19;
+mod event_20;
+mod event_21;
+mod event_22;
+mod event_23;
+mod event_9;
+pub use event_23::INTERACTION;
+mod event_24;
+mod event_25;
+mod event_26;
+pub use event_26::BACKGROUND_TASK;
+mod event_27;
+pub use event_27::CONTEXT_METER;
+pub use event_27::USAGE_UPDATED;
+mod event_28;
+mod stored_item;
+pub use stored_item::STORED_ITEM;

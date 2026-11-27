@@ -25,7 +25,7 @@ import {
   wireTrims,
 } from "../../../../../packages/projection/src/wire-trim.ts";
 import { WireEncoder } from "../../../../../apps/daemon/src/wire-encoder.ts";
-import { writeVectors } from "./vectors-io.ts";
+import { writeVectors } from "../../../vectors/vectors-io.ts";
 
 type Message = ServerMessage;
 

@@ -23,7 +23,7 @@ import {
   wireEvent,
   wireThreadView,
 } from "../../../../../apps/daemon/src/wire-interactions.ts";
-import { writeVectors } from "../../ace-fanout/vectors/vectors-io.ts";
+import { writeVectors } from "../../../vectors/vectors-io.ts";
 
 const interaction = (request: InteractionRequest, raw: unknown[] = []): Interaction =>
   ({

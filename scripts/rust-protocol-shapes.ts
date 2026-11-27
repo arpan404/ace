@@ -12,6 +12,7 @@ import { z } from "zod";
 type Node =
   | { kind: "copy" }
   | { kind: "object"; plan: Plan }
+  | { kind: "open"; plan: Plan }
   | { kind: "array"; inner: Node }
   | { kind: "record"; inner: Node }
   | { kind: "nullable"; inner: Node }
@@ -48,6 +49,52 @@ function defOf(schema: z.ZodType): Def {
 
 function fail(path: string, reason: string): never {
   throw new Error(`rust-protocol-shapes: ${path}: ${reason}`);
+}
+
+/** A literal or enum's string values, whichever the schema uses. */
+function tagValues(field: z.ZodType): unknown[] {
+  const def = defOf(field);
+  if (def.type === "literal") return (def as { values?: unknown[] }).values ?? [];
+  if (def.type === "enum") {
+    const entries = (def as { entries?: Record<string, unknown> }).entries ?? {};
+    return Object.values(entries);
+  }
+  return [];
+}
+
+/** The one string-literal key every object option shares, when there is exactly one. */
+function sharedLiteralKey(options: z.ZodType[]): string | undefined {
+  let shared: string[] | undefined;
+  for (const option of options) {
+    const def = defOf(option);
+    if (def.type !== "object" || def.shape === undefined) return undefined;
+    const literals = Object.entries(def.shape)
+      .filter(([, field]) => {
+        const fieldDef = defOf(field);
+        return (
+          (fieldDef.type === "literal" || fieldDef.type === "enum") &&
+          tagValues(field).every((value) => typeof value === "string")
+        );
+      })
+      .map(([key]) => key);
+    shared = shared === undefined ? literals : shared.filter((key) => literals.includes(key));
+    if (shared.length === 0) return undefined;
+  }
+  if (shared === undefined || shared.length === 0) return undefined;
+  // A tag that repeats a value across options would not tell them apart; take the first that
+  // does, so the table keeps the same choice on every build.
+  for (const key of shared) {
+    const values = new Set<string>();
+    for (const option of options) {
+      const field = defOf(option).shape?.[key];
+      const literals = field === undefined ? [] : tagValues(field);
+      if (literals.length !== 1 || typeof literals[0] !== "string") return undefined;
+      if (values.has(literals[0])) break;
+      values.add(literals[0]);
+    }
+    if (values.size === options.length) return key;
+  }
+  return undefined;
 }
 
 /** A Zod check that normalizes its input (`trim`, `toLowerCase`, `slugify`, ...). */
@@ -94,7 +141,16 @@ function defaultText(path: string, value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
-  return fail(path, "a default is not a JSON primitive");
+  // An object or array default (an empty `options`, a list) is inserted as that JSON value, in
+  // the order the literal wrote it, which is what Zod's default hands back.
+  if (typeof value === "object")
+    return JSON.stringify(value, (_key, entry) =>
+      typeof entry === "number" && !Number.isFinite(entry) ? undefined : entry,
+    ).replace(undefined, () => {
+      fail(path, "a default is not JSON");
+      return "";
+    });
+  return fail(path, "a default is not a JSON value");
 }
 
 /**
@@ -112,8 +168,15 @@ class Planner {
     const existing = this.objects.get(schema);
     if (existing !== undefined) return { kind: "object", plan: existing };
     const def = defOf(schema);
-    if (def.catchall !== undefined)
-      fail(path, "an object has a catchall (passthrough, strict or catchall)");
+    // A loose object (`passthrough`) keeps every other key after its fields; a strict object's
+    // catchall is `never` and keeps none, so it is an ordinary object here.
+    let open = false;
+    if (def.catchall !== undefined) {
+      const catchall = defOf(def.catchall).type;
+      if (catchall === "never") open = false;
+      else if (catchall === "unknown") open = true;
+      else fail(path, "an object has a catchall the table can't describe");
+    }
     const shape = def.shape;
     if (shape === undefined) fail(path, "an object has no shape");
     let unique = name;
@@ -125,7 +188,7 @@ class Planner {
     for (const [key, field] of Object.entries(shape)) {
       plan.fields.push(this.field(key, field, `${path}.${key}`));
     }
-    return { kind: "object", plan };
+    return { kind: open ? "open" : "object", plan };
   }
 
   /** One object field, applying `.optional()` or `.default()` as its presence. */
@@ -140,9 +203,18 @@ class Planner {
       presence = { kind: "default", text: defaultText(path, def.defaultValue) };
       inner = requireInner(def, path);
     }
-    const innerType = defOf(inner).type;
-    if (innerType === "optional" || innerType === "default")
-      fail(path, `a field wraps .${innerType}() in or around its presence`);
+    // `.partial()` and `.extend()` can wrap an already-optional field again. The shape walk
+    // follows what a parse keeps: nested `.optional()` stays optional, and a `.default()` under
+    // an optional never applies to an absent key (Zod's optional returns undefined first), so
+    // both unwrap to the presence already read, with the innermost schema's shape.
+    for (;;) {
+      const innerType = defOf(inner).type;
+      if (innerType === "optional" || innerType === "default") {
+        inner = requireInner(defOf(inner), path);
+        continue;
+      }
+      break;
+    }
     return { key, presence, shape: this.shape(inner, path) };
   }
 
@@ -199,13 +271,23 @@ class Planner {
         const options = def.options;
         if (options === undefined) return fail(path, "a union has no options");
         if (def.discriminator !== undefined) return this.tagged(def.discriminator, options, path);
-        for (const option of options) {
-          const planned = this.shape(option, `${path}|`);
-          if (planned.kind !== "copy")
-            return fail(path, "a union has an option the table can't copy");
-        }
+        // A plain union whose options are objects tagged by one shared string literal (a status,
+        // a kind) parses exactly like a discriminated union on that key: the options' literals
+        // are disjoint, so Zod's order picks the one whose literal matches.
+        const key = sharedLiteralKey(options);
+        if (key !== undefined) return this.tagged(key, options, path);
+        // A union whose options the table can't describe (a transform, a loose object, an
+        // option order only Zod can run) is copied as it came: no stripping inside it. The
+        // decode sites treat it as stored data, and `check:wire-fixtures` compares the bytes
+        // of the samples that reach it.
         return { kind: "copy" };
       }
+      case "pipe":
+      case "transform":
+        // A transform's output can't be described from its declaration. The stored decoder
+        // applies the legacy fixes it needs (T4a) and copies the rest as stored, a recorded
+        // difference from Zod's parse inside that subtree.
+        return { kind: "copy" };
       case "optional":
       case "default":
         return fail(path, `.${def.type}() is not directly on an object field`);
@@ -223,9 +305,10 @@ class Planner {
       const field = def.shape?.[key];
       if (field === undefined) return fail(optionPath, `an option has no \`${key}\``);
       const fieldDef = defOf(field);
-      if (fieldDef.type !== "literal")
-        return fail(optionPath, `the discriminator \`${key}\` is not a literal`);
-      const values = (fieldDef as { values?: unknown[] }).values ?? [];
+      // A tag is one literal or an enum of literals (`kind: z.enum(["browser", "notebook"])`).
+      if (fieldDef.type !== "literal" && fieldDef.type !== "enum")
+        return fail(optionPath, `the discriminator \`${key}\` is not a literal or enum`);
+      const values = tagValues(field);
       if (values.length === 0)
         return fail(optionPath, `the discriminator \`${key}\` has no literal value`);
       const shape = this.shape(option, optionPath);
@@ -246,7 +329,8 @@ class Planner {
     switch (node.kind) {
       case "copy":
         return 0;
-      case "object": {
+      case "object":
+      case "open": {
         return 1 + Math.max(0, ...node.plan.fields.map((field) => this.depth(field.shape)));
       }
       case "array":
@@ -273,11 +357,13 @@ function shapeExpr(node: Node, file: string): string {
   switch (node.kind) {
     case "copy":
       return "Shape::Copy";
-    case "object": {
+    case "object":
+    case "open": {
       const name = `${node.plan.name}_FIELDS`;
+      const kind = node.kind === "open" ? "Open" : "Object";
       return node.plan.file === file
-        ? `Shape::Object(&${name})`
-        : `Shape::Object(&crate::shapes::${node.plan.file}::${name})`;
+        ? `Shape::${kind}(&${name})`
+        : `Shape::${kind}(&crate::shapes::${node.plan.file}::${name})`;
     }
     case "array":
       return `Shape::Array(&${shapeExpr(node.inner, file)})`;
@@ -350,9 +436,11 @@ export function shapesSource(roots: Record<string, z.ZodType>): Map<string, stri
   }
   const depth = Math.max(0, ...rootNodes.map(([, node]) => planner.depth(node)));
   const files = chunks(names, planner.order);
-  for (const entry of rootNodes)
-    if (entry[1].kind === "object")
-      files.find((chunk) => chunk.file === entry[1].plan.file)?.roots.push(entry);
+  for (const entry of rootNodes) {
+    const node = entry[1];
+    if (node.kind === "object" || node.kind === "open")
+      files.find((chunk) => chunk.file === node.plan.file)?.roots.push(entry);
+  }
   const head = [
     "// SPDX-License-Identifier: Apache-2.0",
     "// Generated by scripts/generate-rust-protocol.ts -- do not edit.",
