@@ -899,22 +899,16 @@ fn per_action(fields: &mut Fields<'_>, action: ActAction, raw: &Value) {
             );
         }
     }
-    if let Some(object) = raw.as_object() {
-        for key in object.keys() {
-            let key = key.as_str();
-            // Unknown fields are dropped by the strict object; zod's refinement
-            // never sees them, so they are not "not used" as well.
-            if key == "action"
-                || !ACT_FIELDS.contains(&key)
-                || !sent(key)
-                || rule.allowed.contains(&key)
-            {
-                continue;
-            }
-            fields
-                .issues
-                .issue(key, format!("Not used when action is {}", action.as_str()));
+    // The schema's fields, in its order: an unused one is named by the schema, not by
+    // the order the agent sent its keys in. Unknown fields are dropped by the strict
+    // object, so zod's refinement never sees them and they are not "not used" as well.
+    for &key in ACT_FIELDS {
+        if key == "action" || !sent(key) || rule.allowed.contains(&key) {
+            continue;
         }
+        fields
+            .issues
+            .issue(key, format!("Not used when action is {}", action.as_str()));
     }
 }
 

@@ -511,6 +511,29 @@ fn a_tap_needs_a_ref_or_both_coordinates_and_never_both() {
 }
 
 #[test]
+fn unused_fields_follow_the_schema_order_whatever_order_they_were_sent() {
+    // `perAction` walks the schema's own fields, so the issues it adds do not
+    // depend on the order the agent wrote its arguments in.
+    let expected = [
+        ("name", "Not used when action is tap"),
+        ("text", "Not used when action is tap"),
+        ("posture", "Not used when action is tap"),
+    ];
+    let first = act(json!({
+        "simId": IOS, "action": "tap", "x": 1, "y": 1,
+        "posture": "open", "text": "hi", "name": "n"
+    }))
+    .expect_err("unused fields");
+    assert_eq!(issue_paths(&first), expected);
+    let second = act(json!({
+        "simId": IOS, "action": "tap", "y": 1,
+        "name": "n", "x": 1, "posture": "open", "text": "hi"
+    }))
+    .expect_err("unused fields");
+    assert_eq!(issue_paths(&second), expected);
+}
+
+#[test]
 fn a_ui_read_and_a_log_limit_keep_their_bounds() {
     let error = decode(SimTool::Ui, &json!({ "simId": IOS, "limit": 65 })).expect_err("limit");
     assert_eq!(issue_paths(&error), [("limit", "number <= 64")]);
