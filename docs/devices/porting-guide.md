@@ -309,3 +309,6 @@ a fix touches keeps the fix's behaviour, and its tests become (a) files of that 
   invalidated the assignment, so an agent binding in between is refused `bindingBusy`; Rust retires
   the reservation the invalidated assignment left, and the person's stale continuation changes
   nothing.
+- **D4, a takeover that loses control while it assigns.** TypeScript authorizes the requester once
+  the input release resolves (`service.ts:861`), so the takeover answers whatever that check says
+  by then; Rust answers `controlChanged` for the assignment whose revision or generation moved.
