@@ -45,7 +45,7 @@ fn allowed_tag(tag: Option<&Tag>) -> bool {
 /// `populated` is false for a YAML null and for the empty string: a plain `null`/`~` (or one
 /// tagged `!!null`) resolves to nothing, and `""` is no value either. Quoted, `"null"` is the
 /// text `null`, so it is a value like any other and blocks publication.
-fn is_null_scalar(text: &str, style: TScalarStyle, tag: Option<&Tag>) -> bool {
+fn is_empty_value(text: &str, style: TScalarStyle, tag: Option<&Tag>) -> bool {
     if text.is_empty() {
         return true;
     }
@@ -157,7 +157,7 @@ pub fn assert_publication_yaml(bytes: &[u8]) -> Result<(), GitError> {
                     continue;
                 }
                 if let Pending::Credential | Pending::ExecEnv = pending
-                    && !is_null_scalar(&value, style, tag.as_ref())
+                    && !is_empty_value(&value, style, tag.as_ref())
                 {
                     return Err(if matches!(pending, Pending::Credential) {
                         CredentialValue::Field.sensitive()
