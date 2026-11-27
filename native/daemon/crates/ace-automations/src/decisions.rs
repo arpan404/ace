@@ -34,37 +34,49 @@ fn variable_key(key: &str) -> bool {
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
 }
 
-/// `renderPrompt` (`decisions.ts:5`): replace `{{name}}` places, refusing unknown names, then
-/// check the result against the message limit in UTF-16 units.
-pub fn render_prompt(template: &str, variables: &BTreeMap<String, String>) -> Result<String> {
+/// Every `{{key}}` place whose key matches the template grammar, in order, as `(key, start,
+/// end)` where `end` is the index after `}}`. Rendering and the webhook note share this scan, so
+/// a place that renders is exactly a place the note can name, including an inner match such as
+/// the one in `{{{body.text}}}`.
+fn placeholders(template: &str) -> Vec<(&str, usize, usize)> {
     let bytes = template.as_bytes();
-    let mut rendered = String::with_capacity(template.len());
+    let mut found = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
         let Some(start) = template[index..].find("{{").map(|at| index + at) else {
-            rendered.push_str(&template[index..]);
             break;
         };
-        rendered.push_str(&template[index..start]);
         let Some(end) = template[start + 2..].find("}}").map(|at| start + 2 + at) else {
-            rendered.push_str(&template[start..]);
             break;
         };
         let key = &template[start + 2..end];
         if variable_key(key) {
-            let Some(value) = variables.get(key) else {
-                return Err(AutomationsError::message(format!(
-                    "Missing trigger variable: {key}"
-                )));
-            };
-            rendered.push_str(value);
+            found.push((key, start, end + 2));
             index = end + 2;
         } else {
-            // Not a variable place: keep its first brace and keep scanning from after it.
-            rendered.push_str(&template[start..start + 1]);
+            // Not a variable place: keep scanning from after its first brace.
             index = start + 1;
         }
     }
+    found
+}
+
+/// `renderPrompt` (`decisions.ts:5`): replace `{{name}}` places, refusing unknown names, then
+/// check the result against the message limit in UTF-16 units.
+pub fn render_prompt(template: &str, variables: &BTreeMap<String, String>) -> Result<String> {
+    let mut rendered = String::with_capacity(template.len());
+    let mut cursor = 0;
+    for (key, start, end) in placeholders(template) {
+        rendered.push_str(&template[cursor..start]);
+        let Some(value) = variables.get(key) else {
+            return Err(AutomationsError::message(format!(
+                "Missing trigger variable: {key}"
+            )));
+        };
+        rendered.push_str(value);
+        cursor = end;
+    }
+    rendered.push_str(&template[cursor..]);
     if utf16_len(&rendered) > MAX_MESSAGE_BYTES {
         return Err(AutomationsError::message("Rendered prompt exceeds limit"));
     }
@@ -159,25 +171,10 @@ pub fn run_access(access: Option<&str>, webhook: bool) -> Option<String> {
 pub fn with_webhook_note(prompt: &str, template: &str) -> Result<String> {
     let mut names: Vec<&str> = Vec::new();
     let mut seen = HashSet::new();
-    let bytes = template.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        let Some(start) = template[index..].find("{{").map(|at| index + at) else {
-            break;
-        };
-        let Some(end) = template[start + 2..].find("}}").map(|at| start + 2 + at) else {
-            break;
-        };
-        let key = &template[start + 2..end];
-        if (key.starts_with("body.") || key.starts_with("webhook."))
-            && key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
-            && seen.insert(key)
-        {
+    for (key, _, _) in placeholders(template) {
+        if (key.starts_with("body.") || key.starts_with("webhook.")) && seen.insert(key) {
             names.push(key);
         }
-        index = end + 2;
     }
     if names.is_empty() {
         return Ok(prompt.to_owned());
@@ -291,6 +288,19 @@ mod tests {
         assert_eq!(admission(0, false, RUNNING_LIMIT, false), "skipped");
         assert!(can_promote(0, RUNNING_LIMIT - 1));
         assert!(!can_promote(1, 0));
+    }
+
+    #[test]
+    fn the_provenance_note_names_a_place_rendered_inside_triple_braces() {
+        let template = "{{{body.text}}}";
+        let variables = variables(&[("body.text", "from outside")]);
+        let rendered = render_prompt(template, &variables).expect("renders");
+        assert_eq!(rendered, "{from outside}");
+        let noted = with_webhook_note(&rendered, template).expect("note");
+        assert!(
+            noted.contains("The text that replaced {{body.text}} came from outside ace,"),
+            "{noted}"
+        );
     }
 
     #[test]

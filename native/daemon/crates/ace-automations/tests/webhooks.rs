@@ -9,7 +9,7 @@ use ace_automations::scheduler::{Admission, Clock, CounterIds};
 use ace_automations::service::{Ports, Service};
 use ace_automations::webhook_secret_box::SecretBox;
 use ace_automations::webhook_signature::sign_webhook;
-use ace_automations::webhooks::{WebhookDeps, WebhookRequest, Webhooks};
+use ace_automations::webhooks::{RotatedSecret, WebhookDeps, WebhookRequest, Webhooks};
 use ace_automations::{AutomationStore, Definition, Trigger};
 
 const START: i64 = 1_704_099_600_000;
@@ -1167,5 +1167,61 @@ fn a_delivery_whose_receipt_write_fails_commits_no_run_and_the_retry_runs_once()
         service.inbox(50, None, None, None).expect("inbox").0.len(),
         1,
         "one run"
+    );
+}
+
+#[test]
+fn a_rotated_secret_is_redacted_in_debug_output() {
+    let rotated = RotatedSecret {
+        hook_id: "0123456789abcdef0123456789abcdef".to_owned(),
+        secret: "whsec_plaintextthatmustnotleak".to_owned(),
+    };
+    let debug = format!("{rotated:?}");
+    assert!(
+        debug.contains("0123456789abcdef0123456789abcdef"),
+        "{debug}"
+    );
+    assert!(!debug.contains("whsec_plaintextthatmustnotleak"), "{debug}");
+    assert!(debug.contains("redacted"), "{debug}");
+}
+
+#[test]
+fn a_place_rendered_inside_triple_braces_is_named_in_the_outside_text_note() {
+    let h = Harness::new();
+    let signaling = CountingRandom(Cell::new(0));
+    let random = |size: usize| signaling.bytes(size);
+    let deps = WebhookDeps {
+        clock: &h.clock,
+        random: &random,
+        allow: None,
+    };
+    let box_ = key();
+    let webhooks = Webhooks::new(&h.store, deps, Some(&box_));
+    let mut service = h.started();
+    let mut deploy = definition();
+    deploy.prompt = "Check {{{body.env}}} of {{body.commit}}".to_owned();
+    service.put(&deploy, None).expect("put");
+    let rotated = webhooks.rotate("deploy").expect("rotate");
+    let payload = body();
+    let signature = sign_webhook(&rotated.secret, "evt_1", START / 1000, &payload);
+    let answer = webhooks.receive(
+        &mut service,
+        &rotated.hook_id,
+        &request(
+            "POST",
+            Some("application/json"),
+            Some("evt_1"),
+            Some("1704099600"),
+            Some(&signature),
+            &payload,
+        ),
+    );
+    assert_eq!(answer.status, 202);
+    let prompt = prompt_of(&mut service);
+    assert!(prompt.starts_with("Check {prod} of abc123\n\n"), "{prompt}");
+    assert!(
+        prompt
+            .contains("The text that replaced {{body.env}}, {{body.commit}} came from outside ace"),
+        "{prompt}"
     );
 }

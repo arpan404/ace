@@ -78,10 +78,18 @@ impl WebhookAnswer {
     }
 }
 
-#[derive(Debug)]
 pub struct RotatedSecret {
     pub hook_id: String,
     pub secret: String,
+}
+
+impl std::fmt::Debug for RotatedSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RotatedSecret")
+            .field("hook_id", &self.hook_id)
+            .field("secret", &"[redacted]")
+            .finish()
+    }
 }
 
 pub struct Webhooks<'a> {
