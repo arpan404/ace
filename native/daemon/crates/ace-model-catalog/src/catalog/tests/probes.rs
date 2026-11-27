@@ -35,7 +35,7 @@ impl crate::catalog::ConnectionProbe for GatedProbe {
     }
 }
 
-fn probe_fixture(
+pub(super) fn probe_fixture(
     gate: crate::signals::Gate,
     calls: Arc<AtomicUsize>,
     fails: bool,
@@ -160,6 +160,7 @@ fn a_dropped_connection_poll_never_strands_close() {
     let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
     let mut polling = Box::pin(catalog.reconcile_connections());
     assert!(poll_once(polling.as_mut()).is_pending(), "the probe waits");
+    spawn.drain();
     drop(polling);
     // Shutdown must settle the probe the dropped caller left behind.
     let closed = settle(catalog.close(), &spawn, "close after a dropped probe");
@@ -315,6 +316,7 @@ fn a_connection_probe_that_times_out_reports_it_and_backs_off() {
     let catalog = Catalog::new(options).unwrap_or_else(|error| panic!("{error}"));
     let mut probing = Box::pin(catalog.reconcile_connections());
     assert!(poll_once(probing.as_mut()).is_pending(), "the probe waits");
+    spawn.drain();
     deadlines.fire(1_000.0 + 1_000.0);
     gate.open();
     settle(probing, &spawn, "the probe").unwrap_or_else(|error| panic!("{error}"));

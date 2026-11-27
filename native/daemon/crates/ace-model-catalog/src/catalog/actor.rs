@@ -4,7 +4,7 @@
 //! spawned tasks that report back with the token they were given.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -16,8 +16,10 @@ use ace_protocol::generated::ProviderKind;
 
 use crate::catalog::commands::{Command, Envelope, FlightOutcome, Reply, Reporter};
 use crate::catalog::flights::Commit;
+use crate::catalog::mailbox::{Ingress, Inputs};
 use crate::catalog::notify::NotifyLane;
 use crate::catalog::storage_lane::{Cancel, Outcome, StorageLane};
+use crate::catalog::timers::{Timer, Timers};
 use crate::catalog::turns;
 use crate::catalog::{
     CatalogError, CatalogOptions, DiscoveryDiagnostics, DiscoveryFailure, ErrorReport, Inner,
@@ -36,7 +38,7 @@ pub(crate) enum TaskKind {
     Removal { id: String, token: u64 },
     Invalidation { id: String, token: u64 },
     Permission { id: String, place: u64 },
-    Other,
+    Reconcile,
 }
 
 /// One explicit refresh waiting for its flights.
@@ -83,12 +85,16 @@ pub(crate) use durable::{DeleteWait, SessionWritePlan, StorageWait};
 pub(crate) struct Actor {
     pub(crate) inner: Inner,
     pub(crate) options: Arc<CatalogOptions>,
+    pub(crate) inputs: Inputs,
     pub(crate) lane: StorageLane,
     pub(crate) limiter: Limiter,
     /// A weak name of the callers' mailbox: the actor never keeps itself alive for it.
-    pub(crate) commands: Weak<std::sync::mpsc::SyncSender<Envelope>>,
+    pub(crate) commands: Weak<Ingress>,
     pub(crate) reporter: Reporter,
     pub(crate) notify: NotifyLane,
+    dispatch: NotifyLane,
+    pub(crate) timers: Timers,
+    pub(crate) reconciling: bool,
     terminate: bool,
     close_result: Arc<Mutex<Option<Result<(), CatalogError>>>>,
     pub(crate) instance_ids: Arc<Mutex<BTreeSet<String>>>,
@@ -112,8 +118,8 @@ pub(crate) struct Actor {
     pending_storage: usize,
     flight_permits: BTreeMap<u64, Cancel>,
     close_stage: CloseStage,
-    pub(crate) probe_cancels: BTreeMap<u64, crate::catalog::Cancel>,
-    flight_cancels: BTreeMap<u64, crate::catalog::Cancel>,
+    pub(crate) probe_cancels: BTreeMap<u64, Timer>,
+    flight_cancels: BTreeMap<u64, Timer>,
     flight_deadlines: BTreeMap<u64, f64>,
     pub(crate) flight_tasks: usize,
     pub(crate) timed_out_probes: BTreeSet<u64>,
@@ -140,6 +146,10 @@ impl Actor {
         shared: Shared,
     ) -> Result<Self, CatalogError> {
         let notify = NotifyLane::notifications().map_err(|_| CatalogError::Closed)?;
+        let dispatch =
+            NotifyLane::new("ace-model-catalog-spawner", 512).map_err(|_| CatalogError::Closed)?;
+        let timers = Timers::new(options.deadline.clone(), reporter.clone())
+            .map_err(|_| CatalogError::Closed)?;
         for entry in stored {
             if entry.provider == ProviderKind::Acp {
                 inner.acp_loaded.insert(entry.instance.clone());
@@ -162,11 +172,15 @@ impl Actor {
         Ok(Self {
             inner,
             options,
+            inputs: Inputs::default(),
             lane,
             limiter,
             commands: reporter.commands.clone(),
             reporter,
             notify,
+            dispatch,
+            timers,
+            reconciling: false,
             terminate: false,
             close_result: shared.close_result,
             instance_ids: shared.instance_ids,
@@ -246,6 +260,18 @@ impl Actor {
     }
 
     fn handle_envelope(&mut self, envelope: Envelope) {
+        if self.inner.closed && envelope.ack.is_some() && !envelope.command.allowed_during_close() {
+            return;
+        }
+        if let Some(mut inputs) = envelope.inputs
+            && inputs.sequence > self.inputs.sequence
+        {
+            inputs.now = inputs.now.max(self.inputs.now);
+            self.inputs = inputs;
+        }
+        if let Some(now) = envelope.observed_at {
+            self.inputs.now = self.inputs.now.max(now);
+        }
         self.handle_command(envelope.command);
         self.lane.pump();
         if let Some(ack) = envelope.ack {
@@ -439,7 +465,10 @@ impl Actor {
                 let _ = reply.send(self.retained_replies());
             }
             Command::Quiesce { reply } => {
-                if self.quiesce_ready() {
+                self.quiesce_waiters.retain(|waiter| !waiter.is_canceled());
+                if self.quiesce_ready()
+                    || self.quiesce_waiters.len() >= crate::catalog::WAITER_LIMIT
+                {
                     let _ = reply.send(());
                 } else {
                     self.quiesce_waiters.push(reply);
@@ -455,6 +484,7 @@ impl Actor {
                 let _ = reply.send(facts.unwrap_or((None, false)));
             }
             Command::TaskSettled { task } => self.task_settled(task),
+            Command::TimerRetired { key } => self.timers.retired(key),
             Command::StorageDone { key, outcome } => self.storage_done(key, outcome),
             Command::RemovalReady { id, token } => self.removal_ready(&id, token),
             Command::Deadline { id, token } => self.deadline(&id, token),
@@ -492,20 +522,18 @@ impl Actor {
     }
 
     pub(crate) fn now(&self) -> f64 {
-        self.options.clock.now()
+        self.inputs.now
     }
 
     pub(crate) fn configuration(
         &self,
         config: &ModelInstance,
     ) -> crate::preferences::ProviderConfig {
-        let rows = self
-            .options
-            .preferences
-            .as_ref()
-            .map(|preferences| preferences())
-            .unwrap_or_default();
-        crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id))
+        crate::preferences::provider_configuration(
+            &self.inputs.preferences,
+            config.provider,
+            Some(&config.id),
+        )
     }
 
     pub(crate) fn enabled(&self, config: &ModelInstance) -> bool {
@@ -518,10 +546,15 @@ impl Actor {
     }
 
     pub(crate) fn status(&self, id: &str) -> Option<InstanceStatus> {
-        self.inner
-            .states
-            .get(id)
-            .map(|state| status_of(&self.options, &self.inner, state))
+        self.inner.states.get(id).map(|state| {
+            status_of(
+                self.now(),
+                self.options.ttl_ms,
+                &self.inputs.preferences,
+                &self.inner,
+                state,
+            )
+        })
     }
 
     /// Hands every listener its notification on the listener lane. The actor never calls
@@ -565,11 +598,8 @@ impl Actor {
             let _guard = guard;
             let _ = AssertUnwindSafe(future).catch_unwind().await;
         });
-        if catch_unwind(AssertUnwindSafe(|| self.options.spawn.spawn(guarded))).is_err() {
-            // The task was dropped with the panic (or the spawner kept it): settle now so
-            // no reservation is left behind, and later reports for it are no-ops.
-            self.task_settled(task);
-        }
+        let spawn = self.options.spawn.clone();
+        self.dispatch.submit(move || spawn.spawn(guarded));
     }
 
     fn task_settled(&mut self, task: u64) {
@@ -616,7 +646,7 @@ impl Actor {
                 }
                 self.pump(&id);
             }
-            TaskKind::Other => {}
+            TaskKind::Reconcile => self.reconciling = false,
         }
         self.release_quiesce_waiters();
     }
@@ -883,7 +913,7 @@ impl Actor {
                                 detail.code,
                                 now,
                                 self.options.retry_ms,
-                                (self.options.random)(),
+                                self.inputs.random,
                             )
                             .ok()
                             .map(|schedule| {
@@ -968,8 +998,8 @@ impl Actor {
         if gate.is_some() {
             self.inner.active_flights = self.inner.active_flights.saturating_sub(1);
         }
-        if let Some(cancel) = self.flight_cancels.remove(&token) {
-            cancel();
+        if let Some(timer) = self.flight_cancels.remove(&token) {
+            self.timers.cancel(timer);
         }
         self.flight_deadlines.remove(&token);
         if let Some(gate) = &gate {
@@ -1113,8 +1143,7 @@ impl Actor {
             self.settle_flight(id, token);
             return false;
         }
-        self.arm_flight_deadline(id, token);
-        true
+        self.flight_cancels.contains_key(&token)
     }
 
     pub(crate) fn arm_flight_deadline(&mut self, id: &str, token: u64) {
@@ -1127,7 +1156,7 @@ impl Actor {
         self.flight_permits.insert(token, permit.clone());
         let reporter = self.reporter.clone();
         let deadline_id = id.to_owned();
-        let cancel = self.options.deadline.arm(
+        let timer = self.timers.arm(
             self.options.timeout_ms,
             Box::new(move || {
                 if !permit.expire() {
@@ -1139,7 +1168,11 @@ impl Actor {
                 });
             }),
         );
-        self.flight_cancels.insert(token, cancel);
+        if let Some(timer) = timer {
+            self.flight_cancels.insert(token, timer);
+        } else {
+            self.deadline(id, token);
+        }
     }
 
     fn flight_outcome(
@@ -1175,7 +1208,10 @@ impl Actor {
             revision: Some(&revision),
             token: Some(token),
         };
-        if aborted || matches!(&outcome, FlightOutcome::None) {
+        if aborted
+            || !self.write_current(id, generation, &revision)
+            || matches!(&outcome, FlightOutcome::None)
+        {
             self.settle_flight(id, token);
             return;
         }
@@ -1308,6 +1344,9 @@ impl Actor {
         self.close_waiters.push(reply);
         if self.closing {
             return;
+        }
+        if let Some(ingress) = self.commands.upgrade() {
+            ingress.close();
         }
         self.inner.closed = true;
         self.inner.listeners.clear();

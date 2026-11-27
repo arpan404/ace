@@ -13,6 +13,7 @@ mod actor;
 mod commands;
 mod flights;
 mod lifecycle;
+mod mailbox;
 mod notify;
 mod refresh;
 mod registration;
@@ -20,11 +21,12 @@ mod storage;
 mod storage_lane;
 #[cfg(test)]
 mod tests;
+mod timers;
 mod turns;
 mod types;
 mod writes;
 
-pub(crate) use commands::{Command, Envelope, RefreshMode, Reply};
+pub(crate) use commands::{Command, RefreshMode, Reply};
 pub(crate) use lifecycle::CancelHandle;
 pub(crate) use turns::Turns;
 pub(crate) use writes::{PermissionWrite, SessionWrite};
@@ -383,7 +385,7 @@ pub(crate) enum PendingOp {
 /// The catalog a daemon serves: a handle that only sends commands to the actor.
 #[derive(Clone)]
 pub struct Catalog {
-    pub(crate) sender: Arc<std::sync::mpsc::SyncSender<Envelope>>,
+    pub(crate) sender: Arc<mailbox::Ingress>,
     pub(crate) options: Arc<CatalogOptions>,
     /// A successful close is final: every later call answers with this result.
     closed: Arc<Mutex<Option<Result<(), CatalogError>>>>,
@@ -450,7 +452,7 @@ impl Catalog {
             removals: BTreeMap::new(),
         };
         let (sender, receiver) = std::sync::mpsc::sync_channel(COMMAND_CAPACITY);
-        let sender = Arc::new(sender);
+        let sender = Arc::new(mailbox::Ingress::new(sender));
         let options = Arc::new(options);
         // Work the actor owns reports on its own unbounded queue; the actor keeps only a
         // weak name of the callers' mailbox, so dropping every handle ends it.
@@ -461,7 +463,8 @@ impl Catalog {
         };
         let closed = Arc::new(Mutex::new(None));
         let instance_ids = Arc::new(Mutex::new(BTreeSet::new()));
-        let lane = storage_lane::StorageLane::new(storage, reporter.clone())?;
+        let lane =
+            storage_lane::StorageLane::new(storage, reporter.clone(), options.clock.clone())?;
         let actor = actor::Actor::new(
             inner,
             stored,
@@ -509,92 +512,9 @@ impl Catalog {
         &self.options
     }
 
-    /// Sends one command and blocks for its reply. The actor finishes the work even when
-    /// this call never returns, because a dropped receiver is not a cancellation.
-    pub(crate) fn ask<T>(&self, make: impl FnOnce(Reply<T>) -> Command) -> Option<T> {
-        let (reply, receiver) = futures::channel::oneshot::channel();
-        let (ack, ack_receiver) = futures::channel::oneshot::channel();
-        {
-            self.sender
-                .send(commands::Envelope {
-                    command: make(reply),
-                    ack: Some(ack),
-                })
-                .ok()?;
-        }
-        self.wait_ack(ack_receiver)?;
-        self.wait_sync(receiver)
-    }
-
-    /// Blocks until the actor has taken the command. The actor never awaits inside a
-    /// handler, so this is bounded by one handler and does not run spawned work.
-    fn wait_ack(&self, mut receiver: futures::channel::oneshot::Receiver<()>) -> Option<()> {
-        loop {
-            match receiver.try_recv() {
-                Ok(Some(())) => return Some(()),
-                Ok(None) => std::thread::yield_now(),
-                Err(_) => return None,
-            }
-        }
-    }
-
-    /// Blocks until `receiver` answers. Every blocking reply is immediate; work that
-    /// needs spawned tasks is awaited by `request`, never by a synchronous method.
-    fn wait_sync<T>(&self, mut receiver: futures::channel::oneshot::Receiver<T>) -> Option<T> {
-        loop {
-            match receiver.try_recv() {
-                Ok(Some(value)) => return Some(value),
-                Ok(None) => std::thread::yield_now(),
-                Err(_) => return None,
-            }
-        }
-    }
-
-    pub(crate) async fn request<T>(&self, make: impl FnOnce(Reply<T>) -> Command) -> Option<T> {
-        let (reply, receiver) = futures::channel::oneshot::channel();
-        let (ack, ack_receiver) = futures::channel::oneshot::channel();
-        {
-            self.sender
-                .send(commands::Envelope {
-                    command: make(reply),
-                    ack: Some(ack),
-                })
-                .ok()?;
-        }
-        // The acknowledgement makes the first poll mean what the TypeScript's synchronous
-        // queue meant: the command has been taken, not merely queued. It is a hand-off
-        // bounded by one handler (the actor never blocks inside a command); the reply,
-        // which may wait on discovery or storage, is awaited without blocking the thread.
-        self.wait_ack(ack_receiver)?;
-        receiver.await.ok()
-    }
-
-    /// Sends a command and waits until the actor handled it, for fire-and-forget calls.
-    pub(crate) fn tell(&self, make: impl FnOnce(Reply<()>) -> Command) {
-        let (reply, _) = futures::channel::oneshot::channel();
-        let (ack, ack_receiver) = futures::channel::oneshot::channel();
-        let sent = {
-            self.sender.send(commands::Envelope {
-                command: make(reply),
-                ack: Some(ack),
-            })
-        };
-        if sent.is_ok() {
-            let _ = self.wait_ack(ack_receiver);
-        }
-    }
-
     #[allow(dead_code)]
     pub(crate) fn revision(&self, config: &ModelInstance) -> String {
-        let rows = self
-            .options
-            .preferences
-            .as_ref()
-            .map(|preferences| preferences())
-            .unwrap_or_default();
-        let configuration =
-            crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id));
-        revision_of(config, configuration.binary_path.as_deref())
+        live_revision(&self.options, config)
     }
 
     /// A page of rows and every selected instance's status.
@@ -607,33 +527,33 @@ impl Catalog {
         if offset > 40_960 || !(1..=100).contains(&limit) {
             return Err(CatalogError::InvalidListOptions);
         }
-        self.ask(|reply| Command::List {
+        self.ask_checked(|reply| Command::List {
             filter,
             offset,
             limit,
             reply,
         })
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// The model a role spec names, having asked for stale rows to refresh.
     pub fn resolve(&self, spec: &RoleSpec) -> Result<Resolution, String> {
-        self.ask(|reply| Command::Resolve {
+        self.ask_checked(|reply| Command::Resolve {
             spec: spec.clone(),
             cached: false,
             reply,
         })
-        .unwrap_or_else(|| Err("Catalog closed".to_owned()))
+        .unwrap_or_else(|error| Err(error.to_string()))
     }
 
     /// The same resolution over retained choices, without scheduling discovery.
     pub fn resolve_cached(&self, spec: &RoleSpec) -> Result<Resolution, String> {
-        self.ask(|reply| Command::Resolve {
+        self.ask_checked(|reply| Command::Resolve {
             spec: spec.clone(),
             cached: true,
             reply,
         })
-        .unwrap_or_else(|| Err("Catalog closed".to_owned()))
+        .unwrap_or_else(|error| Err(error.to_string()))
     }
 
     pub fn has_provider(&self, provider: ProviderKind) -> bool {
@@ -681,21 +601,16 @@ impl Catalog {
         listener: Arc<dyn Fn(ModelFilter) + Send + Sync>,
     ) -> Result<Cancel, CatalogError> {
         let token = self
-            .ask(|reply| Command::Listen { listener, reply })
-            .unwrap_or(Err(CatalogError::Closed))?;
-        let sender = self.sender.clone();
-        Ok(Box::new(move || {
-            let _ = sender.send(Envelope {
-                command: Command::Unlisten { token },
-                ack: None,
-            });
-        }))
+            .ask_checked(|reply| Command::Listen { listener, reply })
+            .unwrap_or_else(Err)?;
+        let catalog = self.clone();
+        Ok(Box::new(move || catalog.unlisten(token)))
     }
 
     /// Ordinary catalog changes retain usable choices while discovery replaces them.
     pub fn mark_stale(&self, filter: ModelFilter) -> Result<(), CatalogError> {
-        self.ask(|reply| Command::MarkStale { filter, reply })
-            .unwrap_or(Err(CatalogError::Closed))
+        self.ask_checked(|reply| Command::MarkStale { filter, reply })
+            .unwrap_or_else(Err)
     }
 
     /// Registers an instance, restoring a compatible cached row.
@@ -704,12 +619,12 @@ impl Catalog {
         input: ModelInstance,
         admit: Option<Admit>,
     ) -> Result<(), CatalogError> {
-        self.ask(|reply| Command::Register {
+        self.ask_checked(|reply| Command::Register {
             input,
             admit,
             reply,
         })
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// A sign-in changed: the old account's choices are gone immediately.
@@ -720,14 +635,14 @@ impl Catalog {
         sign_in_method: Option<Option<String>>,
     ) -> Result<Vec<InstanceStatus>, CatalogError> {
         let immediate = self
-            .request(|reply| Command::LoginChanged {
+            .request_checked(|reply| Command::LoginChanged {
                 instance: instance.to_owned(),
                 revision: revision.to_owned(),
                 sign_in_method,
                 reply,
             })
             .await
-            .unwrap_or(Err(CatalogError::Closed));
+            .unwrap_or_else(Err);
         match immediate? {
             Some(statuses) => Ok(statuses),
             None => self.refresh(ModelFilter::instance(instance)).await,
@@ -736,19 +651,19 @@ impl Catalog {
 
     /// Removes a row: state, cached choices, and a flush of in-flight discovery.
     pub async fn remove_instance(&self, instance: &str) -> Result<(), CatalogError> {
-        self.request(|reply| Command::Remove {
+        self.request_checked(|reply| Command::Remove {
             instance: instance.to_owned(),
             reply,
         })
         .await
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// Account-change boundary: revoke choices immediately, then delete them.
     pub async fn invalidate(&self, filter: ModelFilter) -> Result<(), CatalogError> {
-        self.request(|reply| Command::Invalidate { filter, reply })
+        self.request_checked(|reply| Command::Invalidate { filter, reply })
             .await
-            .unwrap_or(Err(CatalogError::Closed))
+            .unwrap_or_else(Err)
     }
 
     /// Settings changed: rows whose effective configuration changed are fenced and refreshed.
@@ -768,24 +683,24 @@ impl Catalog {
 
     /// The statuses an explicit refresh reports.
     pub async fn refresh(&self, filter: ModelFilter) -> Result<Vec<InstanceStatus>, CatalogError> {
-        self.request(|reply| Command::Refresh {
+        self.request_checked(|reply| Command::Refresh {
             filter,
             mode: RefreshMode::All,
             reply,
         })
         .await
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// The person asked for one row's models (Load models).
     pub async fn load(&self, instance: &str) -> Result<Vec<InstanceStatus>, CatalogError> {
-        self.request(|reply| Command::Refresh {
+        self.request_checked(|reply| Command::Refresh {
             filter: ModelFilter::instance(instance),
             mode: RefreshMode::Load(instance.to_owned()),
             reply,
         })
         .await
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// Waits for rows that never loaded, or loaded empty and are due.
@@ -793,13 +708,13 @@ impl Catalog {
         &self,
         filter: ModelFilter,
     ) -> Result<Vec<InstanceStatus>, CatalogError> {
-        self.request(|reply| Command::Refresh {
+        self.request_checked(|reply| Command::Refresh {
             filter,
             mode: RefreshMode::Missing,
             reply,
         })
         .await
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// Discovers one row, sharing a flight that is already running.
@@ -861,14 +776,14 @@ impl Catalog {
         token: RegistrationToken,
         metadata: &Value,
     ) -> Result<(), CatalogError> {
-        self.request(|reply| Command::UpdateSession {
+        self.request_checked(|reply| Command::UpdateSession {
             input,
             token,
             metadata: metadata.clone(),
             reply,
         })
         .await
-        .unwrap_or(Err(CatalogError::Closed))
+        .unwrap_or_else(Err)
     }
 
     /// A session's reported modes survive a restart: written onto the cached entry.
@@ -928,14 +843,15 @@ impl Catalog {
         ) {
             return Ok(());
         }
-        let result = match self.request(|reply| Command::Close { reply }).await {
-            Some(result) => result,
-            None => self
+        let result = match self.request_checked(|reply| Command::Close { reply }).await {
+            Ok(result) => result,
+            Err(CatalogError::Closed) => self
                 .closed
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
                 .unwrap_or(Err(CatalogError::Closed)),
+            Err(error) => Err(error),
         };
         if result.is_ok() {
             // The actor left its loop after recording the result; joining it proves every
@@ -954,18 +870,22 @@ impl Catalog {
 
     /// Poll only CLI connection metadata; unchanged metadata never starts discovery.
     pub async fn reconcile_connections(&self) -> Result<(), CatalogError> {
-        let Some(ids) = self.request(|reply| Command::ReconcileIds { reply }).await else {
-            return Err(CatalogError::Closed);
-        };
+        let ids = self
+            .request_checked(|reply| Command::ReconcileIds { reply })
+            .await?;
         let Some(ids) = ids else {
             return Ok(());
         };
         for id in ids {
             // Shutdown skips an account rather than failing the loop that already ran;
             // an actor that is gone for the same reason ends the loop quietly.
-            match self.request(|reply| Command::Probe { id, reply }).await {
-                Some(Ok(())) | Some(Err(CatalogError::Closed)) | None => {}
-                Some(Err(error)) => return Err(error),
+            match self
+                .request_checked(|reply| Command::Probe { id, reply })
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(CatalogError::Closed)) | Err(CatalogError::Closed) => break,
+                Ok(Err(error)) | Err(error) => return Err(error),
             }
         }
         Ok(())
@@ -1044,20 +964,15 @@ pub(crate) fn empty_status(id: &str) -> InstanceStatus {
 }
 
 /// The instance's row as the person would read it, from the cached entry alone.
-pub(crate) fn models_of(options: &CatalogOptions, state: &mut State) -> Vec<CatalogModel> {
-    let preferences = options
-        .preferences
-        .as_ref()
-        .map(|preferences| preferences())
-        .unwrap_or_default();
+pub(crate) fn models_of(preferences: &[ProviderConfig], state: &mut State) -> Vec<CatalogModel> {
     let config = crate::preferences::provider_configuration(
-        &preferences,
+        preferences,
         state.config.provider,
         Some(&state.config.id),
     );
     let key = format!(
         "{}|{}|{}|{:?}",
-        state.settings_key,
+        registration::settings_key(&config),
         state
             .entry
             .as_ref()
@@ -1091,12 +1006,11 @@ pub(crate) fn models_of(options: &CatalogOptions, state: &mut State) -> Vec<Cata
     rows
 }
 
-pub(crate) fn stale(options: &CatalogOptions, state: &State) -> bool {
-    let now = options.clock.now();
+pub(crate) fn stale(now: f64, ttl_ms: f64, state: &State) -> bool {
     if let Some(unconfigured_at) = state.unconfigured_at
         && !state.dirty
     {
-        return now - unconfigured_at >= options.ttl_ms;
+        return now - unconfigured_at >= ttl_ms;
     }
     state.dirty
         || state.error.is_some()
@@ -1109,14 +1023,25 @@ pub(crate) fn stale(options: &CatalogOptions, state: &State) -> bool {
         || state
             .entry
             .as_ref()
-            .is_some_and(|entry| now - entry.refreshed_at >= options.ttl_ms)
+            .is_some_and(|entry| now - entry.refreshed_at >= ttl_ms)
 }
 
-pub(crate) fn status_of(options: &CatalogOptions, inner: &Inner, state: &State) -> InstanceStatus {
+pub(crate) fn status_of(
+    now: f64,
+    ttl_ms: f64,
+    preferences: &[ProviderConfig],
+    inner: &Inner,
+    state: &State,
+) -> InstanceStatus {
     let refreshing = state.flight.is_some() && state.error_detail.is_none();
-    let is_stale = stale(options, state);
-    let enabled = enabled_of(options, &state.config);
-    let now = options.clock.now();
+    let is_stale = stale(now, ttl_ms, state);
+    let enabled = crate::preferences::provider_configuration(
+        preferences,
+        state.config.provider,
+        Some(&state.config.id),
+    )
+    .enabled
+        != Some(false);
     let permission_modes = state.permission_modes.clone().or_else(|| {
         state
             .entry
@@ -1147,7 +1072,7 @@ pub(crate) fn status_of(options: &CatalogOptions, inner: &Inner, state: &State) 
                                 .last_refreshed_at
                                 .or_else(|| state.entry.as_ref().map(|entry| entry.refreshed_at))
                                 .unwrap_or(now))
-                            >= options.ttl_ms
+                            >= ttl_ms
                         || crate::sources::source_failed(&status)
                     {
                         SourceState::Stale
@@ -1216,16 +1141,6 @@ pub(crate) fn status_of(options: &CatalogOptions, inner: &Inner, state: &State) 
     }
 }
 
-fn enabled_of(options: &CatalogOptions, config: &ModelInstance) -> bool {
-    let rows = options
-        .preferences
-        .as_ref()
-        .map(|preferences| preferences())
-        .unwrap_or_default();
-    crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id)).enabled
-        != Some(false)
-}
-
 pub(crate) fn selection(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
     let matches = |state: &State| {
         filter
@@ -1261,6 +1176,18 @@ pub(crate) fn selection(inner: &Inner, filter: &ModelFilter) -> Vec<String> {
 
 fn source_label(config: &ModelInstance) -> Option<&str> {
     config.label.as_deref()
+}
+
+/// Samples the settings port outside the actor.
+pub(crate) fn live_revision(options: &CatalogOptions, config: &ModelInstance) -> String {
+    let rows = options
+        .preferences
+        .as_ref()
+        .map(|read| read())
+        .unwrap_or_default();
+    let configuration =
+        crate::preferences::provider_configuration(&rows, config.provider, Some(&config.id));
+    revision_of(config, configuration.binary_path.as_deref())
 }
 
 /// The revision a cached row is keyed by (`cacheRevision`).

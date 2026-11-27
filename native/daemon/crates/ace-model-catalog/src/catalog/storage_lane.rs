@@ -19,6 +19,7 @@ const QUEUE_LIMIT: usize = 2048;
 pub(crate) struct Cancel {
     state: Arc<AtomicU8>,
     deadline: Option<(Arc<dyn crate::catalog::Clock>, f64)>,
+    revision_current: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl Cancel {
@@ -53,19 +54,29 @@ impl Cancel {
         self.state.load(Ordering::SeqCst) != 0
     }
 
+    pub(crate) fn check_revision(
+        mut self,
+        check: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.revision_current = Some(Arc::new(check));
+        self
+    }
+
     fn is_current(&self) -> bool {
         !self.cancelled()
+            && self.revision_current.as_ref().is_none_or(|check| check())
             && self
                 .deadline
                 .as_ref()
                 .is_none_or(|(clock, at)| clock.now() < *at)
+            && !self.cancelled()
     }
 }
 
 /// One unit of storage work.
 pub(crate) enum Job {
     Replace {
-        entry: CacheEntry,
+        entry: Box<CacheEntry>,
         cancel: Cancel,
     },
     Remove {
@@ -115,8 +126,12 @@ pub(crate) struct StorageLane {
 }
 
 impl StorageLane {
-    pub(crate) fn new(storage: SharedStorage, reporter: Reporter) -> Result<Self, CatalogError> {
-        Self::start(storage, reporter, |worker| {
+    pub(crate) fn new(
+        storage: SharedStorage,
+        reporter: Reporter,
+        clock: Arc<dyn crate::catalog::Clock>,
+    ) -> Result<Self, CatalogError> {
+        Self::start(storage, reporter, Some(clock), |worker| {
             std::thread::Builder::new()
                 .name("ace-model-catalog-storage".to_owned())
                 .spawn(worker)
@@ -126,6 +141,7 @@ impl StorageLane {
     fn start(
         storage: SharedStorage,
         reporter: Reporter,
+        clock: Option<Arc<dyn crate::catalog::Clock>>,
         mut launch: impl FnMut(Box<dyn FnOnce() + Send>) -> std::io::Result<JoinHandle<()>>,
     ) -> Result<Self, CatalogError> {
         let (jobs, receiver) = mpsc::sync_channel(WORKERS);
@@ -135,9 +151,12 @@ impl StorageLane {
             let receiver = receiver.clone();
             let storage = storage.clone();
             let reporter = reporter.clone();
+            let clock = clock.clone();
             workers.push(
-                launch(Box::new(move || run(&receiver, &storage, &reporter)))
-                    .map_err(|_| CatalogError::StorageUnavailable)?,
+                launch(Box::new(move || {
+                    run(&receiver, &storage, &reporter, clock.as_deref())
+                }))
+                .map_err(|_| CatalogError::StorageUnavailable)?,
             );
         }
         Ok(Self {
@@ -206,7 +225,12 @@ impl StorageLane {
     }
 }
 
-fn run(receiver: &Mutex<mpsc::Receiver<Message>>, storage: &SharedStorage, reporter: &Reporter) {
+fn run(
+    receiver: &Mutex<mpsc::Receiver<Message>>,
+    storage: &SharedStorage,
+    reporter: &Reporter,
+    clock: Option<&dyn crate::catalog::Clock>,
+) {
     loop {
         let message = receiver
             .lock()
@@ -217,10 +241,15 @@ fn run(receiver: &Mutex<mpsc::Receiver<Message>>, storage: &SharedStorage, repor
             execute(storage, message.job)
         }))
         .unwrap_or(Outcome::Failed(CacheError::Malformed));
-        reporter.report(Command::StorageDone {
+        let command = Command::StorageDone {
             key: message.key,
             outcome,
-        });
+        };
+        if let Some(clock) = clock {
+            reporter.report_observed(command, clock);
+        } else {
+            reporter.report(command);
+        }
     }
 }
 
@@ -275,7 +304,7 @@ mod tests {
     #[test]
     fn a_storage_worker_start_failure_refuses_the_lane() {
         let (commands, _receiver) = mpsc::sync_channel(1);
-        let commands = Arc::new(commands);
+        let commands = Arc::new(crate::catalog::mailbox::Ingress::new(commands));
         let (completions, _receiver) = mpsc::channel();
         let reporter = Reporter {
             commands: Arc::downgrade(&commands),
@@ -284,7 +313,7 @@ mod tests {
         let storage = SharedStorage::new(crate::cache::MemoryStorage::new());
         let (done, result) = mpsc::channel();
         std::thread::spawn(move || {
-            let can_start = StorageLane::start(storage, reporter, |_| {
+            let can_start = StorageLane::start(storage, reporter, None, |_| {
                 Err(std::io::Error::other("worker refused"))
             });
             let _ = done.send(can_start.err());

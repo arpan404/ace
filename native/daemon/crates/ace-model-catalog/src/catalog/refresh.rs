@@ -27,6 +27,7 @@ pub(crate) enum FlightStart {
     Started(u64),
     Running(u64),
     Skipped,
+    Busy,
 }
 
 impl Actor {
@@ -67,18 +68,7 @@ impl Actor {
             return FlightStart::Skipped;
         }
         if self.inner.active_flights >= 64 || self.flight_tasks >= 64 {
-            self.fail(
-                id,
-                None,
-                FailureCode::DiscoveryFailed,
-                &crate::catalog::actor::FailureReport {
-                    started_at: now,
-                    diagnostics: &crate::catalog::DiscoveryDiagnostics::default(),
-                    revision: None,
-                    token: None,
-                },
-            );
-            return FlightStart::Skipped;
+            return FlightStart::Busy;
         }
         let config = state.config.clone();
         if config.provider == ProviderKind::Acp {
@@ -94,7 +84,6 @@ impl Actor {
         self.inner.flight_token += 1;
         let token = self.inner.flight_token;
         self.inner.active_flights += 1;
-        self.flight_tasks += 1;
         let flight = Flight {
             done: Gate::new(),
             token,
@@ -124,6 +113,10 @@ impl Actor {
         // The deadline is armed at admission, before the limiter or a guard can hang: a
         // guard that never answers must not hold a discovery slot past the deadline.
         self.arm_flight_deadline(id, token);
+        if !self.flight_alive(id, token) {
+            return FlightStart::Busy;
+        }
+        self.flight_tasks += 1;
         let request = with_binary_path(&config, self.configuration(&config).binary_path.as_deref());
         self.notify_id(id);
         self.spawn(
@@ -179,7 +172,7 @@ impl Actor {
                     }
                 }
             }
-            FlightStart::Skipped => {
+            FlightStart::Skipped | FlightStart::Busy => {
                 let _ = reply.send(status);
             }
         }
@@ -195,6 +188,8 @@ impl Actor {
             let _ = reply.send(Err(CatalogError::Closed));
             return;
         }
+        self.refresh_batches
+            .retain(|_, batch| !batch.reply.is_canceled());
         if self.refresh_batches.len() >= crate::catalog::REFRESH_BATCH_LIMIT {
             let _ = reply.send(Err(CatalogError::Busy));
             return;
@@ -229,7 +224,8 @@ impl Actor {
                                 .entry
                                 .as_ref()
                                 .is_some_and(|entry| entry.models.is_empty())
-                                && (state.flight.is_some() || stale(&self.options, state)))
+                                && (state.flight.is_some()
+                                    || stale(self.inputs.now, self.options.ttl_ms, state)))
                     })
                 });
             }
@@ -274,6 +270,10 @@ impl Actor {
                     }
                 }
                 FlightStart::Skipped => {}
+                FlightStart::Busy => {
+                    let _ = reply.send(Err(CatalogError::Busy));
+                    return;
+                }
             }
         }
         if pending.is_empty() {
@@ -307,7 +307,8 @@ impl Actor {
             .iter()
             .filter(|id| {
                 self.inner.states.get(*id).is_some_and(|state| {
-                    stale(&self.options, state) && self.now() >= state.retry_at
+                    stale(self.inputs.now, self.options.ttl_ms, state)
+                        && self.now() >= state.retry_at
                 })
             })
             .cloned()
@@ -321,7 +322,7 @@ impl Actor {
         let Some(interval) = self.options.connection_check_ms else {
             return;
         };
-        if self.inner.closed {
+        if self.inner.closed || self.reconciling {
             return;
         }
         let now = self.now();
@@ -336,8 +337,9 @@ impl Actor {
         let Some(catalog) = self.catalog_handle() else {
             return;
         };
+        self.reconciling = true;
         self.spawn(
-            TaskKind::Other,
+            TaskKind::Reconcile,
             Box::pin(async move {
                 let _ = catalog.reconcile_connections().await;
             }),
@@ -362,7 +364,7 @@ impl Actor {
                 .inner
                 .states
                 .get_mut(id)
-                .map(|state| models_of(&self.options, state));
+                .map(|state| models_of(&self.inputs.preferences, state));
             let Some(rows) = rows else { continue };
             if skipped >= rows.len() {
                 skipped -= rows.len();
@@ -385,10 +387,15 @@ impl Actor {
         let instances = ids
             .iter()
             .filter_map(|id| {
-                self.inner
-                    .states
-                    .get(id)
-                    .map(|state| status_of(&self.options, &self.inner, state))
+                self.inner.states.get(id).map(|state| {
+                    status_of(
+                        self.now(),
+                        self.options.ttl_ms,
+                        &self.inputs.preferences,
+                        &self.inner,
+                        state,
+                    )
+                })
             })
             .collect();
         let _ = reply.send(Ok(crate::catalog::ModelListResult {
@@ -420,14 +427,17 @@ impl Actor {
                 .inner
                 .states
                 .get_mut(id)
-                .map(|state| models_of(&self.options, state))
+                .map(|state| models_of(&self.inputs.preferences, state))
             {
                 rows.extend(models);
             }
         }
         let mut is_stale = std::collections::BTreeMap::new();
         for (id, state) in &self.inner.states {
-            is_stale.insert(id.clone(), stale(&self.options, state));
+            is_stale.insert(
+                id.clone(),
+                stale(self.inputs.now, self.options.ttl_ms, state),
+            );
         }
         let result = resolve_model(&spec, &rows, |instance| {
             is_stale.get(instance).copied().unwrap_or(true)
@@ -457,10 +467,6 @@ impl Actor {
             }
             return;
         }
-        if self.inner.probes >= 64 {
-            let _ = reply.send(Ok(()));
-            return;
-        }
         let now = self.now();
         let Some(config) = self.inner.states.get(id).map(|state| state.config.clone()) else {
             let _ = reply.send(Ok(()));
@@ -477,6 +483,10 @@ impl Actor {
             let _ = reply.send(Ok(()));
             return;
         };
+        if self.inner.probes >= 64 {
+            let _ = reply.send(Err(CatalogError::Busy));
+            return;
+        }
         let revision = self.revision(&config);
         let generation = self
             .inner
@@ -490,14 +500,13 @@ impl Actor {
         if let Some(state) = self.inner.states.get_mut(id) {
             state.probe = Some(ProbeFlight { token });
         }
-        self.inner.probes += 1;
         self.probe_signals.insert(token, signal.clone());
         self.probe_rows.insert(token, id.to_owned());
         if !reply.is_canceled() {
             self.probe_waiters.entry(token).or_default().push(reply);
         }
         let reporter = self.reporter.clone();
-        let cancel = self.options.deadline.arm(
+        let timer = self.timers.arm(
             self.options.timeout_ms,
             Box::new({
                 let deadline_id = id.to_owned();
@@ -509,16 +518,28 @@ impl Actor {
                 }
             }),
         );
-        self.probe_cancels.insert(token, cancel);
+        let Some(timer) = timer else {
+            for waiter in self.probe_waiters.remove(&token).unwrap_or_default() {
+                let _ = waiter.send(Err(CatalogError::Busy));
+            }
+            self.abort_probe(id, token);
+            return;
+        };
+        self.probe_cancels.insert(token, timer);
+        self.inner.probes += 1;
         let request = with_binary_path(&config, self.configuration(&config).binary_path.as_deref());
         let id = id.to_owned();
         let reporter = self.reporter.clone();
+        let clock = self.options.clock.clone();
         self.spawn(
             TaskKind::Probe {
                 id: id.clone(),
                 token,
             },
             Box::pin(async move {
+                if signal.is_aborted() {
+                    return;
+                }
                 let inflight = probe.probe(
                     crate::catalog::DiscoveryRequest { instance: request },
                     signal.clone(),
@@ -528,33 +549,45 @@ impl Actor {
                     futures::future::Either::Left((result, _)) => Some(result),
                     futures::future::Either::Right(((), _)) => None,
                 };
-                reporter.report(Command::ProbeOutcome {
-                    id,
-                    token,
-                    generation,
-                    revision,
-                    started_at: now,
-                    result,
-                });
+                reporter.report_observed(
+                    Command::ProbeOutcome {
+                        id,
+                        token,
+                        generation,
+                        revision,
+                        started_at: now,
+                        result,
+                    },
+                    clock.as_ref(),
+                );
             }),
         );
     }
 
     pub(crate) fn probe_deadline(&mut self, id: &str, token: u64) {
-        let matches = self
-            .inner
-            .states
-            .get(id)
-            .and_then(|state| state.probe.as_ref())
-            .is_some_and(|probe| probe.token == token)
-            || self.probe_rows.contains_key(&token);
-        if !matches {
+        let Some(state) = self.inner.states.get(id) else {
+            return;
+        };
+        if state
+            .probe
+            .as_ref()
+            .is_none_or(|probe| probe.token != token)
+        {
             return;
         }
+        let generation = state.generation;
         self.timed_out_probes.insert(token);
         if let Some(signal) = self.probe_signals.get(&token) {
             signal.abort();
         }
+        self.probe_outcome(
+            id,
+            token,
+            generation,
+            "",
+            self.now() - self.options.timeout_ms,
+            None,
+        );
     }
 
     pub(crate) fn probe_outcome(
@@ -579,11 +612,15 @@ impl Actor {
         if owns_row && let Some(state) = self.inner.states.get_mut(id) {
             state.probe = None;
         }
-        if let Some(cancel) = self.probe_cancels.remove(&token) {
-            cancel();
+        let timer = self.probe_cancels.remove(&token);
+        let fired = self.timed_out_probes.remove(&token)
+            || timer
+                .as_ref()
+                .is_some_and(crate::catalog::timers::Timer::fired);
+        if let Some(timer) = timer {
+            self.timers.cancel(timer);
         }
         self.probe_signals.remove(&token);
-        let fired = self.timed_out_probes.remove(&token);
         let aborted = self
             .inner
             .states
@@ -644,7 +681,7 @@ impl Actor {
                         state.retry_at = 0.0;
                         state.dirty = true;
                     }
-                    let is_stale = stale(&self.options, state);
+                    let is_stale = stale(self.inputs.now, self.options.ttl_ms, state);
                     (changed, is_stale)
                 };
                 if changed || is_stale {
@@ -655,7 +692,7 @@ impl Actor {
                                 .or_default()
                                 .extend(waiters);
                         }
-                        FlightStart::Skipped => {
+                        FlightStart::Skipped | FlightStart::Busy => {
                             for waiter in waiters {
                                 let _ = waiter.send(Ok(()));
                             }
@@ -712,8 +749,8 @@ impl Actor {
             state.probe = None;
         }
         self.probe_rows.remove(&token);
-        if let Some(cancel) = self.probe_cancels.remove(&token) {
-            cancel();
+        if let Some(timer) = self.probe_cancels.remove(&token) {
+            self.timers.cancel(timer);
         }
         if let Some(signal) = self.probe_signals.remove(&token) {
             signal.abort();

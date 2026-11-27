@@ -64,17 +64,26 @@ pub(crate) async fn run(
             futures::future::Either::Left((Err(error), _)) => {
                 send_with(
                     &reporter,
+                    &options,
                     empty(FlightOutcome::Admission(error), options.clock.now()),
                 );
                 return;
             }
             futures::future::Either::Right(((), _)) => {
-                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+                send_with(
+                    &reporter,
+                    &options,
+                    empty(FlightOutcome::None, options.clock.now()),
+                );
                 return;
             }
         }
         if signal.is_aborted() {
-            send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+            send_with(
+                &reporter,
+                &options,
+                empty(FlightOutcome::None, options.clock.now()),
+            );
             return;
         }
     }
@@ -82,7 +91,11 @@ pub(crate) async fn run(
         match futures::future::select(Box::pin(pending.wait()), Box::pin(signal.wait())).await {
             futures::future::Either::Left(((), _)) => {}
             futures::future::Either::Right(((), _)) => {
-                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+                send_with(
+                    &reporter,
+                    &options,
+                    empty(FlightOutcome::None, options.clock.now()),
+                );
                 return;
             }
         }
@@ -92,13 +105,21 @@ pub(crate) async fn run(
         match futures::future::select(Box::pin(limiter.acquire()), Box::pin(signal.wait())).await {
             futures::future::Either::Left((permit, _)) => permit,
             futures::future::Either::Right(((), _)) => {
-                send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+                send_with(
+                    &reporter,
+                    &options,
+                    empty(FlightOutcome::None, options.clock.now()),
+                );
                 return;
             }
         };
     if signal.is_aborted() {
         drop(permit);
-        send_with(&reporter, empty(FlightOutcome::None, options.clock.now()));
+        send_with(
+            &reporter,
+            &options,
+            empty(FlightOutcome::None, options.clock.now()),
+        );
         return;
     }
     // The actor arms the deadline and re-checks ownership and revision before launching.
@@ -140,6 +161,7 @@ pub(crate) async fn run(
                 .clone();
             send_with(
                 &reporter,
+                &options,
                 Command::FlightOutcome {
                     id,
                     token,
@@ -153,7 +175,7 @@ pub(crate) async fn run(
     };
     drop(permit);
     if signal.is_aborted() {
-        send_with(&reporter, empty(FlightOutcome::None, started_at));
+        send_with(&reporter, &options, empty(FlightOutcome::None, started_at));
         return;
     }
     let diagnostics = diagnostics
@@ -166,6 +188,7 @@ pub(crate) async fn run(
     };
     send_with(
         &reporter,
+        &options,
         Command::FlightOutcome {
             id,
             token,
@@ -176,8 +199,8 @@ pub(crate) async fn run(
     );
 }
 
-fn send_with(reporter: &Reporter, command: Command) {
-    reporter.report(command);
+fn send_with(reporter: &Reporter, options: &CatalogOptions, command: Command) {
+    reporter.report_observed(command, options.clock.as_ref());
 }
 
 fn merge(current: &mut DiscoveryDiagnostics, metadata: DiscoveryDiagnostics) {

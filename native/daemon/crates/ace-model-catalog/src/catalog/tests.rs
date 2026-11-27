@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 
 mod actor;
 mod durable_edges;
+mod ports;
 mod probes;
 mod queries;
 mod shutdown;
@@ -121,10 +122,18 @@ impl TestSpawn {
 
     /// Drops every queued task before it first runs; returns how many were dropped.
     fn discard(&self) -> usize {
-        let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
-        let dropped = tasks.len();
-        tasks.clear();
-        dropped
+        for _ in 0..500 {
+            {
+                let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
+                if !tasks.is_empty() {
+                    let dropped = tasks.len();
+                    tasks.clear();
+                    return dropped;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        0
     }
 
     /// Polls every queued task until all settle; returns how many tasks ran.

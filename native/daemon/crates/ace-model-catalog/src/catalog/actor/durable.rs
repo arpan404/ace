@@ -95,6 +95,17 @@ impl Actor {
         generation: u64,
         cancel: Cancel,
     ) {
+        let cancel = match self.inner.states.get(&entry.instance) {
+            Some(state) if self.options.preferences.is_some() => {
+                let config = state.config.clone();
+                let options = self.options.clone();
+                let revision = entry.revision.clone();
+                cancel.check_revision(move || {
+                    crate::catalog::live_revision(&options, &config) == revision
+                })
+            }
+            _ => cancel,
+        };
         self.replace_owners.insert(
             entry.instance.clone(),
             ReplaceOwner {
@@ -103,7 +114,13 @@ impl Actor {
                 cancel: cancel.clone(),
             },
         );
-        self.dispatch_storage(wait, Job::Replace { entry, cancel });
+        self.dispatch_storage(
+            wait,
+            Job::Replace {
+                entry: Box::new(entry),
+                cancel,
+            },
+        );
     }
 
     pub(crate) fn cancel_replace(&mut self, id: &str) -> bool {

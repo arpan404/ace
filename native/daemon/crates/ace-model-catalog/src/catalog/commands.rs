@@ -10,6 +10,7 @@ use std::sync::{Arc, Weak};
 use ace_models::instance::ModelInstance;
 use serde_json::Value;
 
+use crate::catalog::mailbox::{Ingress, Inputs};
 use crate::catalog::{
     Admit, CatalogError, DiscoveryDiagnostics, DiscoveryOutcome, InstanceStatus, ModelFilter,
     ModelListResult,
@@ -25,6 +26,19 @@ pub(crate) type Reply<T> = futures::channel::oneshot::Sender<T>;
 pub(crate) struct Envelope {
     pub(crate) command: Command,
     pub(crate) ack: Option<Reply<()>>,
+    pub(crate) inputs: Option<Inputs>,
+    pub(crate) observed_at: Option<f64>,
+}
+
+impl Envelope {
+    pub(crate) fn report(command: Command) -> Self {
+        Self {
+            command,
+            ack: None,
+            inputs: None,
+            observed_at: None,
+        }
+    }
 }
 
 /// How work the actor owns reports back: never through the callers' bounded mailbox.
@@ -36,23 +50,26 @@ pub(crate) struct Envelope {
 #[derive(Clone)]
 pub(crate) struct Reporter {
     pub(crate) completions: std::sync::mpsc::Sender<Envelope>,
-    pub(crate) commands: Weak<std::sync::mpsc::SyncSender<Envelope>>,
+    pub(crate) commands: Weak<Ingress>,
 }
 
 impl Reporter {
     pub(crate) fn report(&self, command: Command) {
-        if self
-            .completions
-            .send(Envelope { command, ack: None })
-            .is_err()
+        self.send(Envelope::report(command));
+    }
+
+    pub(crate) fn report_observed(&self, command: Command, clock: &dyn crate::catalog::Clock) {
+        let mut envelope = Envelope::report(command);
+        envelope.observed_at =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| clock.now())).ok();
+        self.send(envelope);
+    }
+
+    fn send(&self, envelope: Envelope) {
+        if self.completions.send(envelope).is_ok()
+            && let Some(sender) = self.commands.upgrade()
         {
-            return;
-        }
-        if let Some(sender) = self.commands.upgrade() {
-            let _ = sender.try_send(Envelope {
-                command: Command::Wake,
-                ack: None,
-            });
+            sender.wake();
         }
     }
 }
@@ -209,6 +226,9 @@ pub(crate) enum Command {
     TaskSettled {
         task: u64,
     },
+    TimerRetired {
+        key: u64,
+    },
     Deadline {
         id: String,
         token: u64,
@@ -260,6 +280,39 @@ pub(crate) enum Command {
     },
 }
 
+impl Command {
+    pub(crate) fn allowed_during_close(&self) -> bool {
+        self.is_release() || matches!(self, Self::Close { .. } | Self::Quiesce { .. })
+    }
+
+    pub(crate) fn is_release(&self) -> bool {
+        matches!(
+            self,
+            Self::SettleTurn { .. } | Self::UnobserveWith { .. } | Self::Unlisten { .. }
+        )
+    }
+
+    pub(crate) fn needs_inputs(&self) -> bool {
+        matches!(
+            self,
+            Self::List { .. }
+                | Self::Resolve { .. }
+                | Self::Register { .. }
+                | Self::ConfigurationChanged { .. }
+                | Self::InstallationChanged { .. }
+                | Self::LoginChanged { .. }
+                | Self::Refresh { .. }
+                | Self::RefreshState { .. }
+                | Self::SettleTurn { .. }
+                | Self::UpdateSession { .. }
+                | Self::UpdateModes { .. }
+                | Self::Probe { .. }
+                | Self::ReconcileIds { .. }
+                | Self::Invalidate { .. }
+        )
+    }
+}
+
 /// Which refresh a caller asked for.
 #[derive(Debug, Clone)]
 pub(crate) enum RefreshMode {
@@ -289,13 +342,8 @@ mod tests {
     #[test]
     fn completion_reports_return_even_when_command_ingress_is_full() {
         let (commands, _receiver) = mpsc::sync_channel(1);
-        let commands = Arc::new(commands);
-        commands
-            .send(Envelope {
-                command: Command::Wake,
-                ack: None,
-            })
-            .unwrap();
+        let commands = Arc::new(Ingress::new(commands));
+        commands.wake();
         let (completions, reported) = mpsc::channel();
         let reporter = Reporter {
             commands: Arc::downgrade(&commands),
