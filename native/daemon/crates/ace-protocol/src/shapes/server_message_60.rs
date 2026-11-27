@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_60.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_11_FIELDS: [Field; 14] = [
     Field {
@@ -34,11 +34,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_11_FIELDS: [Field; 14] = [
         key: "head",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{40,64}$")],
         })),
     },
     Field {
@@ -98,11 +94,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_11_FIELDS: [Field; 14] = [
         key: "branch",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         })),
     },
     Field {
@@ -114,11 +106,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_11_FIELDS: [Field; 14] = [
         key: "upstream",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         })),
     },
     Field {
@@ -150,22 +138,22 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_11_FILES_FIELDS: [Field; 6] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
         key: "from",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
@@ -213,22 +201,22 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_11_STAGED_FIELDS: [Field; 3] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
         key: "from",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
@@ -255,11 +243,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_12_FIELDS: [Field; 5] = [
         key: "patch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(262144),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(262144)],
         }),
     },
     Field {
@@ -282,11 +266,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_12_FIELDS: [Field; 5] = [
         key: "validator",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];

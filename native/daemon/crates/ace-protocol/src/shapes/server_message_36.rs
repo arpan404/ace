@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_36.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_43_SCHEDULES_WEBHOOK_URLS_FIELDS: [Field; 2] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_43_SCHEDULES_WEBHOOK_URLS_FIELDS: [Field; 2] = 
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(2048)],
         }),
     },
 ];
@@ -66,11 +62,7 @@ pub(crate) static SERVER_MESSAGE_43_THREAD_AUTOMATIONS_FIELDS: [Field; 7] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -132,11 +124,7 @@ pub(crate) static SERVER_MESSAGE_44_FIELDS: [Field; 6] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -148,11 +136,7 @@ pub(crate) static SERVER_MESSAGE_44_FIELDS: [Field; 6] = [
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
     Field {
@@ -167,11 +151,7 @@ pub(crate) static SERVER_MESSAGE_44_FIELDS: [Field; 6] = [
         key: "secret",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^whsec_[A-Za-z0-9+/]{43}=$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^whsec_[A-Za-z0-9+/]{43}=$")],
         }),
     },
 ];
@@ -186,11 +166,7 @@ pub(crate) static SERVER_MESSAGE_45_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -278,11 +254,7 @@ pub(crate) static SERVER_MESSAGE_47_FIELDS: [Field; 8] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -319,11 +291,7 @@ pub(crate) static SERVER_MESSAGE_47_FIELDS: [Field; 8] = [
         key: "command",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         })),
     },
     Field {

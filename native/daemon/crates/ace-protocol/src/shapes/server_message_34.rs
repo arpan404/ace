@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_34.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_39_FIELDS: [Field; 3] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_39_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -171,11 +167,7 @@ pub(crate) static SERVER_MESSAGE_41_FIELDS: [Field; 7] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -187,11 +179,7 @@ pub(crate) static SERVER_MESSAGE_41_FIELDS: [Field; 7] = [
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
@@ -244,22 +232,14 @@ pub(crate) static SERVER_MESSAGE_41_PREVIEWS_FIELDS: [Field; 4] = [
         key: "origin",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url")],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -274,11 +254,7 @@ pub(crate) static SERVER_MESSAGE_41_LINK_FIELDS: [Field; 2] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -310,33 +286,21 @@ pub(crate) static SERVER_MESSAGE_41_SUGGESTIONS_FIELDS: [Field; 5] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "title",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
     Field {
         key: "iconUrl",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(262144),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(262144)],
         }),
     },
     Field {
@@ -345,11 +309,7 @@ pub(crate) static SERVER_MESSAGE_41_SUGGESTIONS_FIELDS: [Field; 5] = [
         shape: Shape::OneOf(&[
             Shape::Enum(&["\"listener\"", "\"terminal\""]),
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(64)],
             }),
         ]),
     },

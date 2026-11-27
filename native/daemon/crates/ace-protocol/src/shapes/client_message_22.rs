@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_22.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_34_FIELDS: [Field; 2] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_34_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -36,11 +32,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_35_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -55,22 +47,14 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_36_FIELDS: [Field; 3] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "subpath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -85,11 +69,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_37_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -105,11 +85,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_38_FIELDS: [Field; 6] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
             }),
             min: None,
             max: Some(64),
@@ -119,33 +95,23 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_38_FIELDS: [Field; 6] = [
         key: "subpath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "identityId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )],
         }),
     },
     Field {
         key: "after",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -171,11 +137,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_39_FIELDS: [Field; 2] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -190,11 +152,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_40_FIELDS: [Field; 2] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -209,11 +167,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_41_FIELDS: [Field; 2] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -228,33 +182,29 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_42_FIELDS: [Field; 8] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(1024),
+                StrCheck::Custom(&crate::checks::REVIEW_PATH),
+            ],
         }),
     },
     Field {
         key: "from",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(1024),
+                StrCheck::Custom(&crate::checks::REVIEW_PATH),
+            ],
         }),
     },
     Field {
@@ -266,11 +216,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_42_FIELDS: [Field; 8] = [
         key: "commit",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[0-9a-f]{40,64}$")],
         }),
     },
     Field {
@@ -288,11 +234,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_42_FIELDS: [Field; 8] = [
         key: "expected",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -307,22 +249,18 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_43_FIELDS: [Field; 3] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(1024),
+                StrCheck::Custom(&crate::checks::REVIEW_PATH),
+            ],
         }),
     },
 ];

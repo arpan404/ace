@@ -5,328 +5,147 @@
 #![allow(unused_imports)]
 
 // Part server_message_142.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_165_FIELDS: [Field; 4] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"snapshot\""]),
-    },
-    Field {
-        key: "subscriptionId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "seq",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "view",
-        presence: Presence::Required,
-        shape: Shape::Tagged {
-            key: "kind",
-            options: &[
-                (
-                    "\"thread\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_165_VIEW_0_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"threads\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-            ],
-        },
-    },
-];
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_TRUNCATED_FIELDS: [Field; 1] = [Field {
+    key: "chars",
+    presence: Presence::Required,
+    shape: Shape::Num(&NumBounds {
+        min: Some(0.0),
+        min_inclusive: true,
+        max: None,
+        max_inclusive: false,
+        integral: true,
+    }),
+}];
 
-pub(crate) static SERVER_MESSAGE_165_VIEW_0_FIELDS: [Field; 18] = [
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_3_FIELDS: [Field; 2] = [
     Field {
-        key: "entitiesBefore",
-        presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }))),
-    },
-    Field {
-        key: "queue",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_134::SERVER_MESSAGE_158_THREADS_VALUE_QUEUE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "contextMeters",
-        presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Object {
-            fields: &SERVER_MESSAGE_165_VIEW_0_CONTEXT_METERS_VALUE_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "kind",
+        key: "collection",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"thread\""]),
+        shape: Shape::Enum(&["\"backgroundTasks\""]),
     },
     Field {
-        key: "seq",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "thread",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_143::SERVER_MESSAGE_165_VIEW_0_THREAD_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "agents",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "agentChildren",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: None,
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: None,
-        }),
-    },
-    Field {
-        key: "runs",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields: &crate::shapes::server_message_61::SERVER_MESSAGE_52_RESULT_13_RUNS_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "items",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Tagged {
-            key: "type",
-            options: &[
-                (
-                    "\"html\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"image\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"message\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_2_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"delegation.started\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_10::SERVER_MESSAGE_12_ITEMS_3_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"delegation.settled\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_11::SERVER_MESSAGE_12_ITEMS_4_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"reasoning\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_11::SERVER_MESSAGE_12_ITEMS_5_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"tool_call\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_11::SERVER_MESSAGE_12_ITEMS_6_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"notice\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_16::SERVER_MESSAGE_12_ITEMS_7_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"compaction\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_17::SERVER_MESSAGE_12_ITEMS_8_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"unknown\"",
-                    Shape::Object {
-                        fields: &crate::shapes::server_message_17::SERVER_MESSAGE_12_ITEMS_9_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"artifact\"",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_18::SERVER_MESSAGE_12_ITEMS_10_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-            ],
-        }),
-    },
-    Field {
-        key: "itemOrder",
+        key: "entries",
         presence: Presence::Required,
         shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: None,
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_162_PAGE_0_3_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
             min: None,
-            max: None,
+            max: Some(200),
         },
-    },
-    Field {
-        key: "itemSeqs",
-        presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        })),
-    },
-    Field {
-        key: "itemsBefore",
-        presence: Presence::Default("null"),
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        })),
-    },
-    Field {
-        key: "partial",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_0_PARTIAL_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "interactions",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields: &crate::shapes::server_message_138::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "backgroundTasks",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields: &crate::shapes::server_message_140::SERVER_MESSAGE_162_PAGE_0_3_ENTRIES_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "usage",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Object {
-            fields:
-                &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_0_USAGE_VALUE_FIELDS,
-            extra: Extra::Strip,
-        }),
-    },
-    Field {
-        key: "usageSnapshots",
-        presence: Presence::Default("{}"),
-        shape: Shape::Record(&Shape::Object {
-            fields:
-                &crate::shapes::server_message_144::SERVER_MESSAGE_165_VIEW_0_USAGE_VALUE_FIELDS,
-            extra: Extra::Strip,
-        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_165_VIEW_0_CONTEXT_METERS_VALUE_FIELDS: [Field; 6] = [
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_3_ENTRIES_FIELDS: [Field; 19] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
     Field {
         key: "agentId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
-        key: "epoch",
+        key: "owner",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"ace\""]),
+    },
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"shell\"", "\"monitor\"", "\"subagent\"", "\"other\""]),
+    },
+    Field {
+        key: "title",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"running\"",
+            "\"completed\"",
+            "\"failed\"",
+            "\"stopped\"",
+            "\"unknown\"",
+        ]),
+    },
+    Field {
+        key: "ambient",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "internal",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "wakesAgent",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["false"]),
+    },
+    Field {
+        key: "listening",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Num(&NumBounds {
+                min: Some(1.0),
+                min_inclusive: true,
+                max: Some(65535.0),
+                max_inclusive: true,
+                integral: true,
+            }),
+            min: None,
+            max: Some(16),
+        },
+    },
+    Field {
+        key: "blocksPrompts",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "endsWithSession",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "outputPath",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "toolCallId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "childAgentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "stoppable",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "startedAt",
         presence: Presence::Required,
         shape: Shape::Num(&NumBounds {
             min: Some(0.0),
@@ -337,41 +156,169 @@ pub(crate) static SERVER_MESSAGE_165_VIEW_0_CONTEXT_METERS_VALUE_FIELDS: [Field;
         }),
     },
     Field {
-        key: "usedTokens",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+        key: "endedAt",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
             min: Some(0.0),
             min_inclusive: true,
             max: None,
             max_inclusive: false,
             integral: true,
-        })),
+        }),
     },
     Field {
-        key: "windowTokens",
+        key: "raw",
+        presence: Presence::Default("[]"),
+        shape: Shape::Array {
+            item: &Shape::OneOf(&[
+                Shape::Object {
+                    fields:
+                        &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS,
+                    extra: Extra::Strip,
+                },
+                Shape::Object {
+                    fields:
+                        &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS,
+                    extra: Extra::Strip,
+                },
+            ]),
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_1_FIELDS: [Field; 4] = [
+    Field {
+        key: "seq",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "entitiesBefore",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Num(&NumBounds {
             min: Some(0.0),
             min_inclusive: false,
-            max: None,
-            max_inclusive: false,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
             integral: true,
         })),
     },
     Field {
-        key: "model",
+        key: "tooLarge",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_162_PAGE_1_TOO_LARGE_FIELDS,
+                extra: Extra::Strip,
+            },
             min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            max: Some(200),
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_1_TOO_LARGE_FIELDS: [Field; 4] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "kind",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "active",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "bytes",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_2_FIELDS: [Field; 6] = [
+    Field {
+        key: "collection",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"agents\""]),
+    },
+    Field {
+        key: "entries",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields:
+                    &crate::shapes::server_message_139::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(200),
+        },
+    },
+    Field {
+        key: "seq",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
         }),
     },
     Field {
-        key: "source",
+        key: "threadId",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"provider\"", "\"catalog\"", "\"unknown\""]),
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "entitiesBefore",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        })),
+    },
+    Field {
+        key: "tooLarge",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_162_PAGE_1_TOO_LARGE_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(200),
+        },
     },
 ];

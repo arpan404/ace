@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part browser_backend_server_message_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_7_FIELDS: [Field; 3] = [
     Field {
@@ -17,22 +17,14 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_7_FIELDS: [Field; 3
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -47,11 +39,7 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_8_FIELDS: [Field; 2
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -61,22 +49,14 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_2_FIELDS: [Field; 4] = [
         key: "backendId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "sessionId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {

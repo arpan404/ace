@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part thread_provider_metadata_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GUARANTEES_FIELDS:
     [Field; 4] = [
@@ -13,11 +13,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GU
         key: "mode",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -44,11 +40,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_GU
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(2048),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(2048)],
             }),
             min: None,
             max: Some(32),
@@ -78,11 +70,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_F
         key: "native",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
 ];
@@ -99,11 +87,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ATTACHMENT_INP
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(128),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(128)],
             }),
             min: None,
             max: Some(32),
@@ -204,11 +188,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_ACP_SUPPORT_RAW_FIELDS: [Field; 2] = 
         key: "json",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {

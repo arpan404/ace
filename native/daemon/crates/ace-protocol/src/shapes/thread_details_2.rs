@@ -5,29 +5,21 @@
 #![allow(unused_imports)]
 
 // Part thread_details_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_DETAILS_WORKTREE_CREATION_FIELDS: [Field; 15] = [
     Field {
         key: "commandId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -115,11 +107,7 @@ pub(crate) static THREAD_DETAILS_WORKTREE_CREATION_FIELDS: [Field; 15] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(1024),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(1024)],
             }),
             min: None,
             max: Some(200),
@@ -129,33 +117,21 @@ pub(crate) static THREAD_DETAILS_WORKTREE_CREATION_FIELDS: [Field; 15] = [
         key: "message",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "lockPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -216,11 +192,7 @@ pub(crate) static THREAD_DETAILS_WORKSPACE_CHANGE_FIELDS: [Field; 8] = [
         key: "commandId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -243,11 +215,7 @@ pub(crate) static THREAD_DETAILS_WORKSPACE_CHANGE_FIELDS: [Field; 8] = [
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
@@ -269,11 +237,7 @@ pub(crate) static THREAD_DETAILS_WORKSPACE_CHANGE_FIELDS: [Field; 8] = [
         key: "branch",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
 ];
@@ -299,11 +263,7 @@ pub(crate) static THREAD_DETAILS_CHECKOUT_MISSING_BRANCH_FIELDS: [Field; 3] = [
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
     Field {
@@ -334,11 +294,7 @@ pub(crate) static THREAD_DETAILS_WORKTREE_SETUP_FIELDS: [Field; 4] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(1024),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(1024)],
             }),
             min: None,
             max: Some(200),

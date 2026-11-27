@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_3.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_1_FIELDS: [Field; 3] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static CLIENT_MESSAGE_1_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -125,11 +121,7 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_1_FIELDS: [Field; 4] = [
         presence: Presence::Default("[]"),
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(256)],
             }),
             min: None,
             max: Some(256),
@@ -226,22 +218,14 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_2_FIELDS: [Field; 3] = [
         key: "planId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "revision",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
 ];
@@ -256,11 +240,7 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_3_FIELDS: [Field; 2] = [
         key: "planId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];
@@ -281,11 +261,7 @@ pub(crate) static CLIENT_MESSAGE_1_OPERATION_5_FIELDS: [Field; 2] = [
         key: "compactionId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];
@@ -300,11 +276,7 @@ pub(crate) static CLIENT_MESSAGE_2_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -324,11 +296,7 @@ pub(crate) static CLIENT_MESSAGE_3_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];

@@ -5,76 +5,101 @@
 #![allow(unused_imports)]
 
 // Part server_message_115.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_119_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_110_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"accounts.status\""]),
+        shape: Shape::Enum(&["\"spade.grant.revoke.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
-        key: "account",
+        key: "revoked",
         presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Object {
-            fields: &crate::shapes::server_message_102::SERVER_MESSAGE_82_RESULT_ACCOUNTS_FIELDS,
-            extra: Extra::Strip,
-        }),
+        shape: Shape::Bool,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_120_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_111_FIELDS: [Field; 3] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"accounts.migrate\""]),
+        shape: Shape::Enum(&["\"spade.machines.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "machines",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_111_MACHINES_FIELDS,
+                extra: Extra::Strip,
+            },
             min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            max: Some(16),
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_111_MACHINES_FIELDS: [Field; 3] = [
+    Field {
+        key: "hostId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
         }),
+    },
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"online\"", "\"offline\""]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_112_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"spade.remote.result\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "result",
         presence: Presence::Required,
         shape: Shape::Tagged {
-            key: "status",
+            key: "kind",
             options: &[
                 (
-                    "\"migrated\"",
+                    "\"response\"",
                     Shape::Object {
-                        fields: &SERVER_MESSAGE_120_RESULT_0_FIELDS,
+                        fields: &SERVER_MESSAGE_112_RESULT_0_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
                 (
-                    "\"unsupported\"",
+                    "\"error\"",
                     Shape::Object {
-                        fields: &SERVER_MESSAGE_120_RESULT_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "\"refused\"",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_120_RESULT_2_FIELDS,
+                        fields: &SERVER_MESSAGE_112_RESULT_1_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -83,164 +108,135 @@ pub(crate) static SERVER_MESSAGE_120_FIELDS: [Field; 3] = [
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_120_RESULT_0_FIELDS: [Field; 5] = [
+pub(crate) static SERVER_MESSAGE_112_RESULT_0_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"response\""]),
+    },
     Field {
         key: "status",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"migrated\""]),
-    },
-    Field {
-        key: "nativeSessionId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"fork\"", "\"resume\""]),
-    },
-    Field {
-        key: "copiedFiles",
-        presence: Presence::Required,
         shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
+            min: Some(100.0),
             min_inclusive: true,
-            max: None,
-            max_inclusive: false,
+            max: Some(599.0),
+            max_inclusive: true,
             integral: true,
         }),
     },
     Field {
-        key: "cleanupWarnings",
-        presence: Presence::Optional,
-        shape: Shape::Array {
-            item: &Shape::Enum(&[
-                "\"lease_release_failed\"",
-                "\"staging_cleanup_failed\"",
-                "\"rollback_failed\"",
-            ]),
-            min: None,
-            max: Some(3),
-        },
+        key: "body",
+        presence: Presence::Required,
+        shape: Shape::Any,
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_120_RESULT_1_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_112_RESULT_1_FIELDS: [Field; 3] = [
     Field {
-        key: "status",
+        key: "kind",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"unsupported\""]),
+        shape: Shape::Enum(&["\"error\""]),
     },
     Field {
-        key: "reason",
+        key: "code",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"unknown_machine\"",
+            "\"offline\"",
+            "\"disconnected\"",
+            "\"refused\"",
+            "\"forbidden\"",
+        ]),
+    },
+    Field {
+        key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
-    },
-    Field {
-        key: "cleanupWarnings",
-        presence: Presence::Optional,
-        shape: Shape::Array {
-            item: &Shape::Enum(&[
-                "\"lease_release_failed\"",
-                "\"staging_cleanup_failed\"",
-                "\"rollback_failed\"",
-            ]),
-            min: None,
-            max: Some(3),
-        },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_120_RESULT_2_FIELDS: [Field; 3] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"refused\""]),
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "cleanupWarnings",
-        presence: Presence::Optional,
-        shape: Shape::Array {
-            item: &Shape::Enum(&[
-                "\"lease_release_failed\"",
-                "\"staging_cleanup_failed\"",
-                "\"rollback_failed\"",
-            ]),
-            min: None,
-            max: Some(3),
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_121_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_113_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"provider.accounts.result\""]),
+        shape: Shape::Enum(&["\"spade.computer.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "computer",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_113_COMPUTER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "error",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"forbidden\"", "\"unavailable\""]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_113_COMPUTER_FIELDS: [Field; 6] = [
+    Field {
+        key: "bot",
+        presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_.:-]{1,128}$")],
         }),
     },
     Field {
-        key: "result",
+        key: "driver",
         presence: Presence::Required,
-        shape: Shape::Tagged {
-            key: "ok",
-            options: &[
-                (
-                    "true",
-                    Shape::Object {
-                        fields: &SERVER_MESSAGE_121_RESULT_0_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-                (
-                    "false",
-                    Shape::Object {
-                        fields:
-                            &crate::shapes::server_message_116::SERVER_MESSAGE_121_RESULT_1_FIELDS,
-                        extra: Extra::Strip,
-                    },
-                ),
-            ],
+        shape: Shape::Enum(&["\"bot\"", "\"person\""]),
+    },
+    Field {
+        key: "mode",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"cowork\"", "\"exclusive\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "browser",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_113_COMPUTER_BROWSER_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "screen",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_116::SERVER_MESSAGE_113_COMPUTER_SCREEN_FIELDS,
+            extra: Extra::Strip,
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_121_RESULT_0_FIELDS: [Field; 4] = [
-    Field { key: "ok", presence: Presence::Required, shape: Shape::Enum(&["true"]) },
-    Field { key: "accounts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_116::SERVER_MESSAGE_121_RESULT_0_ACCOUNTS_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
-    Field { key: "apiKey", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_30::SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS, extra: Extra::Strip } },
-    Field { key: "progress", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_31::SERVER_MESSAGE_35_RESULT_0_PROGRESS_FIELDS, extra: Extra::Reject } },
-];
+pub(crate) static SERVER_MESSAGE_113_COMPUTER_BROWSER_FIELDS: [Field; 1] = [Field {
+    key: "tabs",
+    presence: Presence::Required,
+    shape: Shape::Array {
+        item: &Shape::Object {
+            fields:
+                &crate::shapes::server_message_116::SERVER_MESSAGE_113_COMPUTER_BROWSER_TABS_FIELDS,
+            extra: Extra::Strip,
+        },
+        min: None,
+        max: Some(64),
+    },
+}];

@@ -52,6 +52,7 @@ const records = <T>(schema: z.ZodType<T>) =>
     .transform((entries) => Object.fromEntries<T>(entries))
     .meta({
       "x-ace-json-input": z.record(z.string(), schema),
+      "x-ace-record": "opaque",
       "x-ace-constraint":
         "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
     });

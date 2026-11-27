@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_12.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_46_OPERATION_3_FIELDS: [Field; 2] = [
     Field {
@@ -36,11 +36,7 @@ pub(crate) static CLIENT_MESSAGE_47_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -65,16 +61,16 @@ pub(crate) static CLIENT_MESSAGE_47_FIELDS: [Field; 4] = [
 ];
 
 pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_FIELDS: [Field; 15] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "enabled", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "workspace", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "workspace", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096)] }) },
     Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
     Field { key: "access", presence: Presence::Optional, shape: Shape::Enum(&["\"read-only\"", "\"ask\"", "\"auto-review\"", "\"full-access\""]) },
-    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "effort", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
-    Field { key: "instance", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "prompt", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(262144), pattern: None, format: None, trim: false }) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "effort", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(64)] }) },
+    Field { key: "instance", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "prompt", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(262144)] }) },
     Field { key: "worktree", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "trigger", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"manual\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_0_FIELDS, extra: Extra::Strip }), ("\"schedule\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_1_FIELDS, extra: Extra::Strip }), ("\"github\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_3_FIELDS, extra: Extra::Strip }), ("\"webhook\"", Shape::Object { fields: &crate::shapes::client_message_13::CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_4_FIELDS, extra: Extra::Strip })] } },
     Field { key: "missedRun", presence: Presence::Required, shape: Shape::Enum(&["\"skip\"", "\"run_once\""]) },
@@ -114,34 +110,29 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_1_SCHEDULE_FIELDS: [Field
         key: "expression",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "timezone",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "startAt",
         presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(8640000000000000.0),
-            max_inclusive: true,
-            integral: true,
-        }),
+        shape: Shape::Checked {
+            inner: &Shape::Num(&NumBounds {
+                min: Some(0.0),
+                min_inclusive: true,
+                max: Some(8640000000000000.0),
+                max_inclusive: true,
+                integral: true,
+            }),
+            check: &crate::checks::START_AT_MINUTE,
+        },
     },
 ];
 
@@ -155,11 +146,10 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_2_FIELDS: [Field; 6] = [
         key: "repository",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$"),
+                StrCheck::Max(256),
+            ],
         }),
     },
     Field {
@@ -176,11 +166,7 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_2_FIELDS: [Field; 6] = [
         key: "label",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -218,11 +204,7 @@ pub(crate) static CLIENT_MESSAGE_47_AUTOMATION_TRIGGER_3_FIELDS: [Field; 2] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(256)],
             }),
             min: Some(1),
             max: Some(100),

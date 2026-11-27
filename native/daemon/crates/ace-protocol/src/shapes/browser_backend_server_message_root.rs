@@ -5,6 +5,6 @@
 #![allow(unused_imports)]
 
 // Part browser_backend_server_message_root.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub static BROWSER_BACKEND_SERVER_MESSAGE: Shape = Shape::Tagged { key: "type", options: &[("\"browser.backend.registered\"", Shape::Object { fields: &crate::shapes::browser_backend_server_message::BROWSER_BACKEND_SERVER_MESSAGE_0_FIELDS, extra: Extra::Strip }), ("\"browser.backend.request\"", Shape::Object { fields: &crate::shapes::browser_backend_server_message::BROWSER_BACKEND_SERVER_MESSAGE_1_FIELDS, extra: Extra::Strip }), ("\"browser.backend.frameAck\"", Shape::Object { fields: &crate::shapes::browser_backend_server_message_2::BROWSER_BACKEND_SERVER_MESSAGE_2_FIELDS, extra: Extra::Strip })] };

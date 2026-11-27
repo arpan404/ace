@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_47.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_FIELDS: [Field; 2] = [
     Field {
@@ -28,55 +28,35 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_FIELDS: [Field; 17] =
         key: "headSha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "mergeState",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "reviewDecision",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
         key: "checksState",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
@@ -100,11 +80,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_FIELDS: [Field; 17] =
         presence: Presence::Optional,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(65536),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(65536)],
             }),
             min: None,
             max: Some(20),
@@ -151,11 +127,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_FIELDS: [Field; 17] =
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(65536),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(65536)],
             }),
             min: None,
             max: Some(20),
@@ -186,33 +158,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_AUTO_MERGE_FIELDS: [F
         key: "method",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "actor",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
         key: "enabledAt",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
 ];
@@ -222,22 +182,14 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_QUEUE_FIELDS: [Field;
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -255,11 +207,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_QUEUE_FIELDS: [Field;
         key: "enqueuedAt",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -280,33 +228,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_10_VALUE_DEPLOYMENTS_FIELDS: [
         key: "environment",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
 ];

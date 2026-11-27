@@ -5,23 +5,79 @@
 #![allow(unused_imports)]
 
 // Part client_message_82.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_4_NUMBERS_FIELDS: [Field; 2] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "number",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(99.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_5_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"toast\""]),
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(200)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"restore\""]),
+    },
+    Field {
+        key: "annotations",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_FIELDS,
+                extra: Extra::Keep,
+            },
+            min: None,
+            max: Some(20),
+        },
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_FIELDS: [Field; 14] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "number", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(1.0), min_inclusive: true, max: Some(99.0), max_inclusive: true, integral: true }) },
-    Field { key: "documentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(8192), pattern: None, format: None, trim: false }) },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "documentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(8192)] }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
     Field { key: "kind", presence: Presence::Default("\"element\""), shape: Shape::Enum(&["\"element\"", "\"region\""]) },
     Field { key: "point", presence: Presence::Required, shape: Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_POINT_FIELDS, extra: Extra::Strip } },
-    Field { key: "comment", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4000), pattern: None, format: None, trim: false }) },
+    Field { key: "comment", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4000)] }) },
     Field { key: "element", presence: Presence::Required, shape: Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_ELEMENT_FIELDS, extra: Extra::Keep } },
     Field { key: "region", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_REGION_FIELDS, extra: Extra::Keep } },
-    Field { key: "styles", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_STYLES_FIELDS, extra: Extra::Keep }, min: None, max: Some(24) } },
-    Field { key: "text", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_TEXT_FIELDS, extra: Extra::Keep } },
+    Field { key: "styles", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_STYLES_FIELDS, extra: Extra::Keep }, min: None, max: Some(24) } },
+    Field { key: "text", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_TEXT_FIELDS, extra: Extra::Keep } },
     Field { key: "viewport", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_VIEWPORT_FIELDS, extra: Extra::Strip } },
-    Field { key: "tabId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "tabId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
 ];
 
 pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_POINT_FIELDS: [Field; 2] = [
@@ -54,66 +110,42 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_ELEMENT_
         key: "tag",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
         key: "selector",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {
         key: "xpath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(280),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(280)],
         }),
     },
     Field {
         key: "role",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -128,11 +160,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_ELEMENT_
         key: "frame",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
 ];
@@ -205,66 +233,5 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_REGION_F
             min: None,
             max: Some(8),
         },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_STYLES_FIELDS: [Field; 3] = [
-    Field {
-        key: "property",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "before",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "after",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_34_2_COMMAND_6_ANNOTATIONS_TEXT_FIELDS: [Field; 2] = [
-    Field {
-        key: "before",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4000),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "after",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4000),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
     },
 ];

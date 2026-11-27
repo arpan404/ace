@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_30.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_7_FIELDS: [Field; 4] = [
     Field {
@@ -17,33 +17,26 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_7_FIELDS: [Field; 4] = [
         key: "source",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(40),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
 ];
@@ -58,44 +51,36 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_8_FIELDS: [Field; 5] = [
         key: "source",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(40),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
     Field {
         key: "version",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: Some("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Max(64),
+                StrCheck::Pattern("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            ],
         }),
     },
 ];
@@ -110,66 +95,50 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_9_FIELDS: [Field; 7] = [
         key: "source",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
     Field {
         key: "type",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(40),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
     Field {
         key: "version",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: Some("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Max(64),
+                StrCheck::Pattern("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            ],
         }),
     },
     Field {
         key: "registry",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^org_[A-Za-z0-9]{1,64}$")],
         }),
     },
     Field {
         key: "trustKey",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Za-z0-9_-]{43}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_-]{43}$")],
         }),
     },
 ];
@@ -184,11 +153,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_10_FIELDS: [Field; 2] = [
         key: "registry",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^org_[A-Za-z0-9]{1,64}$")],
         }),
     },
 ];
@@ -203,11 +168,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_11_FIELDS: [Field; 2] = [
         key: "registry",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^org_[A-Za-z0-9]{1,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^org_[A-Za-z0-9]{1,64}$")],
         }),
     },
 ];
@@ -222,11 +183,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_12_FIELDS: [Field; 3] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-zA-Z0-9-]{1,80}$")],
         }),
     },
     Field {
@@ -252,22 +209,14 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_FIELDS: [Field; 4] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-zA-Z0-9-]{1,80}$")],
         }),
     },
     Field {
         key: "hash",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -286,11 +235,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_CHOICES_FIELDS: [Field; 4] = [
         presence: Presence::Default("[]"),
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(80),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(80)],
             }),
             min: None,
             max: Some(64),
@@ -299,7 +244,13 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_CHOICES_FIELDS: [Field; 4] = [
     Field {
         key: "needs",
         presence: Presence::Default("{}"),
-        shape: Shape::Record(&Shape::Bool),
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Max(2100)],
+            }),
+            value: &Shape::Bool,
+            keep_proto: false,
+        },
     },
     Field {
         key: "startRoutines",
@@ -309,7 +260,13 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_13_CHOICES_FIELDS: [Field; 4] = [
     Field {
         key: "effects",
         presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Bool),
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Max(2100)],
+            }),
+            value: &Shape::Bool,
+            keep_proto: false,
+        },
     },
 ];
 
@@ -323,11 +280,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_14_FIELDS: [Field; 2] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-zA-Z0-9-]{1,80}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-zA-Z0-9-]{1,80}$")],
         }),
     },
 ];

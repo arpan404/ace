@@ -5,7 +5,93 @@
 #![allow(unused_imports)]
 
 // Part client_message_106.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"workspace.repositories.set\""]),
+    },
+    Field {
+        key: "workspaceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "repositories",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Object {
+            fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS,
+            extra: Extra::Strip,
+        }),
+    },
+    Field {
+        key: "expected",
+        presence: Presence::Optional,
+        shape: Shape::Nullable(&Shape::Object {
+            fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS,
+            extra: Extra::Strip,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS: [Field; 3] = [
+    Field { key: "added", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }, min: None, max: Some(32) } },
+    Field { key: "hidden", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+    Field { key: "primary", presence: Presence::Default("null"), shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_55_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"workspace.identity.link\""]),
+    },
+    Field {
+        key: "workspaceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "identityId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )],
+        }),
+    },
+    Field {
+        key: "viaMarker",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_56_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"workspace.identity.marker.write\""]),
+    },
+    Field {
+        key: "workspaceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "replace",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_57_FIELDS: [Field; 2] = [
     Field {
@@ -17,11 +103,7 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_57_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -36,22 +118,18 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_58_FIELDS: [Field; 3] = [
         key: "from",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )],
         }),
     },
     Field {
         key: "into",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )],
         }),
     },
 ];
@@ -66,11 +144,7 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_59_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -91,11 +165,7 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_61_FIELDS: [Field; 3] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -115,33 +185,21 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_62_FIELDS: [Field; 6] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "hostId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "parent",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -153,112 +211,5 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_62_FIELDS: [Field; 6] = [
         key: "includeIgnored",
         presence: Presence::Optional,
         shape: Shape::Bool,
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_63_FIELDS: [Field; 8] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"thread.continueOn\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "hostId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "parent",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "includeChanges",
-        presence: Presence::Default("true"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "includeIgnored",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "provider",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&[
-            "\"claude\"",
-            "\"codex\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"antigravity\"",
-            "\"acp\"",
-            "\"pi\"",
-        ]),
-    },
-    Field {
-        key: "model",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_FIELDS: [Field; 6] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.pr.merge-state.change\""]) },
-    Field { key: "link", presence: Presence::Required, shape: Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS, extra: Extra::Strip } },
-    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-fA-F0-9]{40,64}$"), format: None, trim: false }) },
-    Field { key: "action", presence: Presence::Required, shape: Shape::Enum(&["\"enable\"", "\"disable\"", "\"dequeue\""]) },
-    Field { key: "method", presence: Presence::Required, shape: Shape::Enum(&["\"merge\"", "\"squash\"", "\"rebase\""]) },
-    Field { key: "commit", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_30_COMMIT_FIELDS, extra: Extra::Strip } },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS: [Field; 2] = [
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "pr",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::thread_details::THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS,
-            extra: Extra::Strip,
-        },
     },
 ];

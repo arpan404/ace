@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_67.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_54_RESULT_0_READINESS_ACCOUNTS_FIELDS: [Field; 2] = [
     Field {
@@ -13,18 +13,13 @@ pub(crate) static SERVER_MESSAGE_54_RESULT_0_READINESS_ACCOUNTS_FIELDS: [Field; 
         presence: Presence::Required,
         shape: Shape::OneOf(&[
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(100),
-                pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9._-]*$"),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Pattern("^[a-zA-Z0-9][a-zA-Z0-9._-]*$"),
+                    StrCheck::Max(100),
+                ],
             }),
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(254),
-                pattern: None,
-                format: Some("email"),
-                trim: false,
+                checks: &[StrCheck::Format("email"), StrCheck::Max(254)],
             }),
         ]),
     },
@@ -45,11 +40,7 @@ pub(crate) static SERVER_MESSAGE_54_RESULT_1_FIELDS: [Field; 2] = [
         key: "code",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(100)],
         }),
     },
 ];
@@ -64,11 +55,7 @@ pub(crate) static SERVER_MESSAGE_55_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -125,22 +112,20 @@ pub(crate) static SERVER_MESSAGE_55_RESULT_0_FIELDS: [Field; 4] = [
         key: "account",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: Some("^[a-zA-Z0-9][a-zA-Z0-9-]*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[a-zA-Z0-9][a-zA-Z0-9-]*$"),
+                StrCheck::Max(100),
+            ],
         }),
     },
     Field {
         key: "host",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(253),
-            pattern: Some("^[a-z0-9]+(?:[.-][a-z0-9]+)*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[a-z0-9]+(?:[.-][a-z0-9]+)*$"),
+                StrCheck::Max(253),
+            ],
         }),
     },
 ];
@@ -149,12 +134,12 @@ pub(crate) static SERVER_MESSAGE_55_RESULT_0_REPOSITORIES_FIELDS: [Field; 9] = [
     Field { key: "raw", presence: Presence::Optional, shape: Shape::Later(&crate::shapes::client_message_lazy::CLIENT_MESSAGE_77_VALUE) },
     Field { key: "id", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
     Field { key: "repository", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
     Field { key: "visibility", presence: Presence::Required, shape: Shape::Enum(&["\"public\"", "\"private\""]) },
     Field { key: "archived", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "fork", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "cloneUrl", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
+    Field { key: "cloneUrl", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
 ];
 
 pub(crate) static SERVER_MESSAGE_55_RESULT_1_FIELDS: [Field; 4] = [
@@ -184,11 +169,11 @@ pub(crate) static SERVER_MESSAGE_55_RESULT_1_FIELDS: [Field; 4] = [
 ];
 
 pub(crate) static SERVER_MESSAGE_55_RESULT_1_PUBLICATION_FIELDS: [Field; 6] = [
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "input", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_104::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_46_INPUT_FIELDS, extra: Extra::Strip } },
     Field { key: "phase", presence: Presence::Required, shape: Shape::Enum(&["\"prepared\"", "\"creating\"", "\"remote_created\"", "\"origin_added\"", "\"empty\"", "\"pushed\""]) },
     Field { key: "remote", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_55_RESULT_0_REPOSITORIES_FIELDS, extra: Extra::Strip }) },
-    Field { key: "error", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(100), pattern: None, format: None, trim: false })) },
+    Field { key: "error", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Max(100)] })) },
     Field { key: "updatedAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
 ];
 
@@ -202,11 +187,7 @@ pub(crate) static SERVER_MESSAGE_55_RESULT_2_FIELDS: [Field; 2] = [
         key: "code",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(100)],
         }),
     },
 ];

@@ -5,49 +5,49 @@
 #![allow(unused_imports)]
 
 // Part client_message_21.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_27_HEAD_FIELDS: [Field; 3] = [
     Field {
         key: "owner",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: Some("^[\\w.-]+(?:\\/[\\w.-]+)*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[\\w.-]+(?:\\/[\\w.-]+)*$"),
+                StrCheck::Max(512),
+                StrCheck::Custom(&crate::checks::NO_DOT_PARTS),
+            ],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(100),
-            pattern: Some("^(?!\\.{1,2}$)[\\w.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(100),
+                StrCheck::Pattern("^(?!\\.{1,2}$)[\\w.-]+$"),
+            ],
         }),
     },
     Field {
         key: "branch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: Some(
-                "^(?!-)(?!\\/)(?!.*\\/$)(?!.*\\.$)(?!.*\\.\\.)(?!.*\\/\\/)(?!.*@\\{)(?!@$)(?!(?:.*\\/)?\\.)(?!.*\\.lock(?:\\/|$))[^\\x00-\\x20\\x7f~^:?*[\\\\]+$",
-            ),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(256),
+                StrCheck::Pattern(
+                    "^(?!-)(?!\\/)(?!.*\\/$)(?!.*\\.$)(?!.*\\.\\.)(?!.*\\/\\/)(?!.*@\\{)(?!@$)(?!(?:.*\\/)?\\.)(?!.*\\.lock(?:\\/|$))[^\\x00-\\x20\\x7f~^:?*[\\\\]+$",
+                ),
+            ],
         }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_28_FIELDS: [Field; 4] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.media.resolve\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
     Field { key: "items", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_28_ITEMS_FIELDS, extra: Extra::Strip }, min: Some(1), max: Some(32) } },
 ];
@@ -57,11 +57,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_28_ITEMS_FIELDS: [Field; 2] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(2048)],
         }),
     },
     Field {
@@ -73,7 +69,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_28_ITEMS_FIELDS: [Field; 2] = [
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_29_FIELDS: [Field; 3] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.emoji.images\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
 ];
 
@@ -87,11 +83,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_30_FIELDS: [Field; 3] = [
         key: "after",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -117,11 +109,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_31_FIELDS: [Field; 2] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -172,44 +160,36 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_33_FIELDS: [Field; 7] = [
         key: "workspaceId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
         key: "hostPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL_PATH),
+            ],
         }),
     },
     Field {
@@ -235,11 +215,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_33_APP_0_FIELDS: [Field; 2] = [
         key: "editorId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -254,11 +230,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_33_APP_1_FIELDS: [Field; 2] = [
         key: "terminalId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];

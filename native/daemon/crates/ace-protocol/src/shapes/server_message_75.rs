@@ -5,84 +5,56 @@
 #![allow(unused_imports)]
 
 // Part server_message_75.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_LIGHT_SYNTAX_FIELDS: [Field; 7] = [
     Field {
         key: "kw",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "fn",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "str",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "num",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "type",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "com",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "punc",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
 ];
@@ -162,22 +134,19 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_0_FIELDS: 
         key: "asset",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: Some("^assets\\/[A-Za-z0-9._/-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(200),
+                StrCheck::Pattern("^assets\\/[A-Za-z0-9._/-]+$"),
+                StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+            ],
         }),
     },
     Field {
         key: "family",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
 ];
@@ -187,11 +156,7 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FONTS_UI_1_FIELDS: 
         key: "system",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(200)],
         }),
     }];
 
@@ -242,22 +207,24 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_THUMBNAIL_FIELDS: [
         key: "light",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: Some("^assets\\/[A-Za-z0-9._/-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(200),
+                StrCheck::Pattern("^assets\\/[A-Za-z0-9._/-]+$"),
+                StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+            ],
         }),
     },
     Field {
         key: "dark",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: Some("^assets\\/[A-Za-z0-9._/-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(200),
+                StrCheck::Pattern("^assets\\/[A-Za-z0-9._/-]+$"),
+                StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+            ],
         }),
     },
 ];
@@ -337,11 +304,10 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_ORNAMENTS_FIELDS: [
         key: "asset",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^assets\\/[A-Za-z0-9._/-]+\\.(svg|html)$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^assets\\/[A-Za-z0-9._/-]+\\.(svg|html)$"),
+                StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+            ],
         }),
     },
 ];

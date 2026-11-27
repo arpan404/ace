@@ -5,7 +5,75 @@
 #![allow(unused_imports)]
 
 // Part client_message_47.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_93_OPERATION_7_FIELDS: [Field; 4] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"artifact.download\""]),
+    },
+    Field {
+        key: "artifactId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "offset",
+        presence: Presence::Default("0"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "validator",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_93_OPERATION_8_FIELDS: [Field; 3] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"archive.preview\""]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "includeIgnored",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_93_OPERATION_9_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"archive.download\""]),
+    },
+    Field {
+        key: "previewId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_10_FIELDS: [Field; 4] = [
     Field {
@@ -17,22 +85,14 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_10_FIELDS: [Field; 4] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         })),
     },
     Field {
@@ -58,11 +118,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_11_FIELDS: [Field; 2] = [
         key: "uploadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -77,22 +133,14 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_12_FIELDS: [Field; 3] = [
         key: "uploadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
 ];
@@ -107,11 +155,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_13_FIELDS: [Field; 2] = [
         key: "uploadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -126,33 +170,21 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_14_FIELDS: [Field; 4] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         })),
     },
     Field {
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1048576),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1048576)],
         }),
     },
 ];
@@ -167,11 +199,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_15_FIELDS: [Field; 4] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -183,11 +211,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_15_FIELDS: [Field; 4] = [
         key: "text",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1048576),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1048576)],
         }),
     },
 ];
@@ -202,120 +226,12 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_16_FIELDS: [Field; 3] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
         shape: Shape::Null,
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_93_OPERATION_17_FIELDS: [Field; 5] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"rename\""]),
-    },
-    Field {
-        key: "path",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expected",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "destination",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "destinationExpected",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_93_OPERATION_18_FIELDS: [Field; 5] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"move\""]),
-    },
-    Field {
-        key: "path",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expected",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "destination",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "destinationExpected",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
     },
 ];

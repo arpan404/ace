@@ -5,12 +5,12 @@
 #![allow(unused_imports)]
 
 // Part thread_provider_metadata.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_PROVIDER_METADATA_FIELDS: [Field; 5] = [
-    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "installationId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "effectiveCapabilities", presence: Presence::Optional, shape: Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
     Field { key: "acpSupport", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS, extra: Extra::Strip } },
 ];
@@ -47,7 +47,7 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS: [Field
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FIELDS: [Field; 5] = [
-    Field { key: "modes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }), min: None, max: Some(256) } },
+    Field { key: "modes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096)] }), min: None, max: Some(256) } },
     Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
     Field { key: "nativeAutoReview", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "toolGate", presence: Presence::Required, shape: Shape::Bool },
@@ -55,9 +55,9 @@ pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_FI
 ];
 
 pub(crate) static THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS: [Field; 6] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "label", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(2048), pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096)] }) },
+    Field { key: "label", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(2048)] }) },
     Field { key: "risk", presence: Presence::Required, shape: Shape::Enum(&["\"low\"", "\"medium\"", "\"high\""]) },
     Field { key: "presentation", presence: Presence::Optional, shape: Shape::Enum(&["\"full-access\""]) },
     Field { key: "default", presence: Presence::Optional, shape: Shape::Bool },

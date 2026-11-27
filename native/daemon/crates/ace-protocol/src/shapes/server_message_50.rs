@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_50.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_REACTIONS_GROUPS_FIELDS: [Field; 3] = [
     Field {
@@ -61,11 +61,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_HIDDEN_FIELDS: [Field
         key: "reason",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(100)],
         }),
     },
 ];
@@ -75,11 +71,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_HOSTED_PENDING_FIELDS
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -97,11 +89,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_HOSTED_PENDING_FIELDS
         key: "url",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -177,77 +165,49 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_14_EVENTS_FIELDS: [Field; 8] =
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "event",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "actor",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "actorAvatarUrl",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "subject",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "commitSha",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "at",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
@@ -279,7 +239,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_15_VALUE_FIELDS: [Field; 8] = 
     Field { key: "total", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
     Field { key: "nextPage", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
     Field { key: "counts", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_51::SERVER_MESSAGE_52_RESULT_0_DATA_15_VALUE_COUNTS_FIELDS, extra: Extra::Strip } },
-    Field { key: "viewer", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "viewer", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "incomplete", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "truncated", presence: Presence::Required, shape: Shape::Bool },
 ];

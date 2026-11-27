@@ -5,29 +5,42 @@
 #![allow(unused_imports)]
 
 // Part client_message_84.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_40_TARGET_0_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"page\""]),
+}];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_40_TARGET_1_FIELDS: [Field; 2] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"annotation\""]),
+    },
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_161_FIELDS: [Field; 10] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -39,11 +52,7 @@ pub(crate) static CLIENT_MESSAGE_161_FIELDS: [Field; 10] = [
         key: "subscriberId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -71,7 +80,7 @@ pub(crate) static CLIENT_MESSAGE_161_FIELDS: [Field; 10] = [
         key: "media",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_MEDIA_FIELDS,
+            fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_14_MEDIA_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -115,7 +124,7 @@ pub(crate) static CLIENT_MESSAGE_161_VIEWPORT_FIELDS: [Field; 8] = [
         key: "link",
         presence: Presence::Optional,
         shape: Shape::Option(&Shape::Object {
-            fields: &crate::shapes::client_message_65::CLIENT_MESSAGE_144_OPERATION_14_LINK_FIELDS,
+            fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_14_LINK_FIELDS,
             extra: Extra::Strip,
         }),
     },
@@ -159,22 +168,14 @@ pub(crate) static CLIENT_MESSAGE_161_VIEWPORT_CURSOR_FIELDS: [Field; 2] = [
         key: "fill",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
     Field {
         key: "outline",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}$")],
         }),
     },
 ];
@@ -184,11 +185,11 @@ pub(crate) static CLIENT_MESSAGE_161_VIDEO_FIELDS: [Field; 1] = [Field {
     presence: Presence::Required,
     shape: Shape::Array {
         item: &Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[A-Za-z0-9.]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[A-Za-z0-9.]+$"),
+            ],
         }),
         min: Some(1),
         max: Some(8),
@@ -200,22 +201,14 @@ pub(crate) static CLIENT_MESSAGE_162_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -238,22 +231,14 @@ pub(crate) static CLIENT_MESSAGE_163_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -265,62 +250,7 @@ pub(crate) static CLIENT_MESSAGE_163_FIELDS: [Field; 4] = [
         key: "subscriberId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_164_FIELDS: [Field; 6] = [
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"browser.ack\""]),
-    },
-    Field {
-        key: "sequence",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "video",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["true"]),
-    },
-    Field {
-        key: "keyframe",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["true"]),
     },
 ];

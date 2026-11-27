@@ -5,336 +5,285 @@
 #![allow(unused_imports)]
 
 // Part server_message_121.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_132_MEDIA_POSTER_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_130_STATE_PERMISSIONS_REQUIREMENTS_FIELDS: [Field; 6] = [
     Field {
-        key: "width",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(1.0),
-            min_inclusive: true,
-            max: Some(8192.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "height",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(1.0),
-            min_inclusive: true,
-            max: Some(8192.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "jpeg",
+        key: "kind",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_133_FIELDS: [Field; 7] = [
     Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"devices.result\""]),
-    },
-    Field {
-        key: "requestId",
+        key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[\\w-]{1,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
-        key: "ok",
+        key: "title",
         presence: Presence::Required,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "data",
-        presence: Presence::Optional,
-        shape: Shape::Any,
-    },
-    Field {
-        key: "error",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_133_ERROR_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "media",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_132_MEDIA_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "undelivered",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_133_ERROR_FIELDS: [Field; 5] = [
-    Field {
-        key: "code",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"sdk_missing\"",
-            "\"tool_missing\"",
-            "\"not_supported\"",
-            "\"foreground_required\"",
-            "\"not_found\"",
-            "\"not_booted\"",
-            "\"permission_denied\"",
-            "\"busy\"",
-            "\"timeout\"",
-            "\"command_failed\"",
-            "\"invalid_data\"",
-            "\"lease_required\"",
-            "\"stale_ref\"",
-            "\"limit\"",
-            "\"person_busy\"",
-        ]),
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(256)],
+        }),
     },
     Field {
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {
-        key: "hint",
-        presence: Presence::Required,
+        key: "action",
+        presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "permission",
         presence: Presence::Optional,
-        shape: Shape::Enum(&["\"screenRecording\"", "\"accessibility\""]),
-    },
-    Field {
-        key: "platform",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"ios\"", "\"android\""]),
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_134_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_130_STATE_CAPABILITIES_FIELDS: [Field; 15] = [
     Field {
-        key: "type",
+        key: "version",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"devices.state\""]),
+        shape: Shape::Enum(&["2"]),
+    },
+    Field {
+        key: "inspectionOnly",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "background",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "windowSelection",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "permissionEvents",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "maxSessions",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(8.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "platform",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"macos\"", "\"windows\"", "\"linux-wayland\""]),
+    },
+    Field {
+        key: "capture",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_130_STATE_CAPABILITIES_CAPTURE_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "input",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_130_STATE_CAPABILITIES_INPUT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "uiTree",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "semanticActions",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Enum(&[
+                "\"press\"",
+                "\"focus\"",
+                "\"setValue\"",
+                "\"scroll\"",
+                "\"expand\"",
+                "\"select\"",
+                "\"performSecondaryAction\"",
+                "\"selectText\"",
+            ]),
+            min: None,
+            max: Some(8),
+        },
+    },
+    Field {
+        key: "codecs",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Enum(&["\"jpeg\"", "\"h264\"", "\"hevc\""]),
+            min: Some(1),
+            max: Some(3),
+        },
+    },
+    Field {
+        key: "permissions",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_130_STATE_CAPABILITIES_PERMISSIONS_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "watchOnly",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(500)],
+        }),
+    },
+    Field {
+        key: "encoders",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_130_STATE_CAPABILITIES_ENCODERS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(16),
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_130_STATE_CAPABILITIES_CAPTURE_FIELDS: [Field; 3] = [
+    Field {
+        key: "windows",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "displays",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "changeDriven",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_130_STATE_CAPABILITIES_INPUT_FIELDS: [Field; 4] = [
+    Field {
+        key: "pointer",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "keyboard",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "scroll",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_130_STATE_CAPABILITIES_PERMISSIONS_FIELDS: [Field; 2] = [
+    Field {
+        key: "screen",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"granted\"", "\"denied\"", "\"prompt\"", "\"n/a\""]),
+    },
+    Field {
+        key: "input",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"granted\"", "\"denied\"", "\"prompt\"", "\"n/a\""]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_130_STATE_CAPABILITIES_ENCODERS_FIELDS: [Field; 8] = [
+    Field {
+        key: "step",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(32)],
+        }),
+    },
+    Field {
+        key: "codec",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(64)],
+        }),
+    },
+    Field {
+        key: "backend",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(32)],
+        }),
+    },
+    Field {
+        key: "hardware",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "zeroCopy",
+        presence: Presence::Required,
+        shape: Shape::Bool,
     },
     Field {
         key: "state",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_134_STATE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_134_STATE_FIELDS: [Field; 23] = [
-    Field {
-        key: "device",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_DEVICE_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "enabled",
-        presence: Presence::Required,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(32)],
         }),
     },
     Field {
-        key: "lifecycle",
+        key: "maxWidth",
         presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"idle\"",
-            "\"starting\"",
-            "\"live\"",
-            "\"stopping\"",
-            "\"failed\"",
-        ]),
-    },
-    Field {
-        key: "booting",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "cleanupRequired",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "recordingNotice",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "recording",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "streamId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[\\w-]{1,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "touch",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"multi\"", "\"pointer\"", "\"gestures\""]),
-    },
-    Field {
-        key: "framed",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "controller",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"none\"", "\"human\"", "\"agent\""]),
-    },
-    Field {
-        key: "ownedHere",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "holder",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_HOLDER_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "leaseExpiresAt",
-        presence: Presence::Optional,
         shape: Shape::Num(&NumBounds {
             min: Some(0.0),
             min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
+            max: Some(4294967295.0),
+            max_inclusive: true,
+            integral: true,
         }),
     },
     Field {
-        key: "error",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_133_ERROR_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "activity",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_122::SERVER_MESSAGE_134_STATE_ACTIVITY_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "posture",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"closed\"", "\"partiallyOpen\"", "\"open\""]),
-    },
-    Field {
-        key: "sharing",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"cowork\"", "\"exclusive\""]),
-    },
-    Field {
-        key: "acceleration",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_ACCELERATION_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "video",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_VIDEO_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "agentPointer",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_120::SERVER_MESSAGE_130_STATE_AGENT_POINTER_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "personActive",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
+        key: "maxHeight",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(4294967295.0),
+            max_inclusive: true,
+            integral: true,
+        }),
     },
 ];

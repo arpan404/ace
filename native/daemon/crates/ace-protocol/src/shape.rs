@@ -15,7 +15,7 @@ pub enum Shape {
     Any,
     Null,
     Bool,
-    /// `z.string()` with its bounds, pattern, format and `.trim()`.
+    /// `z.string()` with its checks in the order Zod runs them (`.trim()` included).
     Str(&'static StrBounds),
     /// `z.number()` with its bounds and integrality.
     Num(&'static NumBounds),
@@ -35,9 +35,13 @@ pub enum Shape {
     },
     /// `z.tuple`: one shape per slot.
     Tuple(&'static [Shape]),
-    /// `z.record` with string keys: own keys in JavaScript order, `__proto__` dropped, each
-    /// value through the shape.
-    Record(&'static Shape),
+    /// `z.record` with string keys: own keys in JavaScript order, `__proto__` dropped (or kept
+    /// for an opaque-id map that rebuilds its entries), each key and value through its shape.
+    Record {
+        key: &'static Shape,
+        value: &'static Shape,
+        keep_proto: bool,
+    },
     /// `.nullable()`: null is kept, anything else goes through the shape.
     Nullable(&'static Shape),
     /// `z.discriminatedUnion`: the option whose literal, as JSON text, equals the value's
@@ -63,6 +67,12 @@ pub enum Shape {
         inner: &'static Shape,
         fallback: &'static str,
     },
+    /// A `.refine()`/`.superRefine()`: the value must fit the shape and the hand-written rule,
+    /// which sees the value Zod's own earlier checks would have produced.
+    Checked {
+        inner: &'static Shape,
+        check: &'static Check,
+    },
     /// A transform option inside a union: values the rest doesn't fit are read as the
     /// transform's constant output, provided they fit the transform's input.
     Fallback {
@@ -84,14 +94,24 @@ pub enum Extra {
     Shaped(&'static Shape),
 }
 
-/// A string's bounds: lengths in code points (rule 17), a JavaScript pattern, a named format.
-pub struct StrBounds {
-    pub min: Option<u32>,
-    pub max: Option<u32>,
-    pub pattern: Option<&'static str>,
-    pub format: Option<&'static str>,
-    pub trim: bool,
+/// A string's checks, in the order Zod applies them: lengths in code points (rule 17), a
+/// JavaScript pattern, a named format, `.trim()`, and any hand-written refinement.
+pub enum StrCheck {
+    Min(u32),
+    Max(u32),
+    Pattern(&'static str),
+    Format(&'static str),
+    Trim,
+    Custom(&'static Check),
 }
+
+/// A string's ordered checks.
+pub struct StrBounds {
+    pub checks: &'static [StrCheck],
+}
+
+/// A `.refine()`/`.superRefine()` rule, hand-written in `checks.rs`.
+pub struct Check(pub fn(&Value) -> bool);
 
 /// A number's bounds; `inclusive` is what Zod's `.min()`/`.max()` choose.
 pub struct NumBounds {
@@ -125,7 +145,12 @@ pub fn strip(shape: &Shape, value: &Value) -> Value {
     match shape {
         Shape::Any | Shape::Null | Shape::Bool | Shape::Num(_) | Shape::Enum(_) => value.clone(),
         Shape::Str(bounds) => match value {
-            Value::String(text) if bounds.trim => {
+            Value::String(text)
+                if bounds
+                    .checks
+                    .iter()
+                    .any(|check| matches!(check, StrCheck::Trim)) =>
+            {
                 Value::String(ace_json::JsString::from(js_trim(text.as_str())))
             }
             _ => value.clone(),
@@ -153,7 +178,11 @@ pub fn strip(shape: &Shape, value: &Value) -> Value {
             ),
             _ => value.clone(),
         },
-        Shape::Record(inner) => strip_record(inner, value),
+        Shape::Record {
+            value: inner,
+            keep_proto,
+            ..
+        } => strip_record(inner, *keep_proto, value),
         Shape::Nullable(inner) => match value {
             Value::Null => value.clone(),
             _ => strip(inner, value),
@@ -179,6 +208,7 @@ pub fn strip(shape: &Shape, value: &Value) -> Value {
                 ace_json::parse(fallback).unwrap_or(Value::Null)
             }
         }
+        Shape::Checked { inner, .. } => strip(inner, value),
         Shape::Fallback {
             rest,
             input,
@@ -342,8 +372,16 @@ pub fn fits(shape: &Shape, value: &Value) -> bool {
             }
             _ => false,
         },
-        Shape::Record(inner) => match value {
-            Value::Object(map) => map.iter().all(|(_, item)| fits(inner, item)),
+        Shape::Record {
+            key,
+            value: inner,
+            keep_proto,
+        } => match value {
+            Value::Object(map) => map.iter().all(|(key_text, item)| {
+                (*keep_proto || key_text.as_str() != "__proto__")
+                    && fits(key, &Value::String(key_text.clone()))
+                    && fits(inner, item)
+            }),
             _ => false,
         },
         Shape::Nullable(inner) => match value {
@@ -366,6 +404,7 @@ pub fn fits(shape: &Shape, value: &Value) -> bool {
         Shape::All(shapes) => shapes.iter().all(|shape| fits(shape, value)),
         Shape::Later(inner) => fits(inner, value),
         Shape::Custom(custom) => (custom.fits)(value),
+        Shape::Checked { inner, check } => fits(inner, value) && (check.0)(&strip(inner, value)),
         Shape::Option(_) | Shape::Catch { .. } => true,
         Shape::Fallback { rest, input, .. } => fits(rest, value) || fits(input, value),
     }
@@ -375,26 +414,51 @@ fn fits_str(bounds: &StrBounds, value: &Value) -> bool {
     let Value::String(text) = value else {
         return false;
     };
-    let text = text.as_str();
-    let count = text.chars().count() as u32;
-    if bounds.min.is_some_and(|min| count < min) || bounds.max.is_some_and(|max| count > max) {
-        return false;
+    let mut text = text.clone();
+    for check in bounds.checks {
+        match check {
+            StrCheck::Trim => {
+                text = ace_json::JsString::from(js_trim(text.as_str()));
+            }
+            StrCheck::Min(min) => {
+                if (text.len_code_points() as u32) < *min {
+                    return false;
+                }
+            }
+            StrCheck::Max(max) => {
+                if (text.len_code_points() as u32) > *max {
+                    return false;
+                }
+            }
+            StrCheck::Pattern(pattern) => {
+                if !matches_pattern(pattern, text.as_str()) {
+                    return false;
+                }
+            }
+            StrCheck::Format(format) => {
+                if !matches_format(format, text.as_str()) {
+                    return false;
+                }
+            }
+            StrCheck::Custom(check) => {
+                if !(check.0)(&Value::String(text.clone())) {
+                    return false;
+                }
+            }
+        }
     }
-    if let Some(pattern) = bounds.pattern
-        && !matches_pattern(pattern, text)
-    {
-        return false;
-    }
-    match bounds.format {
-        None => true,
-        Some("url") => url::Url::parse(text).is_ok(),
-        Some("email") => email(text),
-        Some("uuid") => uuid(text),
-        Some("date") => date(text),
-        Some("datetime") => datetime(text),
-        Some(format) => {
+    true
+}
+
+fn matches_format(format: &str, text: &str) -> bool {
+    match format {
+        "url" => url::Url::parse(text).is_ok(),
+        "email" => email(text),
+        "uuid" => uuid(text),
+        "date" => date(text),
+        "datetime" => datetime(text),
+        _ => {
             // An unknown format is a generator bug; refusing is the loud failure.
-            let _ = format;
             false
         }
     }
@@ -405,6 +469,9 @@ fn fits_num(bounds: &NumBounds, value: &Value) -> bool {
         return false;
     };
     let number = number.value();
+    if !number.is_finite() {
+        return false;
+    }
     if bounds.integral && (number.fract() != 0.0 || number.abs() > 9_007_199_254_740_991.0) {
         return false;
     }
@@ -429,11 +496,54 @@ fn fits_num(bounds: &NumBounds, value: &Value) -> bool {
     true
 }
 
-/// A JavaScript regular expression, compiled as Rust's syntax allows. A pattern Rust cannot
-/// compile (`(?=`, back references) never matches here; the generator's property check names
-/// it rather than letting it pass.
+/// A JavaScript regular expression, with ECMAScript's ASCII `\w` and `\d` (and ASCII `\s`),
+/// compiled as Rust's syntax allows. A pattern Rust cannot compile (`(?=`, back references)
+/// never matches here; the generator's property check names it rather than letting it pass.
 fn matches_pattern(pattern: &str, text: &str) -> bool {
-    fancy_regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(text).unwrap_or(false))
+    let pattern = js_pattern(pattern);
+    fancy_regex::Regex::new(&pattern).is_ok_and(|regex| regex.is_match(text).unwrap_or(false))
+}
+
+/// Rewrite `\w`, `\d` and `\s` (and their negations) to their ECMAScript character classes.
+fn js_pattern(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len() + 16);
+    let mut chars = pattern.chars().peekable();
+    let mut in_class = false;
+    while let Some(character) = chars.next() {
+        match character {
+            '[' => {
+                in_class = true;
+                out.push(character);
+            }
+            ']' => {
+                in_class = false;
+                out.push(character);
+            }
+            '\\' => {
+                let Some(next) = chars.next() else {
+                    out.push('\\');
+                    break;
+                };
+                match (next, in_class) {
+                    ('w', false) => out.push_str("[A-Za-z0-9_]"),
+                    ('W', false) => out.push_str("[^A-Za-z0-9_]"),
+                    ('d', false) => out.push_str("[0-9]"),
+                    ('D', false) => out.push_str("[^0-9]"),
+                    ('s', false) => out.push_str("[ \\t\\n\\r\\x0B\\x0C]"),
+                    ('S', false) => out.push_str("[^ \\t\\n\\r\\x0B\\x0C]"),
+                    ('w', true) => out.push_str("A-Za-z0-9_"),
+                    ('d', true) => out.push_str("0-9"),
+                    ('s', true) => out.push_str(" \\t\\n\\r\\x0B\\x0C"),
+                    _ => {
+                        out.push('\\');
+                        out.push(next);
+                    }
+                }
+            }
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 /// Zod's `email` format: one `@`, a non-empty local part and a dotted domain, no whitespace.
@@ -465,16 +575,16 @@ fn uuid(text: &str) -> bool {
             .all(|(len, group)| group.len() == *len && group.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-fn strip_record(inner: &Shape, value: &Value) -> Value {
+fn strip_record(inner: &Shape, keep_proto: bool, value: &Value) -> Value {
     let Value::Object(map) = value else {
         return value.clone();
     };
     let mut out = Map::with_capacity(map.len());
     for (key, item) in map {
-        if key.as_str() == "__proto__" {
+        if !keep_proto && key.as_str() == "__proto__" {
             continue;
         }
-        out.insert(key, strip(inner, item));
+        out.insert(key.clone(), strip(inner, item));
     }
     Value::Object(out)
 }

@@ -292,6 +292,30 @@ export function repair(type: string, value: Json): void {
 
 /** Values that stress every bound a schema states, derived from one valid value. */
 export function mutations(value: Json): Json[] {
+  return nestedMutations(value, 0);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Top-level mutations plus the same mutations one level inside each nested object. */
+function nestedMutations(value: Json, depth: number): Json[] {
+  const found = shallowMutations(value);
+  if (depth >= 2) return found;
+  const map = value as Record<string, unknown>;
+  for (const [key, field] of Object.entries(map)) {
+    if (isPlainObject(field)) {
+      for (const nested of nestedMutations(field, depth + 1)) found.push({ ...map, [key]: nested });
+    } else if (Array.isArray(field) && field.length > 0 && isPlainObject(field[0])) {
+      for (const nested of nestedMutations(field[0], depth + 1))
+        found.push({ ...map, [key]: [nested, ...field.slice(1)] });
+    }
+  }
+  return found;
+}
+
+function shallowMutations(value: Json): Json[] {
   const found: Json[] = [];
   const map = value as Record<string, unknown>;
   found.push({ ...map, "x-fixture-extra": true });

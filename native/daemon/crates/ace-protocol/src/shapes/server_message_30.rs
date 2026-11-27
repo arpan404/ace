@@ -5,36 +5,36 @@
 #![allow(unused_imports)]
 
 // Part server_message_30.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_FIELDS: [Field; 32] = [
     Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
-    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "instanceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "permissionModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_PERMISSIONS_PERMISSION_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(256) } },
     Field { key: "accessModes", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_ACCESS_MODES_FIELDS, extra: Extra::Strip }, min: None, max: Some(4) } },
     Field { key: "readiness", presence: Presence::Optional, shape: Shape::Enum(&["\"not_installed\"", "\"installed_signed_out\"", "\"signed_in\"", "\"needs_attention\"", "\"not_configured\"", "\"needs_update\""]) },
-    Field { key: "installHint", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
-    Field { key: "installCommand", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "latestVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "installHint", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
+    Field { key: "installCommand", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
+    Field { key: "latestVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
     Field { key: "versionCheckedAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
     Field { key: "updateAvailable", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "runtime", presence: Presence::Required, shape: Shape::Enum(&["\"cli\"", "\"cursor-sdk\""]) },
     Field { key: "installed", presence: Presence::Required, shape: Shape::Nullable(&Shape::Bool) },
     Field { key: "enabled", presence: Presence::Optional, shape: Shape::Bool },
-    Field { key: "path", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "version", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "path", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096)] }) },
+    Field { key: "version", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "versionCheck", presence: Presence::Optional, shape: Shape::Tagged { key: "status", options: &[("\"ok\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_0_FIELDS, extra: Extra::Strip }), ("\"too_old\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_1_FIELDS, extra: Extra::Strip }), ("\"unreadable\"", Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_2_FIELDS, extra: Extra::Strip })] } },
     Field { key: "auth", presence: Presence::Required, shape: Shape::Enum(&["\"logged_in\"", "\"logged_out\"", "\"unknown\""]) },
     Field { key: "authMethod", presence: Presence::Optional, shape: Shape::Enum(&["\"browser\"", "\"api_key\"", "\"unknown\""]) },
     Field { key: "apiKey", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS, extra: Extra::Strip } },
-    Field { key: "accountLabel", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "authDetail", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "accountLabel", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "authDetail", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
     Field { key: "authEvidence", presence: Presence::Optional, shape: Shape::Enum(&["\"credentials_configured\""]) },
     Field { key: "modelsAvailable", presence: Presence::Optional, shape: Shape::Bool },
-    Field { key: "loginHint", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "loginHint", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
     Field { key: "actionId", presence: Presence::Optional, shape: Shape::Enum(&["\"provider.sign_in\""]) },
     Field { key: "state", presence: Presence::Optional, shape: Shape::Enum(&["\"not_configured\""]) },
-    Field { key: "error", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "error", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
     Field { key: "checkedAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
     Field { key: "nativeTools", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_31::SERVER_MESSAGE_34_RESULT_0_PROVIDERS_NATIVE_TOOLS_FIELDS, extra: Extra::Strip }, min: None, max: Some(16) } },
     Field { key: "toolSource", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_31::SERVER_MESSAGE_34_RESULT_0_PROVIDERS_TOOL_SOURCE_FIELDS, extra: Extra::Strip } },
@@ -52,22 +52,14 @@ pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_0_FIELDS: [
         key: "installed",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
         key: "required",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
 ];
@@ -82,22 +74,14 @@ pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_1_FIELDS: [
         key: "installed",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
         key: "required",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
 ];
@@ -112,11 +96,7 @@ pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_VERSION_CHECK_2_FIELDS: [
         key: "required",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
 ];
@@ -131,11 +111,7 @@ pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS: [Field; 3
         key: "reason",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -143,11 +119,7 @@ pub(crate) static SERVER_MESSAGE_34_RESULT_0_PROVIDERS_API_KEY_FIELDS: [Field; 3
         presence: Presence::Optional,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(64)],
             }),
             min: None,
             max: Some(16),

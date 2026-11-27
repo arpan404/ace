@@ -5,40 +5,28 @@
 #![allow(unused_imports)]
 
 // Part server_message_18.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_12_ITEMS_10_FIELDS: [Field; 17] = [
     Field {
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "agentId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "runId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -56,11 +44,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_10_FIELDS: [Field; 17] = [
         key: "nativeId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -68,7 +52,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_10_FIELDS: [Field; 17] = [
         presence: Presence::Optional,
         shape: Shape::Object {
             fields:
-                &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
+                &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -99,11 +83,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_10_FIELDS: [Field; 17] = [
         key: "filename",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -124,34 +104,18 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_10_FIELDS: [Field; 17] = [
         key: "artifactId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "mimeType",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "bytes",
@@ -171,11 +135,7 @@ pub(crate) static SERVER_MESSAGE_12_OMITTED_FIELDS: [Field; 7] = [
         key: "itemId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -193,11 +153,7 @@ pub(crate) static SERVER_MESSAGE_12_OMITTED_FIELDS: [Field; 7] = [
         key: "type",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
@@ -220,22 +176,14 @@ pub(crate) static SERVER_MESSAGE_12_OMITTED_FIELDS: [Field; 7] = [
         key: "kind",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64)],
         }),
     },
     Field {
         key: "title",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];
@@ -250,22 +198,14 @@ pub(crate) static SERVER_MESSAGE_13_FIELDS: [Field; 8] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -347,14 +287,14 @@ pub(crate) static SERVER_MESSAGE_13_STEPS_FIELDS: [Field; 3] = [
                 (
                     "\"html\"",
                     Shape::Object {
-                        fields: &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_FIELDS,
+                        fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
                 (
                     "\"image\"",
                     Shape::Object {
-                        fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_1_FIELDS,
+                        fields: &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_1_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -389,7 +329,7 @@ pub(crate) static SERVER_MESSAGE_13_STEPS_FIELDS: [Field; 3] = [
                 (
                     "\"tool_call\"",
                     Shape::Object {
-                        fields: &crate::shapes::server_message_11::SERVER_MESSAGE_12_ITEMS_6_FIELDS,
+                        fields: &crate::shapes::server_message_12::SERVER_MESSAGE_12_ITEMS_6_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -439,11 +379,7 @@ pub(crate) static SERVER_MESSAGE_13_STEPS_SURFACE_FIELDS: [Field; 3] = [
         key: "kind",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(32),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(32)],
         }),
     },
     Field {
@@ -458,11 +394,7 @@ pub(crate) static SERVER_MESSAGE_13_STEPS_SURFACE_FIELDS: [Field; 3] = [
         key: "iconRef",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
 ];
@@ -471,10 +403,6 @@ pub(crate) static SERVER_MESSAGE_13_STEPS_SURFACE_ICON_FIELDS: [Field; 1] = [Fie
     key: "kind",
     presence: Presence::Required,
     shape: Shape::Str(&StrBounds {
-        min: None,
-        max: Some(32),
-        pattern: None,
-        format: None,
-        trim: false,
+        checks: &[StrCheck::Max(32)],
     }),
 }];

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The one `z.lazy`-free transform the shape table cannot describe: `ThreadStatus` reads a
-//! state this client doesn't know as `{ state: "unknown", raw }`. The JSON Schema is
-//! unconstrained there, so the generated table names this pair instead.
+//! `ThreadStatus`: a state this client doesn't know reads as `{ state: "unknown", raw }`
+//! (`packages/protocol/src/thread-status.ts`). `KnownThreadStatus` is the generated table; this
+//! pair adds the fallback branch and keeps Zod's order: the known union first (so an `unknown`
+//! status with a `raw` object is stripped like the strict object it is), then the loose fallback
+//! for a state neither union knows.
 
 use ace_json::{Map, Value};
 
@@ -14,25 +16,14 @@ pub static THREAD_STATUS: Custom = Custom {
 };
 
 fn thread_status_fits(value: &Value) -> bool {
-    let Value::Object(map) = value else {
-        return false;
-    };
-    matches!(map.get("state"), Some(Value::String(_)))
+    matches_known(value) || matches_fallback(value)
 }
 
 fn thread_status_strip(value: &Value) -> Option<Value> {
-    let Value::Object(map) = value else {
-        return Some(value.clone());
-    };
-    let Some(Value::String(state)) = map.get("state") else {
-        return Some(value.clone());
-    };
-    if is_known_state(state.as_str()) {
+    if matches_known(value) {
         return Some(strip(&crate::shapes::KNOWN_THREAD_STATUS, value));
     }
-    // An `unknown` status with its `raw` is Zod's own output already (a typed producer wrote
-    // it); stripping it again would wrap it twice.
-    if state.as_str() == "unknown" && map.get("raw").is_some() {
+    if !matches_fallback(value) {
         return Some(value.clone());
     }
     let mut out = Map::with_capacity(2);
@@ -41,7 +32,25 @@ fn thread_status_strip(value: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
-/// The states `KnownThreadStatus` defines; any other is `unknown`.
+/// `KnownThreadStatus`, whose `unknown` branch has its own `raw` shape.
+fn matches_known(value: &Value) -> bool {
+    crate::shape::fits(&crate::shapes::KNOWN_THREAD_STATUS, value)
+}
+
+/// The fallback loose object: a state of 1 to 64 code points that is not one this build knows,
+/// with any other keys kept in `raw`.
+fn matches_fallback(value: &Value) -> bool {
+    let Value::Object(map) = value else {
+        return false;
+    };
+    let Some(Value::String(state)) = map.get("state") else {
+        return false;
+    };
+    let length = state.len_code_points();
+    (1..=64).contains(&length) && !is_known_state(state.as_str())
+}
+
+/// The states `KnownThreadStatus` fixes, `unknown` included: the fallback excludes them all.
 fn is_known_state(state: &str) -> bool {
     matches!(
         state,
@@ -54,5 +63,6 @@ fn is_known_state(state: &str) -> bool {
             | "moved"
             | "done"
             | "new"
+            | "unknown"
     )
 }

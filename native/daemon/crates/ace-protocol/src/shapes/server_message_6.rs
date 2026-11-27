@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_6.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_11_FIELDS: [Field; 9] = [
     Field {
@@ -17,22 +17,14 @@ pub(crate) static SERVER_MESSAGE_11_FIELDS: [Field; 9] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -103,11 +95,7 @@ pub(crate) static SERVER_MESSAGE_11_TURNS_FIELDS: [Field; 14] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -184,22 +172,14 @@ pub(crate) static SERVER_MESSAGE_11_TURNS_FIELDS: [Field; 14] = [
         key: "initiatingMessagePreview",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "latestAgentMessagePreview",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
     Field {
@@ -241,20 +221,19 @@ pub(crate) static SERVER_MESSAGE_11_TURNS_DIGEST_FIELDS: [Field; 15] = [
     Field {
         key: "toolCounts",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        })),
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_7::SERVER_MESSAGE_11_TURNS_DIGEST_TOOL_COUNTS_FIELDS,
+            extra: Extra::Reject,
+        },
     },
     Field {
         key: "files",
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Object {
-                fields: &SERVER_MESSAGE_11_TURNS_DIGEST_FILES_FIELDS,
+                fields:
+                    &crate::shapes::server_message_7::SERVER_MESSAGE_11_TURNS_DIGEST_FILES_FIELDS,
                 extra: Extra::Strip,
             },
             min: None,
@@ -399,41 +378,5 @@ pub(crate) static SERVER_MESSAGE_11_TURNS_DIGEST_FIELDS: [Field; 15] = [
         key: "truncated",
         presence: Presence::Required,
         shape: Shape::Bool,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_11_TURNS_DIGEST_FILES_FIELDS: [Field; 3] = [
-    Field {
-        key: "path",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "added",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        })),
-    },
-    Field {
-        key: "removed",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        })),
     },
 ];

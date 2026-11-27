@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_16.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_METRICS_FIELDS: [Field; 13] = [
     Field {
@@ -145,33 +145,21 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "agentId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "runId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -189,11 +177,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
         key: "nativeId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -201,7 +185,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
         presence: Presence::Optional,
         shape: Shape::Object {
             fields:
-                &crate::shapes::server_message_7::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
+                &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_EXECUTION_SOURCE_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -237,34 +221,20 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
         key: "commandId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "interactionId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "code",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "diagnostic",
@@ -274,24 +244,12 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
     Field {
         key: "title",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "detail",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "details",
@@ -305,11 +263,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
         key: "toolCallId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -331,13 +285,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
     Field {
         key: "text",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "source",
@@ -354,12 +302,12 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_FIELDS: [Field; 24] = [
             item: &Shape::OneOf(&[
                 Shape::Object {
                     fields:
-                        &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS,
+                        &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_0_FIELDS,
                     extra: Extra::Strip,
                 },
                 Shape::Object {
                     fields:
-                        &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS,
+                        &crate::shapes::server_message_9::SERVER_MESSAGE_12_ITEMS_0_RAW_1_FIELDS,
                     extra: Extra::Strip,
                 },
             ]),
@@ -374,11 +322,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_DETAILS_FIELDS: [Field; 5] = [
         key: "code",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -398,33 +342,21 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_7_DETAILS_FIELDS: [Field; 5] = [
         key: "title",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "detail",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {
         key: "model",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];

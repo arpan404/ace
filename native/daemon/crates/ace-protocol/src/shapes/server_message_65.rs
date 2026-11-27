@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_65.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_53_RESULT_3_FIELDS: [Field; 5] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_3_FIELDS: [Field; 5] = [
         key: "query",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -53,22 +49,18 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_3_ENTRIES_FIELDS: [Field; 7] = [
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(256),
+                StrCheck::Custom(&crate::checks::FILE_NAME_NO_SLASH_NUL),
+            ],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -126,11 +118,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_4_FIELDS: [Field; 5] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -149,11 +137,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_4_FIELDS: [Field; 5] = [
         key: "commonPrefix",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -168,22 +152,18 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_4_CANDIDATES_FIELDS: [Field; 8] = [
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(256),
+                StrCheck::Custom(&crate::checks::FILE_NAME_NO_SLASH_NUL),
+            ],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -233,11 +213,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_4_CANDIDATES_FIELDS: [Field; 8] = [
         key: "completion",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
 ];
@@ -252,22 +228,18 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_5_FIELDS: [Field; 3] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(256),
+                StrCheck::Custom(&crate::checks::FILE_NAME_NO_SLASH_NUL),
+            ],
         }),
     },
 ];
@@ -282,22 +254,14 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_6_FIELDS: [Field; 5] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "canonicalPath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -305,11 +269,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_6_FIELDS: [Field; 5] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
             }),
             min: None,
             max: Some(32),
@@ -319,11 +279,7 @@ pub(crate) static SERVER_MESSAGE_53_RESULT_6_FIELDS: [Field; 5] = [
         key: "initialBranch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
 ];

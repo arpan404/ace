@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_73.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
@@ -48,7 +44,7 @@ pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
                     "\"validate\"",
                     Shape::Object {
                         fields:
-                            &crate::shapes::server_message_76::SERVER_MESSAGE_63_RESPONSE_2_FIELDS,
+                            &crate::shapes::server_message_78::SERVER_MESSAGE_63_RESPONSE_2_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -56,7 +52,7 @@ pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
                     "\"remove\"",
                     Shape::Object {
                         fields:
-                            &crate::shapes::server_message_76::SERVER_MESSAGE_63_RESPONSE_3_FIELDS,
+                            &crate::shapes::server_message_78::SERVER_MESSAGE_63_RESPONSE_3_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -64,7 +60,7 @@ pub(crate) static SERVER_MESSAGE_63_FIELDS: [Field; 3] = [
                     "\"error\"",
                     Shape::Object {
                         fields:
-                            &crate::shapes::server_message_77::SERVER_MESSAGE_63_RESPONSE_4_FIELDS,
+                            &crate::shapes::server_message_78::SERVER_MESSAGE_63_RESPONSE_4_FIELDS,
                         extra: Extra::Strip,
                     },
                 ),
@@ -98,34 +94,22 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS: [Field; 7] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(48),
-            pattern: Some("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(48),
+                StrCheck::Pattern("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+            ],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "description",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "schemes",
@@ -144,13 +128,7 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS: [Field; 7] = [
     Field {
         key: "contentHash",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "problems",
@@ -183,76 +161,11 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_FIELDS: [Field; 2] = [
 ];
 
 pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_FIELDS: [Field; 7] = [
-    Field {
-        key: "summary",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "manifest",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields:
-                &crate::shapes::server_message_74::SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FIELDS,
-            extra: Extra::Keep,
-        },
-    },
-    Field {
-        key: "sceneUrl",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "sceneUrls",
-        presence: Presence::Default("{}"),
-        shape: Shape::Record(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "assets",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "css",
-        presence: Presence::Default("null"),
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-    Field {
-        key: "ornaments",
-        presence: Presence::Default("{}"),
-        shape: Shape::Record(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
+    Field { key: "summary", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS, extra: Extra::Strip } },
+    Field { key: "manifest", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_74::SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_FIELDS, extra: Extra::Keep } },
+    Field { key: "sceneUrl", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[] })) },
+    Field { key: "sceneUrls", presence: Presence::Default("{}"), shape: Shape::Object { fields: &crate::shapes::server_message_77::SERVER_MESSAGE_63_RESPONSE_1_SUIT_SCENE_URLS_FIELDS, extra: Extra::Reject } },
+    Field { key: "assets", presence: Presence::Required, shape: Shape::Record { key: &Shape::Str(&StrBounds { checks: &[] }), value: &Shape::Str(&StrBounds { checks: &[] }), keep_proto: false } },
+    Field { key: "css", presence: Presence::Default("null"), shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[] })) },
+    Field { key: "ornaments", presence: Presence::Default("{}"), shape: Shape::Object { fields: &crate::shapes::server_message_78::SERVER_MESSAGE_63_RESPONSE_1_SUIT_ORNAMENTS_FIELDS, extra: Extra::Reject } },
 ];

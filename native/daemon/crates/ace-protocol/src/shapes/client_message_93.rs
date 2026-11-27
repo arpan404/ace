@@ -5,29 +5,136 @@
 #![allow(unused_imports)]
 
 // Part client_message_93.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_MACHINE_FIELDS: [Field; 3] = [
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_FIELDS: [Field; 4] = [
+    Field { key: "draftId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(128), StrCheck::Pattern("^[\\w-]+$")] }) },
+    Field { key: "items", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Tagged { key: "type", options: &[("\"thread_ref\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_0_FIELDS, extra: Extra::Reject }), ("\"bot_replies\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_1_FIELDS, extra: Extra::Reject }), ("\"device\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_FIELDS, extra: Extra::Reject }), ("\"browser_tab\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_3_FIELDS, extra: Extra::Reject }), ("\"browser_annotations\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_4_FIELDS, extra: Extra::Reject })] }, min: None, max: Some(32) } },
+    Field { key: "mentions", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_39::CLIENT_MESSAGE_75_OPERATION_14_MENTIONS_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+    Field { key: "attachments", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ATTACHMENTS_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_0_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"thread_ref\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "budgetBytes",
+        presence: Presence::Default("4096"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(1024.0),
+            min_inclusive: true,
+            max: Some(8192.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_1_FIELDS: [Field; 2] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"bot_replies\""]),
+    },
+    Field {
+        key: "keys",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+            }),
+            min: Some(1),
+            max: Some(32),
+        },
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_FIELDS: [Field; 8] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"device\""]),
+    },
     Field {
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"laptop\"",
+            "\"desktop\"",
+            "\"server\"",
+            "\"phone\"",
+            "\"tablet\"",
+            "\"browser\"",
+            "\"simulator\"",
+            "\"emulator\"",
+        ]),
+    },
+    Field {
+        key: "machine",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_MACHINE_FIELDS,
+            extra: Extra::Reject,
+        },
+    },
+    Field {
+        key: "os",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(64)],
+        }),
+    },
+    Field {
+        key: "model",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "online",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_2_MACHINE_FIELDS: [Field; 3] = [
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -47,33 +154,21 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_3_FIELDS: [
         key: "tabId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
     Field {
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
 ];
@@ -88,22 +183,14 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_4_FIELDS: [
         key: "tabId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
     Field {
@@ -137,33 +224,21 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ITEMS_4_ANNOTATIO
         key: "role",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "text",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(280),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(280)],
         }),
     },
 ];
@@ -173,11 +248,7 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ATTACHMENTS_FIELD
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -188,159 +259,6 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_ATTACHMENTS_FIELD
             min_inclusive: true,
             max: Some(9007199254740991.0),
             max_inclusive: true,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_5_FIELDS: [Field; 5] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"queue.move\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expectedRevision",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "messageId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "after",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_6_FIELDS: [Field; 4] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"queue.remove\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expectedRevision",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "messageId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_7_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"queue.pause\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expectedRevision",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_8_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"queue.resume\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expectedRevision",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
             integral: true,
         }),
     },

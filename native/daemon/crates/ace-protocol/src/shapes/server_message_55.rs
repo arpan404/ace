@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_55.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_21_COMMITS_FIELDS: [Field; 9] = [
     Field {
@@ -17,44 +17,28 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_21_COMMITS_FIELDS: [Field; 9] 
         key: "sha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "author",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "authorAvatarUrl",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -83,22 +67,14 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_21_COMMITS_FIELDS: [Field; 9] 
         key: "date",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
 ];
@@ -133,44 +109,28 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FIELDS: [Field; 8] = 
         key: "baseSha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "commit",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "since",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
@@ -213,33 +173,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FILES_FIELDS: [Field;
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "previousPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "status",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -268,11 +216,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_22_VALUE_FILES_FIELDS: [Field;
         key: "patch",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(262144),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(262144)],
         })),
     },
     Field {
@@ -300,10 +244,10 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_23_FIELDS: [Field; 2] = [
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_FIELDS: [Field; 11] = [
     Field { key: "id", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "status", presence: Presence::Required, shape: Shape::Enum(&["\"pending\"", "\"success\"", "\"failure\"", "\"cancelled\"", "\"unknown\""]) },
-    Field { key: "conclusion", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false })) },
-    Field { key: "url", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false })) },
+    Field { key: "conclusion", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] })) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] })) },
     Field { key: "output", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_OUTPUT_FIELDS, extra: Extra::Strip } },
     Field { key: "workflow", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_56::SERVER_MESSAGE_52_RESULT_0_DATA_23_VALUE_WORKFLOW_FIELDS, extra: Extra::Strip }) },
     Field { key: "log", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_37::SERVER_MESSAGE_47_LOG_FIELDS, extra: Extra::Strip }) },

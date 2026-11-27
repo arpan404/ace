@@ -5,7 +5,79 @@
 #![allow(unused_imports)]
 
 // Part client_message_48.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_93_OPERATION_17_FIELDS: [Field; 5] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"rename\""]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "expected",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        })),
+    },
+    Field {
+        key: "destination",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "destinationExpected",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        })),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_93_OPERATION_18_FIELDS: [Field; 5] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"move\""]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "expected",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        })),
+    },
+    Field {
+        key: "destination",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "destinationExpected",
+        presence: Presence::Required,
+        shape: Shape::Nullable(&Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        })),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_93_OPERATION_19_FIELDS: [Field; 3] = [
     Field {
@@ -17,22 +89,14 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_19_FIELDS: [Field; 3] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         })),
     },
 ];
@@ -47,33 +111,21 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_20_FIELDS: [Field; 4] = [
         key: "trashId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "expected",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         })),
     },
 ];
@@ -107,11 +159,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_23_FIELDS: [Field; 2] = [
         key: "streamId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -126,11 +174,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_24_FIELDS: [Field; 2] = [
         key: "blobRef",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -145,11 +189,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_25_FIELDS: [Field; 3] = [
         key: "after",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -175,11 +215,7 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_26_FIELDS: [Field; 3] = [
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -189,100 +225,6 @@ pub(crate) static CLIENT_MESSAGE_93_OPERATION_26_FIELDS: [Field; 3] = [
             min: Some(0.0),
             min_inclusive: true,
             max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_93_OPERATION_27_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"attachment.download\""]),
-    },
-    Field {
-        key: "sha256",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "maxBytes",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: Some(33554432.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_94_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"files.watch\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "folders",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(512),
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_95_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"files.credit\""]),
-    },
-    Field {
-        key: "channel",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(1.0),
-            min_inclusive: true,
-            max: Some(4294967295.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "credits",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(1.0),
-            min_inclusive: true,
-            max: Some(8.0),
             max_inclusive: true,
             integral: true,
         }),

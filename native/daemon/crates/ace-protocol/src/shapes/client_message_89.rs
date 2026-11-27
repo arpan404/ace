@@ -5,7 +5,31 @@
 #![allow(unused_imports)]
 
 // Part client_message_89.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_180_DEVICE_1_SUBSCRIPTION_FIELDS: [Field; 3] = [
+    Field {
+        key: "endpoint",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Format("url"), StrCheck::Max(2048)],
+        }),
+    },
+    Field {
+        key: "p256dh",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_-]{87}$")],
+        }),
+    },
+    Field {
+        key: "auth",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_-]{22}$")],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_180_DEVICE_2_FIELDS: [Field; 3] = [
     Field {
@@ -22,11 +46,7 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_2_FIELDS: [Field; 3] = [
         key: "token",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{64}$")],
         }),
     },
 ];
@@ -46,11 +66,7 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_3_FIELDS: [Field; 6] = [
         key: "token",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{16,400}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{16,400}$")],
         }),
     },
     Field {
@@ -62,22 +78,14 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_3_FIELDS: [Field; 6] = [
         key: "p256dh",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Za-z0-9_-]{87}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_-]{87}$")],
         }),
     },
     Field {
         key: "auth",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Za-z0-9_-]{22}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_-]{22}$")],
         }),
     },
 ];
@@ -97,11 +105,7 @@ pub(crate) static CLIENT_MESSAGE_180_DEVICE_4_FIELDS: [Field; 3] = [
         key: "token",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
 ];
@@ -116,11 +120,7 @@ pub(crate) static CLIENT_MESSAGE_181_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(200)],
         }),
     },
 ];
@@ -135,11 +135,7 @@ pub(crate) static CLIENT_MESSAGE_182_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(200)],
         }),
     },
 ];
@@ -186,11 +182,11 @@ pub(crate) static CLIENT_MESSAGE_183_PREFERENCES_QUIET_HOURS_FIELDS: [Field; 3] 
         key: "timeZone",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(100),
+                StrCheck::Custom(&crate::checks::TIMEZONE),
+            ],
         }),
     },
     Field {
@@ -228,18 +224,10 @@ pub(crate) static CLIENT_MESSAGE_184_FIELDS: [Field; 3] = [
         presence: Presence::Required,
         shape: Shape::All(&[
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: None,
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1)],
             }),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(200),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(200)],
             }),
         ]),
     },
@@ -253,40 +241,5 @@ pub(crate) static CLIENT_MESSAGE_184_FIELDS: [Field; 3] = [
             max_inclusive: false,
             integral: true,
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_185_FIELDS: [Field; 4] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"notification.feed\""]),
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "afterCursor",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "checkpoint",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["true"]),
     },
 ];

@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_52.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_16_VALUE_ISSUES_FIELDS: [Field; 2] = [
     Field { key: "items", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_43::SERVER_MESSAGE_52_RESULT_0_DATA_1_VALUE_ITEMS_FIELDS, extra: Extra::Strip }, min: None, max: Some(25) } },
@@ -34,21 +34,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_18_FIELDS: [Field; 2] = [
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_18_VALUE_FIELDS: [Field; 4] = [
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repositories", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_18_VALUE_REPOSITORIES_FIELDS, extra: Extra::Strip }, min: None, max: Some(128) } },
     Field { key: "primary", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip }) },
-    Field { key: "config", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::client_message_105::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS, extra: Extra::Strip }) },
+    Field { key: "config", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::client_message_106::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_54_REPOSITORIES_FIELDS, extra: Extra::Strip }) },
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_18_VALUE_REPOSITORIES_FIELDS: [Field; 8] = [
     Field { key: "repository", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
     Field { key: "source", presence: Presence::Required, shape: Shape::Enum(&["\"remote\"", "\"manual\""]) },
-    Field { key: "remote", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "remote", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "visible", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "primary", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "available", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "unavailable", presence: Presence::Optional, shape: Shape::Enum(&["\"host_not_configured\"", "\"provider_mismatch\"", "\"provider_unsupported\"", "\"remote_missing\""]) },
-    Field { key: "capabilities", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }), min: None, max: Some(64) } },
+    Field { key: "capabilities", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(64)] }), min: None, max: Some(64) } },
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_19_FIELDS: [Field; 2] = [
@@ -60,13 +60,19 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_19_FIELDS: [Field; 2] = [
     Field {
         key: "counts",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        })),
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Max(64)],
+            }),
+            value: &Shape::Num(&NumBounds {
+                min: Some(0.0),
+                min_inclusive: true,
+                max: None,
+                max_inclusive: false,
+                integral: true,
+            }),
+            keep_proto: false,
+        },
     },
 ];
 

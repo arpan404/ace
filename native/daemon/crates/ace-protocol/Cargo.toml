@@ -25,3 +25,7 @@ url = "2"
 serde = { version = "1", features = ["derive"] }
 # serde_json: generated types keep stored JSON as stored (RawValue), never re-encoded.
 serde_json = { version = "1", features = ["raw_value"] }
+# jiff: an IANA time zone name is checked against the same database Intl accepts.
+jiff = "1"
+# unicode-segmentation: a two-grapheme icon is counted as Intl.Segmenter counts it.
+unicode-segmentation = "1"

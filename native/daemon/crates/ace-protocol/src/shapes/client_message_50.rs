@@ -5,7 +5,79 @@
 #![allow(unused_imports)]
 
 // Part client_message_50.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_2_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"status\""]),
+    },
+    Field {
+        key: "threadIds",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Min(1)],
+            }),
+            min: Some(1),
+            max: Some(16),
+        },
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_3_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"cancel\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_4_FIELDS: [Field; 5] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"message\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(128),
+                StrCheck::Pattern("^[a-zA-Z0-9_.-]+$"),
+            ],
+        }),
+    },
+    Field {
+        key: "text",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(262144)],
+        }),
+    },
+    Field {
+        key: "delivery",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"queue\"", "\"steer\"", "\"restart\""]),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_FIELDS: [Field; 4] = [
     Field {
@@ -17,22 +89,14 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_FIELDS: [Field; 4] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "interactionId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -90,24 +154,12 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_0_FIELDS: [Field; 
     Field {
         key: "optionId",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "message",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
 ];
 
@@ -120,17 +172,15 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_1_FIELDS: [Field; 
     Field {
         key: "answers",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Array {
-            item: &Shape::Str(&StrBounds {
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds { checks: &[] }),
+            value: &Shape::Array {
+                item: &Shape::Str(&StrBounds { checks: &[] }),
                 min: None,
                 max: None,
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: None,
-        }),
+            },
+            keep_proto: false,
+        },
     },
     Field {
         key: "dismissed",
@@ -141,11 +191,7 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_1_FIELDS: [Field; 
         key: "feedback",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
 ];
@@ -164,13 +210,7 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_5_RESOLUTION_2_FIELDS: [Field; 
     Field {
         key: "feedback",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
 ];
 
@@ -215,77 +255,5 @@ pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_6_FIELDS: [Field; 2] = [
         key: "capability",
         presence: Presence::Optional,
         shape: Shape::Enum(&["\"browser\"", "\"devices\"", "\"screen\"", "\"commands\""]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_7_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"browser\""]),
-    },
-    Field {
-        key: "tool",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^browser_[a-z_]{1,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "args",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Any),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_8_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"devices\""]),
-    },
-    Field {
-        key: "tool",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^sim_[a-z_]{1,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "args",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Any),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_97_REQUEST_CALL_9_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"screen\""]),
-    },
-    Field {
-        key: "tool",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^screen_[a-z_]{1,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "args",
-        presence: Presence::Required,
-        shape: Shape::Record(&Shape::Any),
     },
 ];

@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_29.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_69_REPORT_SCREENSHOT_FIELDS: [Field; 4] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static CLIENT_MESSAGE_69_REPORT_SCREENSHOT_FIELDS: [Field; 4] = [
         key: "data",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(900000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(900000)],
         }),
     },
     Field {
@@ -58,11 +54,7 @@ pub(crate) static CLIENT_MESSAGE_70_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
 ];
@@ -77,11 +69,7 @@ pub(crate) static CLIENT_MESSAGE_71_FIELDS: [Field; 6] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
@@ -346,33 +334,21 @@ pub(crate) static CLIENT_MESSAGE_71_FIELDS: [Field; 6] = [
         key: "thread",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "personGrant",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "orgGrant",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
 ];
@@ -393,11 +369,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_1_FIELDS: [Field; 2] = [
         key: "address",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(2048)],
         }),
     },
 ];
@@ -412,11 +384,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_2_FIELDS: [Field; 2] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
 ];
@@ -431,11 +399,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_3_FIELDS: [Field; 3] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
     Field {
@@ -455,11 +419,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_4_FIELDS: [Field; 2] = [
         key: "id",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
 ];
@@ -474,44 +434,28 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_5_FIELDS: [Field; 7] = [
         key: "query",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(200)],
         }),
     },
     Field {
         key: "type",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(40),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(40)],
         }),
     },
     Field {
         key: "category",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")],
         }),
     },
     Field {
         key: "source",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^(?:market|git:[a-z0-9]{1,32})$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
         }),
     },
     Field {

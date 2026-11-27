@@ -5,40 +5,28 @@
 #![allow(unused_imports)]
 
 // Part thread_details_3.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_DETAILS_WORKSPACE_FIELDS: [Field; 6] = [
     Field {
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -46,22 +34,21 @@ pub(crate) static THREAD_DETAILS_WORKSPACE_FIELDS: [Field; 6] = [
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::OneOf(&[
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(4096),
-                pattern: Some(
-                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
-                ),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Max(4096),
+                    StrCheck::Pattern(
+                        "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                    ),
+                    StrCheck::Custom(&crate::checks::PROJECT_ICON_URL),
+                ],
             }),
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(131072),
-                pattern: Some(
-                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
-                ),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Max(131072),
+                    StrCheck::Pattern(
+                        "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                    ),
+                ],
             }),
         ])),
     },
@@ -70,22 +57,21 @@ pub(crate) static THREAD_DETAILS_WORKSPACE_FIELDS: [Field; 6] = [
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::OneOf(&[
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(4096),
-                pattern: Some(
-                    "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
-                ),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Max(4096),
+                    StrCheck::Pattern(
+                        "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+                    ),
+                    StrCheck::Custom(&crate::checks::PROJECT_ICON_URL),
+                ],
             }),
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(131072),
-                pattern: Some(
-                    "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
-                ),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Max(131072),
+                    StrCheck::Pattern(
+                        "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+                    ),
+                ],
             }),
         ])),
     },
@@ -101,33 +87,26 @@ pub(crate) static THREAD_DETAILS_BASE_FIELDS: [Field; 4] = [
         key: "ref",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "remote",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: Some("^[\\w.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(128),
+                StrCheck::Pattern("^[\\w.-]+$"),
+                StrCheck::Custom(&crate::checks::NO_LEADING_DASH_OR_DOT),
+            ],
         }),
     },
     Field {
         key: "head",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{40,64}$")],
         }),
     },
     Field {
@@ -142,33 +121,21 @@ pub(crate) static THREAD_DETAILS_CONTINUED_ON_FIELDS: [Field; 4] = [
         key: "hostId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -189,22 +156,14 @@ pub(crate) static THREAD_DETAILS_MACHINE_FIELDS: [Field; 3] = [
         key: "host",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -250,22 +209,14 @@ pub(crate) static THREAD_DETAILS_GUEST_FIELDS: [Field; 2] = [
         key: "host",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];

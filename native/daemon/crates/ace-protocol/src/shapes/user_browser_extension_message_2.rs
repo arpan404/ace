@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part user_browser_extension_message_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_2_FIELDS: [Field; 3] = [
     Field {
@@ -81,22 +81,14 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_3_DOWNLOAD_FIELDS: [Fie
         key: "filename",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -119,11 +111,7 @@ pub(crate) static USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_3_DOWNLOAD_FIELDS: [Fie
         key: "mimeType",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];

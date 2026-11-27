@@ -201,7 +201,9 @@ function synthesized(): { samples: WireSample[]; refused: string[] } {
       }
       samples.push({
         source: `synth/${kind}/${type}`,
-        text: JSON.stringify(parsed.data),
+        // The input as written, not Zod's output: inbound comparison proves Rust fills the
+        // same defaults and strips the same keys as Zod, rather than agreeing on Zod's work.
+        text: JSON.stringify(value),
         kind,
         property: false,
       });
@@ -299,35 +301,6 @@ function zodCheck(kind: "client" | "server", text: string): RustAnswer {
   const parsed = kind === "client" ? clientZod.safeParse(value) : serverZod.safeParse(value);
   if (!parsed.success) return { ok: false };
   return { ok: true, canonical: JSON.stringify(parsed.data) };
-}
-
-/**
- * Typed values compared with one allowed difference: typify types an optional array as a
- * `Vec` that skips when empty, so a typed body cannot tell `"field": []` from an absent field.
- * Zod keeps the empty array. The value path (above) still compares the exact bytes.
- */
-function typedValueSame(expected: unknown, actual: unknown): boolean {
-  if (sameJson(expected, actual)) return true;
-  if (typeof expected !== "object" || expected === null) return false;
-  if (typeof actual !== "object" || actual === null) return false;
-  if (Array.isArray(expected) || Array.isArray(actual)) {
-    if (!Array.isArray(expected) || !Array.isArray(actual)) return false;
-    return (
-      expected.length === actual.length &&
-      expected.every((item, index) => typedValueSame(item, actual[index]))
-    );
-  }
-  const left = expected as Record<string, unknown>;
-  const right = actual as Record<string, unknown>;
-  for (const key of Object.keys(left)) {
-    const value = left[key];
-    if (!Object.hasOwn(right, key)) {
-      if (Array.isArray(value) && value.length === 0) continue;
-      return false;
-    }
-    if (!typedValueSame(value, right[key])) return false;
-  }
-  return Object.keys(right).every((key) => Object.hasOwn(left, key));
 }
 
 /** The path of the first difference between two JSON values. */
@@ -439,7 +412,7 @@ for (const kind of ["client", "server"] as const) {
     const body = bodies[index];
     if (body?.canonical === undefined) {
       differ(sample.source, "typed bytes", expected, body?.error ?? "refused");
-    } else if (!typedValueSame(JSON.parse(expected), JSON.parse(body.canonical))) {
+    } else if (!sameJson(JSON.parse(expected), JSON.parse(body.canonical))) {
       const path = firstDifference(JSON.parse(expected), JSON.parse(body.canonical)) ?? "";
       const at = (value: unknown): unknown =>
         path
@@ -466,8 +439,8 @@ for (const kind of ["client", "server"] as const) {
 }
 
 if (generated.refused.length > 0)
-  console.log(
-    `check:wire-fixtures: ${generated.refused.length} message types could not be synthesised:\n  ${generated.refused.slice(0, 20).join("\n  ")}`,
+  throw new Error(
+    `check:wire-fixtures: ${generated.refused.length} message types have no valid sample:\n  ${generated.refused.join("\n  ")}`,
   );
 if (mismatches.length > 0)
   throw new Error(

@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part known_thread_status_root.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub static KNOWN_THREAD_STATUS: Shape = Shape::Tagged {
     key: "state",

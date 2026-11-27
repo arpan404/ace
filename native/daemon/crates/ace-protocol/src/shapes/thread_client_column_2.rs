@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part thread_client_column_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_CLIENT_COLUMN_SNOOZE_WOKE_2_FIELDS: [Field; 4] = [
     Field {
@@ -56,11 +56,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_FIELDS: [Field; 19] = [
         key: "rootRunId",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         })),
     },
     Field {
@@ -121,45 +117,42 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_FIELDS: [Field; 19] = [
         key: "model",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "account",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "options",
         presence: Presence::Optional,
-        shape: Shape::Record(&Shape::OneOf(&[
-            Shape::Str(&StrBounds {
-                min: None,
-                max: Some(1024),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            Shape::Num(&NumBounds {
-                min: None,
-                min_inclusive: false,
-                max: None,
-                max_inclusive: false,
-                integral: false,
-            }),
-            Shape::Bool,
-            Shape::Null,
-        ])),
+        shape: Shape::Checked {
+            inner: &Shape::Record {
+                key: &Shape::Str(&StrBounds {
+                    checks: &[StrCheck::Max(128)],
+                }),
+                value: &Shape::OneOf(&[
+                    Shape::Str(&StrBounds {
+                        checks: &[StrCheck::Max(1024)],
+                    }),
+                    Shape::Num(&NumBounds {
+                        min: None,
+                        min_inclusive: false,
+                        max: None,
+                        max_inclusive: false,
+                        integral: false,
+                    }),
+                    Shape::Bool,
+                    Shape::Null,
+                ]),
+                keep_proto: false,
+            },
+            check: &crate::checks::KEYS_32,
+        },
     },
     Field {
         key: "subagentCount",
@@ -297,22 +290,14 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_WATCHING_FIELDS: [Field; 2] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];
@@ -322,22 +307,14 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_ASKING_FIELDS: [Field; 2] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "kind",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64)],
         }),
     },
 ];
@@ -347,22 +324,14 @@ pub(crate) static THREAD_CLIENT_COLUMN_LIVE_ASKING_THREADS_FIELDS: [Field; 2] = 
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];
@@ -408,11 +377,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {

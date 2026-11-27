@@ -3,9 +3,9 @@
 /*
  * Zod's constraint checks, read into the values the shape table's `StrBounds` and `NumBounds`
  * carry. Zod 4 keeps each check's data on `check._zod.def`; `kind` is its name, and the fields
- * below are the ones that change what a value must be. Checks that only refine (`.refine`,
- * `.superRefine`) are not here: no table can express their functions, so `ace-wire` states
- * them by hand in `refine.rs`.
+ * below are the ones that change what a value must be. A string keeps its checks in order,
+ * because `.trim()` changes what the checks after it see. A hand-written `.refine()` is resolved
+ * to a Rust check; one with no implementation stops the generator.
  */
 
 import type { z } from "zod";
@@ -20,14 +20,19 @@ export interface CheckDef {
   inclusive?: unknown;
   pattern?: unknown;
   when?: unknown;
+  fn?: unknown;
 }
 
+export type StrCheck =
+  | { kind: "min"; value: number }
+  | { kind: "max"; value: number }
+  | { kind: "pattern"; value: string }
+  | { kind: "format"; value: string }
+  | { kind: "trim" }
+  | { kind: "custom"; name: string };
+
 export interface StrBounds {
-  min?: number;
-  max?: number;
-  pattern?: string;
-  format?: string;
-  trim?: boolean;
+  checks: StrCheck[];
 }
 
 export interface NumBounds {
@@ -38,6 +43,9 @@ export interface NumBounds {
   integral?: boolean;
 }
 
+/** Resolves a `.refine()` function to the Rust check that implements it. */
+export type CheckResolver = (source: string, path: string) => string;
+
 /** The checks on one schema's def. */
 export function checksOf(def: Record<string, unknown>): CheckDef[] {
   const checks = def.checks;
@@ -47,36 +55,49 @@ export function checksOf(def: Record<string, unknown>): CheckDef[] {
   );
 }
 
-/** A string's bounds, or a refusal naming the check the table can't express. */
-export function strBounds(def: Record<string, unknown>, path: string): StrBounds {
+/** The function a `.refine()` check carries, as Bun reads its source. */
+export function customSource(check: CheckDef): string | undefined {
+  return typeof check.fn === "function" ? check.fn.toString() : undefined;
+}
+
+/** A string's checks, in Zod's order. */
+export function strBounds(
+  def: Record<string, unknown>,
+  path: string,
+  resolve: CheckResolver,
+): StrBounds {
   if (def.coerce === true) throw new Error(`${path}: coercion changes the value`);
-  const bounds: StrBounds = {};
-  if (typeof def.format === "string") bounds.format = def.format;
+  const checks: StrCheck[] = [];
+  if (typeof def.format === "string") checks.push({ kind: "format", value: def.format });
   for (const check of checksOf(def)) {
     switch (check.check) {
       case "min_length":
-        bounds.min = Number(check.minimum);
+        checks.push({ kind: "min", value: Number(check.minimum) });
         break;
       case "max_length":
-        bounds.max = Number(check.maximum);
+        checks.push({ kind: "max", value: Number(check.maximum) });
         break;
       case "string_format":
         if (check.format === "regex" && check.pattern instanceof RegExp)
-          bounds.pattern = check.pattern.source;
-        else if (typeof check.format === "string") bounds.format = check.format;
+          checks.push({ kind: "pattern", value: check.pattern.source });
+        else if (typeof check.format === "string")
+          checks.push({ kind: "format", value: check.format });
         else throw new Error(`${path}: a string format the table can't express`);
         break;
       case "overwrite":
-        bounds.trim = true;
+        checks.push({ kind: "trim" });
         break;
-      case "custom":
-        // `.refine()`: a hand-written check in `ace-wire/src/refine.rs`.
+      case "custom": {
+        const source = customSource(check);
+        if (source === undefined) throw new Error(`${path}: a refinement has no function`);
+        checks.push({ kind: "custom", name: resolve(source, path) });
         break;
+      }
       default:
         throw new Error(`${path}: a string check the table can't express (${String(check.check)})`);
     }
   }
-  return bounds;
+  return { checks };
 }
 
 /** A number's bounds, or a refusal naming the check the table can't express. */
@@ -88,6 +109,7 @@ export function numBounds(def: Record<string, unknown>, path: string): NumBounds
     switch (check.check) {
       case "number_format":
         if (check.format === "safeint" || check.format === "int") bounds.integral = true;
+        else if (check.format === "finite") continue;
         else throw new Error(`${path}: a number format the table can't express`);
         break;
       case "greater_than":

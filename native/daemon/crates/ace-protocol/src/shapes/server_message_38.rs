@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_38.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_49_QUEUE_FIELDS: [Field; 11] = [
     Field {
@@ -77,11 +77,7 @@ pub(crate) static SERVER_MESSAGE_49_QUEUE_FIELDS: [Field; 11] = [
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -111,11 +107,7 @@ pub(crate) static SERVER_MESSAGE_49_QUEUE_FIELDS: [Field; 11] = [
         key: "next",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         })),
     },
 ];
@@ -125,30 +117,22 @@ pub(crate) static SERVER_MESSAGE_49_QUEUE_LAST_FAILURE_FIELDS: [Field; 2] = [
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "code",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
 
 pub(crate) static SERVER_MESSAGE_49_QUEUE_MESSAGES_FIELDS: [Field; 7] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "input", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "type", options: &[("\"mention\"", Shape::Object { fields: &crate::shapes::client_message_41::CLIENT_MESSAGE_85_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"text\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"image\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"file\"", Shape::Object { fields: &crate::shapes::client_message_42::CLIENT_MESSAGE_85_INPUT_3_FIELDS, extra: Extra::Strip })] }, min: Some(1), max: None } },
-    Field { key: "context", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_92::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_FIELDS, extra: Extra::Strip } },
+    Field { key: "context", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_93::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_4_CONTEXT_FIELDS, extra: Extra::Strip } },
     Field { key: "delivery", presence: Presence::Required, shape: Shape::Enum(&["\"steer\"", "\"queue\""]) },
     Field { key: "requiresNextTurn", presence: Presence::Optional, shape: Shape::Bool },
     Field { key: "state", presence: Presence::Required, shape: Shape::Enum(&["\"queued\"", "\"uncertain\""]) },
@@ -165,11 +149,7 @@ pub(crate) static SERVER_MESSAGE_50_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -206,13 +186,7 @@ pub(crate) static SERVER_MESSAGE_50_RESULT_0_FIELDS: [Field; 3] = [
     Field {
         key: "nativeSessionId",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "profile",
@@ -228,13 +202,7 @@ pub(crate) static SERVER_MESSAGE_50_RESULT_0_PROFILE_FIELDS: [Field; 6] = [
     Field {
         key: "version",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "supported",
@@ -282,11 +250,7 @@ pub(crate) static SERVER_MESSAGE_50_RESULT_1_FIELDS: [Field; 2] = [
         key: "error",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
 ];
@@ -301,11 +265,7 @@ pub(crate) static SERVER_MESSAGE_51_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {

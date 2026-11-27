@@ -5,238 +5,168 @@
 #![allow(unused_imports)]
 
 // Part server_message_139.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_MCP_SERVER_FIELDS: [Field; 2] = [
-    Field {
-        key: "name",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "source",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_FIELDS: [Field; 18] = [
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
+    Field { key: "childThreadId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
+    Field { key: "machine", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_11::SERVER_MESSAGE_12_ITEMS_3_MACHINE_FIELDS, extra: Extra::Strip } },
+    Field { key: "parentId", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] })) },
+    Field { key: "origin", presence: Presence::Required, shape: Shape::Enum(&["\"root\"", "\"provider_subagent\"", "\"ace\""]) },
+    Field { key: "lineage", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_158_THREADS_VALUE_LINEAGE_FIELDS, extra: Extra::Strip } },
+    Field { key: "native", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_136::SERVER_MESSAGE_158_THREADS_VALUE_IMPORTED_NATIVE_FIELDS, extra: Extra::Strip } },
+    Field { key: "fidelity", presence: Presence::Required, shape: Shape::Enum(&["\"full\"", "\"summary\"", "\"placeholder\""]) },
+    Field { key: "spawnedBy", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] })) },
+    Field { key: "name", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "role", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "cwd", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "status", presence: Presence::Required, shape: Shape::Tagged { key: "state", options: &[("\"starting\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_0_FIELDS, extra: Extra::Strip }), ("\"working\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_1_FIELDS, extra: Extra::Strip }), ("\"blocked\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_2_FIELDS, extra: Extra::Strip }), ("\"idle\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_3_FIELDS, extra: Extra::Strip }), ("\"interrupted\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_4_FIELDS, extra: Extra::Strip }), ("\"failed\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_5_FIELDS, extra: Extra::Strip }), ("\"unresponsive\"", Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_6_FIELDS, extra: Extra::Strip })] } },
+    Field { key: "background", presence: Presence::Default("false"), shape: Shape::Bool },
+    Field { key: "createdAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "endedAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
 ];
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_FIELDS: [Field; 3] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"question\""]) },
-    Field { key: "questions", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_FIELDS, extra: Extra::Strip }, min: None, max: None } },
-    Field { key: "target", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_138::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS, extra: Extra::Strip } },
-];
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_0_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"starting\""]),
+}];
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_FIELDS: [Field; 7] = [
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_1_FIELDS: [Field; 4] = [
     Field {
-        key: "id",
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Enum(&["\"working\""]),
     },
     Field {
-        key: "header",
+        key: "activity",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"thinking\"",
+            "\"responding\"",
+            "\"tool\"",
+            "\"compacting\"",
+            "\"retrying\"",
+            "\"starting_turn\"",
+        ]),
+    },
+    Field {
+        key: "itemId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
-        key: "text",
+        key: "detail",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_2_FIELDS: [Field; 6] = [
+    Field {
+        key: "state",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Enum(&["\"blocked\""]),
     },
     Field {
-        key: "options",
+        key: "on",
         presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"human\"",
+            "\"subagents\"",
+            "\"queue\"",
+            "\"background_task\"",
+            "\"rate_limit\"",
+            "\"network\"",
+            "\"upstream\"",
+        ]),
+    },
+    Field {
+        key: "refs",
+        presence: Presence::Default("[]"),
         shape: Shape::Array {
-            item: &Shape::Object {
-                fields: &SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_OPTIONS_FIELDS,
-                extra: Extra::Strip,
-            },
+            item: &Shape::Str(&StrBounds { checks: &[] }),
             min: None,
             max: None,
         },
     },
     Field {
-        key: "multiSelect",
-        presence: Presence::Default("false"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "allowOther",
-        presence: Presence::Default("false"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "secret",
-        presence: Presence::Default("false"),
-        shape: Shape::Bool,
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_1_QUESTIONS_OPTIONS_FIELDS: [Field;
-    3] = [
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "label",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "description",
+        key: "until",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
             max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            max_inclusive: false,
+            integral: true,
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_2_FIELDS: [Field; 6] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"plan_review\""]) },
-    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "summary", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "markdown", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "planPath", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "todos", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_13::SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS, extra: Extra::Strip }, min: None, max: None } },
-];
-
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_3_FIELDS: [Field; 9] = [
     Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"elicitation\""]),
-    },
-    Field {
-        key: "server",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
+        key: "attempt",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
             max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            max_inclusive: false,
+            integral: true,
         }),
     },
     Field {
         key: "message",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "url",
         presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "schema",
-        presence: Presence::Optional,
-        shape: Shape::Any,
-    },
-    Field {
-        key: "mode",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"form\"", "\"url\""]),
-    },
-    Field {
-        key: "nativeId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "title",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "description",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_4_FIELDS: [Field; 7] = [
-    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"browser_help\""]) },
-    Field { key: "target", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_138::SERVER_MESSAGE_162_PAGE_0_2_ENTRIES_REQUEST_0_TARGET_FIELDS, extra: Extra::Strip } },
-    Field { key: "tabId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "reason", presence: Presence::Required, shape: Shape::Enum(&["\"login\"", "\"captcha\"", "\"two_factor\"", "\"dialog\"", "\"other\""]) },
-    Field { key: "message", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1000), pattern: None, format: None, trim: false }) },
-    Field { key: "url", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(8192), pattern: None, format: None, trim: false }) },
-    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_3_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"idle\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_4_FIELDS: [Field; 1] = [Field {
+    key: "state",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"interrupted\""]),
+}];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_5_FIELDS: [Field; 2] = [
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"failed\""]),
+    },
+    Field {
+        key: "error",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_61::SERVER_MESSAGE_52_RESULT_13_RUNS_ERROR_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_6_FIELDS: [Field; 2] = [
+    Field {
+        key: "state",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"unresponsive\""]),
+    },
+    Field {
+        key: "lastSignalAt",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
 ];

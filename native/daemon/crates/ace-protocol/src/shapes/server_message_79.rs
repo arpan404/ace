@@ -5,68 +5,332 @@
 #![allow(unused_imports)]
 
 // Part server_message_79.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_MOVEMENT_3_FIELDS: [Field; 1] =
-    [Field {
-        key: "kind",
+pub(crate) static SERVER_MESSAGE_66_CHECK_FIELDS: [Field; 2] = [
+    Field {
+        key: "checkId",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"same\""]),
-    }];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_COLLECTIONS_FIELDS: [Field; 4] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$"), format: None, trim: false }) },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(60), pattern: None, format: None, trim: false }) },
-    Field { key: "line", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(200), pattern: None, format: None, trim: false }) },
-    Field { key: "entries", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_78::SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject }, min: None, max: Some(24) } },
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
+        }),
+    },
+    Field {
+        key: "suitId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(48),
+                StrCheck::Pattern("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+            ],
+        }),
+    },
 ];
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_PUBLISHERS_FIELDS: [Field; 7] = [
+pub(crate) static SERVER_MESSAGE_67_FIELDS: [Field; 3] = [
     Field {
-        key: "handle",
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"marketplace.result\""]),
+    },
+    Field {
+        key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
+        }),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Tagged {
+            key: "op",
+            options: &[
+                (
+                    "\"discover\"",
+                    Shape::Object {
+                        fields: &SERVER_MESSAGE_67_RESULT_0_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"publisher\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_1_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"picture\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_81::SERVER_MESSAGE_67_RESULT_2_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"publish\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_81::SERVER_MESSAGE_67_RESULT_3_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"publishables\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_90::SERVER_MESSAGE_67_RESULT_4_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"botRecipe\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_90::SERVER_MESSAGE_67_RESULT_5_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"privacyCheck\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_90::SERVER_MESSAGE_67_RESULT_6_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"sources\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_90::SERVER_MESSAGE_67_RESULT_7_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"search\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_91::SERVER_MESSAGE_67_RESULT_8_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"home\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_91::SERVER_MESSAGE_67_RESULT_9_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"read\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_91::SERVER_MESSAGE_67_RESULT_10_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"review\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_92::SERVER_MESSAGE_67_RESULT_11_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"look\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_95::SERVER_MESSAGE_67_RESULT_12_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"reviewPage\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_95::SERVER_MESSAGE_67_RESULT_13_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"installed\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_96::SERVER_MESSAGE_67_RESULT_14_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"done\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_96::SERVER_MESSAGE_67_RESULT_15_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"spadeSkills\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_96::SERVER_MESSAGE_67_RESULT_16_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"spadeBot\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_97::SERVER_MESSAGE_67_RESULT_17_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"spadeSkillFiles\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_97::SERVER_MESSAGE_67_RESULT_18_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+                (
+                    "\"error\"",
+                    Shape::Object {
+                        fields:
+                            &crate::shapes::server_message_97::SERVER_MESSAGE_67_RESULT_19_FIELDS,
+                        extra: Extra::Reject,
+                    },
+                ),
+            ],
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_0_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"discover\""]),
+    },
+    Field {
+        key: "discover",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_FIELDS,
+            extra: Extra::Reject,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_FIELDS: [Field; 8] = [
+    Field { key: "hero", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject } },
+    Field { key: "featured", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject }, min: None, max: Some(24) } },
+    Field { key: "trending", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_FIELDS, extra: Extra::Reject }, min: None, max: Some(50) } },
+    Field { key: "fresh", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject }, min: None, max: Some(24) } },
+    Field { key: "collections", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_COLLECTIONS_FIELDS, extra: Extra::Reject }, min: None, max: Some(16) } },
+    Field { key: "publishers", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_PUBLISHERS_FIELDS, extra: Extra::Reject }, min: None, max: Some(12) } },
+    Field { key: "rankedAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "readAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS: [Field; 18] = [
+    Field {
+        key: "source",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^(?:market|git:[a-z0-9]{1,32})$")],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+    Field {
+        key: "name",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
+        }),
+    },
+    Field {
+        key: "title",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(120)],
+        }),
+    },
+    Field {
+        key: "line",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(300)],
+        }),
+    },
+    Field {
+        key: "publisher",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_PUBLISHER_FIELDS,
+            extra: Extra::Reject,
+        },
+    },
+    Field {
+        key: "categories",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Pattern("^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")],
+            }),
             min: None,
-            max: None,
-            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
-            format: None,
-            trim: false,
-        }),
+            max: Some(3),
+        },
     },
     Field {
-        key: "displayName",
+        key: "keywords",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(60),
-            pattern: None,
-            format: None,
-            trim: true,
-        }),
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+            }),
+            min: None,
+            max: Some(16),
+        },
     },
     Field {
-        key: "avatar",
+        key: "version",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Max(64),
+                StrCheck::Pattern("^\\d{1,9}\\.\\d{1,9}\\.\\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$"),
+            ],
         }),
     },
     Field {
-        key: "verified",
+        key: "reviewed",
         presence: Presence::Required,
         shape: Shape::Bool,
     },
     Field {
-        key: "official",
-        presence: Presence::Optional,
+        key: "byAce",
+        presence: Presence::Required,
         shape: Shape::Bool,
     },
     Field {
-        key: "entries",
+        key: "updated",
         presence: Presence::Required,
         shape: Shape::Num(&NumBounds {
             min: Some(0.0),
@@ -87,72 +351,66 @@ pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_PUBLISHERS_FIELDS: [Field;
             integral: true,
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_1_FIELDS: [Field; 2] = [
     Field {
-        key: "op",
+        key: "supported",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"publisher\""]),
+        shape: Shape::Bool,
     },
     Field {
-        key: "page",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &SERVER_MESSAGE_67_RESULT_1_PAGE_FIELDS,
-            extra: Extra::Reject,
+        key: "from",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(2048)],
+        }),
+    },
+    Field {
+        key: "verified",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "deprecated",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(500)],
+        }),
+    },
+    Field {
+        key: "previews",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
+            }),
+            min: None,
+            max: Some(4),
         },
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_67_RESULT_1_PAGE_FIELDS: [Field; 5] = [
-    Field { key: "profile", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_FIELDS, extra: Extra::Reject } },
-    Field { key: "pinned", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_78::SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject }, min: None, max: Some(6) } },
-    Field { key: "entries", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_78::SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject }, min: None, max: Some(500) } },
-    Field { key: "downloads", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "official", presence: Presence::Optional, shape: Shape::Bool },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_FIELDS: [Field; 11] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
-    Field { key: "handle", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"), format: None, trim: false }) },
-    Field { key: "displayName", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(60), pattern: None, format: None, trim: true }) },
-    Field { key: "bio", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(500), pattern: None, format: None, trim: false }) },
-    Field { key: "links", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_32::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS, extra: Extra::Reject }, min: None, max: Some(5) } },
-    Field { key: "avatar", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{64}$"), format: None, trim: false }) },
-    Field { key: "joined", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "verified", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "official", presence: Presence::Optional, shape: Shape::Bool },
-    Field { key: "proofs", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "kind", options: &[("\"account\"", Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_PROOFS_0_FIELDS, extra: Extra::Reject }), ("\"domain\"", Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_PROOFS_1_FIELDS, extra: Extra::Reject }), ("\"github\"", Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_PROOFS_2_FIELDS, extra: Extra::Reject })] }, min: None, max: Some(8) } },
-    Field { key: "pins", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_32::CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_ENTRIES_FIELDS, extra: Extra::Reject }, min: None, max: Some(6) } },
-];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_PROOFS_0_FIELDS: [Field; 1] = [Field {
-    key: "kind",
-    presence: Presence::Required,
-    shape: Shape::Enum(&["\"account\""]),
-}];
-
-pub(crate) static SERVER_MESSAGE_67_RESULT_1_PAGE_PROFILE_PROOFS_1_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_PUBLISHER_FIELDS: [Field; 2] = [
     Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"domain\""]),
-    },
-    Field {
-        key: "domain",
+        key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(3),
-            max: Some(253),
-            pattern: Some("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
-        key: "via",
+        key: "name",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"dns\"", "\"well-known\""]),
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOUBLE_DASH),
+            ],
+        }),
     },
+];
+
+pub(crate) static SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_FIELDS: [Field; 4] = [
+    Field { key: "entry", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_67_RESULT_0_DISCOVER_HERO_FIELDS, extra: Extra::Reject } },
+    Field { key: "rank", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "movement", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"new\"", Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_MOVEMENT_0_FIELDS, extra: Extra::Reject }), ("\"up\"", Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_MOVEMENT_1_FIELDS, extra: Extra::Reject }), ("\"down\"", Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_MOVEMENT_2_FIELDS, extra: Extra::Reject }), ("\"same\"", Shape::Object { fields: &crate::shapes::server_message_80::SERVER_MESSAGE_67_RESULT_0_DISCOVER_TRENDING_MOVEMENT_3_FIELDS, extra: Extra::Reject })] } },
+    Field { key: "week", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
 ];

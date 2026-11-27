@@ -5,315 +5,45 @@
 #![allow(unused_imports)]
 
 // Part server_message_126.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"human\"", "\"agent\"", "\"page\""]),
-    },
-    Field {
-        key: "agentId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
+pub(crate) static SERVER_MESSAGE_142_STATE_FIELDS: [Field; 21] = [
+    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(8192)] }) },
+    Field { key: "closed", presence: Presence::Required, shape: Shape::Bool },
+    Field { key: "backend", presence: Presence::Optional, shape: Shape::Enum(&["\"embedded\"", "\"headless\"", "\"user\""]) },
+    Field { key: "status", presence: Presence::Optional, shape: Shape::Enum(&["\"ready\"", "\"paused\"", "\"recovering\""]) },
+    Field { key: "reason", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(2048)] }) },
+    Field { key: "pageStateLost", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "loading", presence: Presence::Optional, shape: Shape::Bool },
+    Field { key: "loadError", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(2048)] }) },
+    Field { key: "permissionDenied", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_142_STATE_PERMISSION_DENIED_FIELDS, extra: Extra::Strip } },
+    Field { key: "blocked", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_125::SERVER_MESSAGE_141_BLOCKED_FIELDS, extra: Extra::Strip } },
+    Field { key: "activeTabId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "tabs", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_TABS_FIELDS, extra: Extra::Strip }, min: None, max: Some(512) } },
+    Field { key: "downloads", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_128::SERVER_MESSAGE_142_STATE_DOWNLOADS_FIELDS, extra: Extra::Strip }, min: None, max: Some(128) } },
+    Field { key: "pending_dialog", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_127::SERVER_MESSAGE_142_STATE_TABS_PENDING_DIALOG_FIELDS, extra: Extra::Strip } },
+    Field { key: "annotation", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_128::SERVER_MESSAGE_142_STATE_ANNOTATION_FIELDS, extra: Extra::Strip } },
+    Field { key: "recording", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_128::SERVER_MESSAGE_142_STATE_RECORDING_FIELDS, extra: Extra::Strip } },
+    Field { key: "recordingNotice", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
+    Field { key: "features", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Max(64)] }), min: None, max: Some(32) } },
+    Field { key: "video", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_128::SERVER_MESSAGE_142_STATE_VIDEO_FIELDS, extra: Extra::Strip } },
+    Field { key: "acceleration", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_122::SERVER_MESSAGE_130_STATE_ACCELERATION_FIELDS, extra: Extra::Strip } },
 ];
 
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_POINTER_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_142_STATE_PERMISSION_DENIED_FIELDS: [Field; 2] = [
     Field {
-        key: "x",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "y",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "sequence",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_TABS_EMULATION_FIELDS: [Field; 7] = [
-    Field {
-        key: "width",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(100.0),
-            min_inclusive: true,
-            max: Some(4096.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "height",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(100.0),
-            min_inclusive: true,
-            max: Some(4096.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "deviceScaleFactor",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.5),
-            min_inclusive: true,
-            max: Some(4.0),
-            max_inclusive: true,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "mobile",
-        presence: Presence::Required,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "touch",
-        presence: Presence::Required,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "userAgent",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "by",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"human\"", "\"agent\""]),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_DOWNLOADS_FIELDS: [Field; 8] = [
-    Field {
-        key: "downloadId",
+        key: "permission",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
-        key: "tabId",
+        key: "origin",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
-    },
-    Field {
-        key: "filename",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "bytes",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "mimeType",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "flags",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Enum(&["\"executable\"", "\"archive\""]),
-            min: None,
-            max: None,
-        },
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"pending\"",
-            "\"complete\"",
-            "\"denied\"",
-            "\"failed\"",
-            "\"too_large\"",
-        ]),
-    },
-    Field {
-        key: "path",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_ANNOTATION_FIELDS: [Field; 1] = [Field {
-    key: "owner",
-    presence: Presence::Required,
-    shape: Shape::Str(&StrBounds {
-        min: Some(1),
-        max: Some(256),
-        pattern: None,
-        format: None,
-        trim: false,
-    }),
-}];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_RECORDING_FIELDS: [Field; 1] = [Field {
-    key: "by",
-    presence: Presence::Required,
-    shape: Shape::Object {
-        fields: &SERVER_MESSAGE_142_STATE_TABS_OPENED_BY_FIELDS,
-        extra: Extra::Strip,
-    },
-}];
-
-pub(crate) static SERVER_MESSAGE_142_STATE_VIDEO_FIELDS: [Field; 3] = [
-    Field {
-        key: "status",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"retrying\""]),
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "attempts",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_143_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"browser.delivery\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "undelivered",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_120::SERVER_MESSAGE_131_UNDELIVERED_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_144_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"browser.frame\""]),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "frame",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_127::SERVER_MESSAGE_144_FRAME_FIELDS,
-            extra: Extra::Strip,
-        },
     },
 ];

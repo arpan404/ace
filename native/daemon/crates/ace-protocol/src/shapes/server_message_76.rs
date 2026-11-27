@@ -5,7 +5,45 @@
 #![allow(unused_imports)]
 
 // Part server_message_76.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_LABELS_FIELDS: [Field; 5] = [
+    Field {
+        key: "composer-placeholder",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+    Field {
+        key: "empty-transcript",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+    Field {
+        key: "empty-sidebar",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+    Field {
+        key: "working-word",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+    Field {
+        key: "send",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(40)],
+        }),
+    },
+];
 
 pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_FIELDS: [Field; 5] = [
     Field {
@@ -13,13 +51,14 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_FIELDS: [Fiel
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(200),
-                pattern: Some(
-                    "^assets\\/[A-Za-z0-9._/-]*\\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$",
-                ),
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Min(1),
+                    StrCheck::Max(200),
+                    StrCheck::Pattern(
+                        "^assets\\/[A-Za-z0-9._/-]*\\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$",
+                    ),
+                    StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+                ],
             }),
             min: Some(1),
             max: Some(3),
@@ -29,11 +68,12 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_FIELDS: [Fiel
         key: "poster",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: Some("^assets\\/[A-Za-z0-9._/-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(200),
+                StrCheck::Pattern("^assets\\/[A-Za-z0-9._/-]+$"),
+                StrCheck::Custom(&crate::checks::NO_PARENT_PATH),
+            ],
         }),
     },
     Field {
@@ -97,6 +137,58 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_VIDEO_PALETTE_FIELD
     },
 ];
 
+pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_SCENES_FIELDS: [Field; 7] = [
+    Field {
+        key: "app",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "celebration",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "sidebar",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "header",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "composer",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "right-panel",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+    Field {
+        key: "page",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9-]+\\.js$")],
+        }),
+    },
+];
+
 pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_FIELDS: [Field; 9] = [
     Field {
         key: "light",
@@ -118,11 +210,7 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_FIELDS: [F
         key: "fontFamily",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(200)],
         }),
     },
     Field {
@@ -182,146 +270,10 @@ pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_FIELDS: [F
 ];
 
 pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_LIGHT_FIELDS: [Field; 6] = [
-    Field {
-        key: "background",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "foreground",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "cursor",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "cursorAccent",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "selection",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "ansi",
-        presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"),
-            format: None,
-            trim: false,
-        })),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_REGIONS_VALUE_FIELDS: [Field; 4] = [
-    Field {
-        key: "background",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2000),
-            pattern: Some("^[^{};]*$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "border",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2000),
-            pattern: Some("^[^{};]*$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "shadow",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2000),
-            pattern: Some("^[^{};]*$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "backdropFilter",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2000),
-            pattern: Some("^[^{};]*$"),
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_2_FIELDS: [Field; 2] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"validate\""]),
-    },
-    Field {
-        key: "summary",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_73::SERVER_MESSAGE_63_RESPONSE_0_SUITS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_63_RESPONSE_3_FIELDS: [Field; 2] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"remove\""]),
-    },
-    Field {
-        key: "removed",
-        presence: Presence::Required,
-        shape: Shape::Bool,
-    },
+    Field { key: "background", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")] }) },
+    Field { key: "foreground", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")] }) },
+    Field { key: "cursor", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")] }) },
+    Field { key: "cursorAccent", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")] }) },
+    Field { key: "selection", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")] }) },
+    Field { key: "ansi", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_77::SERVER_MESSAGE_63_RESPONSE_1_SUIT_MANIFEST_TERMINAL_LIGHT_ANSI_FIELDS, extra: Extra::Reject } },
 ];

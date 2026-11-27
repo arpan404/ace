@@ -5,12 +5,12 @@
 #![allow(unused_imports)]
 
 // Part server_message_15.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_FIELDS: [Field; 22] = [
     Field { key: "source", presence: Presence::Required, shape: Shape::Enum(&["\"screen-frames\"", "\"browser-trace\""]) },
     Field { key: "target", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"window\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_0_FIELDS, extra: Extra::Strip }), ("\"browser-tab\"", Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_1_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "action", presence: Presence::Optional, shape: Shape::OneOf(&[Shape::Tagged { key: "kind", options: &[("\"pointer.move\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"pointer.click\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"pointer.drag\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"key.press\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"text.type\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_5_FIELDS, extra: Extra::Strip }), ("\"text.paste\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_6_FIELDS, extra: Extra::Strip }), ("\"pointer.down\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_7_FIELDS, extra: Extra::Strip }), ("\"pointer.up\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_8_FIELDS, extra: Extra::Strip }), ("\"pointer.cancel\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_9_FIELDS, extra: Extra::Strip })] }, Shape::Tagged { key: "action", options: &[("\"click\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_0_FIELDS, extra: Extra::Reject }), ("\"type\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_1_FIELDS, extra: Extra::Reject }), ("\"press\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_2_FIELDS, extra: Extra::Reject }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_3_FIELDS, extra: Extra::Reject }), ("\"drag\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_4_FIELDS, extra: Extra::Reject })] }]) },
+    Field { key: "action", presence: Presence::Optional, shape: Shape::OneOf(&[Shape::Tagged { key: "kind", options: &[("\"pointer.move\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"pointer.click\"", Shape::Object { fields: &crate::shapes::client_message_67::CLIENT_MESSAGE_144_OPERATION_23_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"pointer.drag\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"key.press\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"text.type\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_5_FIELDS, extra: Extra::Strip }), ("\"text.paste\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_6_FIELDS, extra: Extra::Strip }), ("\"pointer.down\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_7_FIELDS, extra: Extra::Strip }), ("\"pointer.up\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_8_FIELDS, extra: Extra::Strip }), ("\"pointer.cancel\"", Shape::Object { fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_144_OPERATION_23_INPUT_9_FIELDS, extra: Extra::Strip })] }, Shape::Tagged { key: "action", options: &[("\"click\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_0_FIELDS, extra: Extra::Reject }), ("\"type\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_1_FIELDS, extra: Extra::Reject }), ("\"press\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_2_FIELDS, extra: Extra::Reject }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_3_FIELDS, extra: Extra::Reject }), ("\"drag\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_10_INTERACTION_4_FIELDS, extra: Extra::Reject })] }]) },
     Field { key: "refreshHz", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: Some(240.0), max_inclusive: true, integral: false }) },
     Field { key: "windowMs", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: Some(10000.0), max_inclusive: true, integral: false }) },
     Field { key: "latencyMs", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
@@ -27,7 +27,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_FIELDS: [Field; 22] = [
     Field { key: "confidence", presence: Presence::Required, shape: Shape::Enum(&["\"high\"", "\"medium\"", "\"low\""]) },
     Field { key: "hostLoad", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
     Field { key: "captureOverheadPct", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
-    Field { key: "notes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: None, max: Some(512), pattern: None, format: None, trim: false }), min: None, max: Some(32) } },
+    Field { key: "notes", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Max(512)] }), min: None, max: Some(32) } },
     Field { key: "repeat", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_REPEAT_FIELDS, extra: Extra::Strip } },
     Field { key: "filmstrip", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip } },
 ];
@@ -42,11 +42,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_0_FIELDS: [Field;
         key: "bundleId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -72,22 +68,14 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_MEASUREMENT_TARGET_1_FIELDS: [Field;
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "tabId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];

@@ -5,89 +5,266 @@
 #![allow(unused_imports)]
 
 // Part server_message_146.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_FIELDS: [Field; 23] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"thread.updated\""]) },
-    Field { key: "workspaceId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "backend", presence: Presence::Optional, shape: Shape::Enum(&["\"acp\"", "\"cursor-sdk\""]) },
-    Field { key: "capabilities", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
-    Field { key: "permission", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_134::SERVER_MESSAGE_158_THREADS_VALUE_PERMISSION_FIELDS, extra: Extra::Strip } },
-    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "titleSource", presence: Presence::Optional, shape: Shape::Enum(&["\"provisional\"", "\"provider\"", "\"generated\"", "\"person\"", "\"agent\""]) },
-    Field { key: "provider", presence: Presence::Optional, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
-    Field { key: "lineage", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_LINEAGE_FIELDS, extra: Extra::Strip } },
-    Field { key: "delegatedBy", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "delegatedFrom", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_DELEGATED_FROM_FIELDS, extra: Extra::Strip } },
-    Field { key: "startedBy", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "startedByClient", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_STARTED_BY_CLIENT_FIELDS, extra: Extra::Strip } },
-    Field { key: "treeRootId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "queuedLaunch", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_QUEUED_LAUNCH_FIELDS, extra: Extra::Strip }) },
-    Field { key: "execution", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_94::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_11_SELECTION_FIELDS, extra: Extra::Strip } },
-    Field { key: "switch", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_SWITCH_FIELDS, extra: Extra::Strip } },
-    Field { key: "effectiveCapabilities", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip } },
-    Field { key: "acpSupport", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_provider_metadata_2::THREAD_PROVIDER_METADATA_ACP_SUPPORT_FIELDS, extra: Extra::Strip } },
-    Field { key: "acp", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_ACP_FIELDS, extra: Extra::Strip } },
-    Field { key: "status", presence: Presence::Optional, shape: Shape::Custom(&crate::custom::THREAD_STATUS) },
-    Field { key: "archivedAt", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true })) },
-    Field { key: "goal", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Object { fields: &crate::shapes::server_message_134::SERVER_MESSAGE_158_THREADS_VALUE_GOAL_FIELDS, extra: Extra::Strip }) },
-];
+pub(crate) static SERVER_MESSAGE_165_VIEW_0_PARTIAL_FIELDS: [Field; 1] = [Field {
+    key: "previews",
+    presence: Presence::Required,
+    shape: Shape::Array {
+        item: &Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+        min: None,
+        max: Some(200),
+    },
+}];
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_2_ACP_FIELDS: [Field; 3] = [
+pub(crate) static SERVER_MESSAGE_165_VIEW_0_USAGE_VALUE_FIELDS: [Field; 18] = [
     Field {
-        key: "acpAgentId",
-        presence: Presence::Required,
+        key: "usageScope",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"agent\"", "\"provider_session\"", "\"model_session\""]),
+    },
+    Field {
+        key: "counterKey",
+        presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
         }),
     },
     Field {
-        key: "installationId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+        key: "contextTokens",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
         }),
     },
     Field {
-        key: "instanceId",
-        presence: Presence::Required,
+        key: "contextSessionId",
+        presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
         }),
     },
-];
-
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_3_FIELDS: [Field; 2] = [
+    Field {
+        key: "reasoningTokens",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "cacheWriteTokens",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "cacheWrite1hTokens",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "model",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "accountId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
+        }),
+    },
+    Field {
+        key: "billingMode",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"api\"", "\"subscription\"", "\"unknown\""]),
+    },
+    Field {
+        key: "counterMode",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"cumulative\"", "\"incremental\""]),
+    },
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"agent.created\""]),
+        shape: Shape::Enum(&["\"usage.updated\""]),
     },
     Field {
-        key: "agent",
+        key: "agentId",
         presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_FIELDS,
-            extra: Extra::Strip,
-        },
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "inputTokens",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "outputTokens",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "cachedInputTokens",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "contextWindow",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: false,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "costUsd",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        }),
     },
 ];
 
-pub(crate) static SERVER_MESSAGE_166_EVENTS_PAYLOAD_4_FIELDS: [Field; 4] = [
-    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"agent.status\""]) },
-    Field { key: "agentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "status", presence: Presence::Required, shape: Shape::Tagged { key: "state", options: &[("\"starting\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_0_FIELDS, extra: Extra::Strip }), ("\"working\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_1_FIELDS, extra: Extra::Strip }), ("\"blocked\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_2_FIELDS, extra: Extra::Strip }), ("\"idle\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_3_FIELDS, extra: Extra::Strip }), ("\"interrupted\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_4_FIELDS, extra: Extra::Strip }), ("\"failed\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_5_FIELDS, extra: Extra::Strip }), ("\"unresponsive\"", Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_162_PAGE_0_0_ENTRIES_STATUS_6_FIELDS, extra: Extra::Strip })] } },
-    Field { key: "completionRelevant", presence: Presence::Optional, shape: Shape::Bool },
+pub(crate) static SERVER_MESSAGE_165_VIEW_1_FIELDS: [Field; 7] = [
+    Field { key: "window", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_158_WINDOW_FIELDS, extra: Extra::Strip } },
+    Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"threads\""]) },
+    Field { key: "seq", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: Some(9007199254740991.0), max_inclusive: true, integral: true }) },
+    Field { key: "threads", presence: Presence::Required, shape: Shape::Record { key: &Shape::Str(&StrBounds { checks: &[] }), value: &Shape::Object { fields: &crate::shapes::server_message_135::SERVER_MESSAGE_158_THREADS_VALUE_FIELDS, extra: Extra::Strip }, keep_proto: true } },
+    Field { key: "shares", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_165_VIEW_1_SHARES_FIELDS, extra: Extra::Strip } },
+    Field { key: "keep", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }), min: None, max: None } },
+    Field { key: "reads", presence: Presence::Optional, shape: Shape::Record { key: &Shape::Str(&StrBounds { checks: &[] }), value: &Shape::Object { fields: &crate::shapes::server_message_137::SERVER_MESSAGE_158_THREADS_VALUE_READ_STATE_FIELDS, extra: Extra::Strip }, keep_proto: true } },
+];
+
+pub(crate) static SERVER_MESSAGE_165_VIEW_1_SHARES_FIELDS: [Field; 3] = [
+    Field { key: "workspaces", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_details_3::THREAD_DETAILS_WORKSPACE_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+    Field { key: "effectiveCapabilities", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::thread_provider_metadata::THREAD_PROVIDER_METADATA_EFFECTIVE_CAPABILITIES_FIELDS, extra: Extra::Strip }, min: None, max: Some(64) } },
+    Field { key: "rows", presence: Presence::Required, shape: Shape::Record { key: &Shape::Str(&StrBounds { checks: &[] }), value: &Shape::Object { fields: &SERVER_MESSAGE_165_VIEW_1_SHARES_ROWS_VALUE_FIELDS, extra: Extra::Strip }, keep_proto: true } },
+];
+
+pub(crate) static SERVER_MESSAGE_165_VIEW_1_SHARES_ROWS_VALUE_FIELDS: [Field; 2] = [
+    Field {
+        key: "workspace",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(63.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "capabilities",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(63.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_166_FIELDS: [Field; 6] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"events\""]),
+    },
+    Field {
+        key: "subscriptionId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "afterSeq",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "throughSeq",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "events",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::server_message_147::SERVER_MESSAGE_166_EVENTS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+    Field {
+        key: "early",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
 ];

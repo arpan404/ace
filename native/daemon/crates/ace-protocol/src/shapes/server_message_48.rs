@@ -5,12 +5,12 @@
 #![allow(unused_imports)]
 
 // Part server_message_48.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_FIELDS: [Field; 5] = [
     Field { key: "stack", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_FIELDS, extra: Extra::Strip }) },
     Field { key: "local", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_LOCAL_FIELDS, extra: Extra::Strip }) },
-    Field { key: "localUnavailable", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false })) },
+    Field { key: "localUnavailable", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] })) },
     Field { key: "operation", presence: Presence::Required, shape: Shape::Nullable(&Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS, extra: Extra::Strip }) },
     Field { key: "movedLayers", presence: Presence::Default("[]"), shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_49::SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_MOVED_LAYERS_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
 ];
@@ -20,11 +20,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_FIELDS: [Field;
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -42,11 +38,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_FIELDS: [Field;
         key: "trunk",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -100,99 +92,63 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_FIELDS: 
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "headSha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "branch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "baseBranch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "mergeState",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "reviewDecision",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
         key: "checksState",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
     Field {
@@ -217,11 +173,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_FIELDS: 
         key: "queueState",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
 ];
@@ -232,31 +184,23 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_STACK_LAYERS_REQUIRED
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_LOCAL_FIELDS: [Field; 4] = [
-    Field { key: "trunk", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
-    Field { key: "currentBranch", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "trunk", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
+    Field { key: "currentBranch", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "raw", presence: Presence::Optional, shape: Shape::Any },
-    Field { key: "branches", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_65_EXPECTED_LOCAL_BRANCHES_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
+    Field { key: "branches", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_108::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_65_EXPECTED_LOCAL_BRANCHES_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS: [Field; 6] = [
@@ -296,11 +240,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS: [Fi
         key: "uuid",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: Some("uuid"),
-            trim: false,
+            checks: &[StrCheck::Format("uuid")],
         }),
     },
     Field {
@@ -312,11 +252,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_OPERATION_FIELDS: [Fi
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
 ];

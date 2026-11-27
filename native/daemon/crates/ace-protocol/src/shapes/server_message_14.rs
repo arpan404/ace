@@ -5,14 +5,68 @@
 #![allow(unused_imports)]
 
 // Part server_message_14.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS: [Field; 3] = [
+    Field {
+        key: "id",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "content",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "status",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"pending\"",
+            "\"in_progress\"",
+            "\"completed\"",
+            "\"cancelled\"",
+        ]),
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_10_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"plan\""]),
+    },
+    Field {
+        key: "markdown",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds { checks: &[] }),
+    },
+    Field {
+        key: "todos",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_9_TODOS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: None,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_11_FIELDS: [Field; 1] = [Field {
+    key: "kind",
+    presence: Presence::Required,
+    shape: Shape::Enum(&["\"ask_user\""]),
+}];
 
 pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_12_FIELDS: [Field; 5] = [
     Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"image\""]) },
-    Field { key: "path", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "sourcePath", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "path", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
+    Field { key: "sourcePath", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
     Field { key: "attachment", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_8::SERVER_MESSAGE_12_ITEMS_0_VISUALIZATION_DOCUMENT_FIELDS, extra: Extra::Strip } },
-    Field { key: "unavailable", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "unavailable", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[] }) },
 ];
 
 pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_DETAIL_13_FIELDS: [Field; 1] = [Field {
@@ -114,11 +168,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_RESULT_CONTENT_0_FIELDS: [Field
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(32768),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(32768)],
         }),
     },
 ];
@@ -133,11 +183,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_RESULT_TARGET_FIELDS: [Field; 3
         key: "bundleId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -155,11 +201,7 @@ pub(crate) static SERVER_MESSAGE_12_ITEMS_6_CALL_RESULT_TARGET_FIELDS: [Field; 3
         key: "displayName",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];

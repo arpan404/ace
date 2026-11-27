@@ -5,19 +5,72 @@
 #![allow(unused_imports)]
 
 // Part client_message_53.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_1_ORIGIN_FIELDS: [Field; 2] = [
+    Field {
+        key: "hostId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "hostName",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_1_REMOTE_FIELDS: [Field; 2] = [
+    Field {
+        key: "url",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(2048)],
+        }),
+    },
+    Field {
+        key: "normalized",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(2048)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_2_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"status\""]),
+    },
+    Field {
+        key: "transferId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(128),
+                StrCheck::Pattern("^[a-zA-Z0-9_.-]+$"),
+            ],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FIELDS: [Field; 11] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"commit\""]) },
-    Field { key: "transferId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(128), pattern: Some("^[a-zA-Z0-9_.-]+$"), format: None, trim: false }) },
+    Field { key: "transferId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(128), StrCheck::Pattern("^[a-zA-Z0-9_.-]+$")] }) },
     Field { key: "file", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FILE_FIELDS, extra: Extra::Strip } },
-    Field { key: "branch", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(1024), pattern: None, format: None, trim: false }) },
-    Field { key: "head", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{40,64}$"), format: None, trim: false }) },
+    Field { key: "branch", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(1024)] }) },
+    Field { key: "head", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-f0-9]{40,64}$")] }) },
     Field { key: "changes", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_CHANGES_FIELDS, extra: Extra::Strip } },
     Field { key: "thread", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_FIELDS, extra: Extra::Strip } },
     Field { key: "ignored", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_IGNORED_FIELDS, extra: Extra::Strip } },
     Field { key: "final", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FINAL_FIELDS, extra: Extra::Strip } },
-    Field { key: "live", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_FIELDS, extra: Extra::Strip } },
+    Field { key: "live", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_55::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_FIELDS, extra: Extra::Strip } },
     Field { key: "identity", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_55::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_IDENTITY_FIELDS, extra: Extra::Strip } },
 ];
 
@@ -37,11 +90,7 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FILE_FIELDS: [Field; 2] = [
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
 ];
@@ -51,153 +100,23 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_CHANGES_FIELDS: [Field; 2] 
         key: "ref",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "commit",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{40,64}$")],
         }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_FIELDS: [Field; 6] = [
-    Field {
-        key: "sourceThreadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "title",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "mode",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"local\"", "\"worktree\""]),
-    },
-    Field {
-        key: "provider",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"claude\"",
-            "\"codex\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"antigravity\"",
-            "\"acp\"",
-            "\"pi\"",
-        ]),
-    },
-    Field {
-        key: "model",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "handoff",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_FIELDS: [Field; 12] = [
-    Field { key: "version", presence: Presence::Required, shape: Shape::Enum(&["1"]) },
-    Field { key: "sourceThreadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "origin", presence: Presence::Optional, shape: Shape::Object { fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_ORIGIN_FIELDS, extra: Extra::Strip } },
-    Field { key: "throughSeq", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "lossy", presence: Presence::Required, shape: Shape::Enum(&["true"]) },
-    Field { key: "policy", presence: Presence::Required, shape: Shape::Enum(&["\"recent-complete-items\"", "\"conversation-first\""]) },
-    Field { key: "sources", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_SOURCES_FIELDS, extra: Extra::Strip }, min: None, max: Some(8) } },
-    Field { key: "since", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "excerpts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIELDS, extra: Extra::Strip }, min: None, max: Some(200) } },
-    Field { key: "omittedItems", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
-    Field { key: "history", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_HISTORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "limitations", presence: Presence::Required, shape: Shape::Enum(&["\"Provider-private state is unavailable. Page history for omitted items, full text, reasoning, tools and attachments.\""]) },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_ORIGIN_FIELDS: [Field; 2] = [
-    Field {
-        key: "provider",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"claude\"",
-            "\"codex\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"antigravity\"",
-            "\"acp\"",
-            "\"pi\"",
-        ]),
-    },
-    Field {
-        key: "backend",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_SOURCES_FIELDS: [Field; 2] = [
-    Field {
-        key: "provider",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"claude\"",
-            "\"codex\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"antigravity\"",
-            "\"acp\"",
-            "\"pi\"",
-        ]),
-    },
-    Field {
-        key: "model",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
+    Field { key: "sourceThreadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
+    Field { key: "mode", presence: Presence::Required, shape: Shape::Enum(&["\"local\"", "\"worktree\""]) },
+    Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
+    Field { key: "model", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "handoff", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_54::CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_FIELDS, extra: Extra::Strip } },
 ];

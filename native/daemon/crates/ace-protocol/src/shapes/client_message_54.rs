@@ -5,7 +5,158 @@
 #![allow(unused_imports)]
 
 // Part client_message_54.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_FIELDS: [Field; 12] = [
+    Field {
+        key: "version",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["1"]),
+    },
+    Field {
+        key: "sourceThreadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "origin",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_ORIGIN_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "throughSeq",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "lossy",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "policy",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"recent-complete-items\"", "\"conversation-first\""]),
+    },
+    Field {
+        key: "sources",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_SOURCES_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(8),
+        },
+    },
+    Field {
+        key: "since",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "excerpts",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(200),
+        },
+    },
+    Field {
+        key: "omittedItems",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "history",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_HISTORY_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "limitations",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"Provider-private state is unavailable. Page history for omitted items, full text, reasoning, tools and attachments.\"",
+        ]),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_ORIGIN_FIELDS: [Field; 2] = [
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
+    },
+    Field {
+        key: "backend",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_SOURCES_FIELDS: [Field; 2] = [
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
+    },
+    Field {
+        key: "model",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIELDS: [Field; 2] = [
     Field {
@@ -20,11 +171,7 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_FIE
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
 ];
@@ -35,22 +182,14 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_EXCERPTS_CIT
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "itemId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -70,11 +209,7 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_THREAD_HANDOFF_HISTORY_FIEL
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -111,11 +246,7 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_IGNORED_FIELDS: [Field; 3] 
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -147,241 +278,7 @@ pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_FINAL_FIELDS: [Field; 2] = 
         key: "sha256",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_FIELDS: [Field; 6] = [
-    Field {
-        key: "epoch",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "sourceThreadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "left",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_LEFT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "bulk",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "session",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_SESSION_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "unsupported",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_LEFT_FIELDS: [Field; 4] = [
-    Field {
-        key: "shells",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(32),
-        },
-    },
-    Field {
-        key: "children",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(32),
-        },
-    },
-    Field {
-        key: "remoteChildren",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(32),
-        },
-    },
-    Field {
-        key: "queued",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_FIELDS: [Field; 3] = [
-    Field {
-        key: "branch",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "head",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "changes",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_CHANGES_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_BULK_CHANGES_FIELDS: [Field; 2] = [
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "commit",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_99_REQUEST_0_CALL_3_LIVE_SESSION_FIELDS: [Field; 4] = [
-    Field {
-        key: "provider",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"claude\"",
-            "\"codex\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"antigravity\"",
-            "\"acp\"",
-            "\"pi\"",
-        ]),
-    },
-    Field {
-        key: "nativeSessionId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "sourceCwd",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "files",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(1024),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(512),
-        },
     },
 ];

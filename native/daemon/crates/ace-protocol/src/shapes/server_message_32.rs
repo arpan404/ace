@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_32.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_35_RESULT_0_PROGRESS_MANUAL_FIELDS: [Field; 5] = [
     Field {
@@ -17,44 +17,28 @@ pub(crate) static SERVER_MESSAGE_35_RESULT_0_PROGRESS_MANUAL_FIELDS: [Field; 5] 
         key: "terminalId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "command",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "instruction",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "instance",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];
@@ -114,11 +98,7 @@ pub(crate) static SERVER_MESSAGE_37_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -160,7 +140,7 @@ pub(crate) static SERVER_MESSAGE_37_RESULT_0_FIELDS: [Field; 2] = [
 pub(crate) static SERVER_MESSAGE_37_RESULT_0_PLAN_FIELDS: [Field; 19] = [
     Field { key: "provider", presence: Presence::Required, shape: Shape::Enum(&["\"claude\"", "\"codex\"", "\"opencode\"", "\"cursor\"", "\"antigravity\"", "\"acp\"", "\"pi\""]) },
     Field { key: "agent", presence: Presence::Optional, shape: Shape::Enum(&["\"gemini\"", "\"qwen-code\"", "\"claude-acp\"", "\"codex-acp\"", "\"goose\"", "\"auggie\""]) },
-    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: Some("^official:[a-z0-9-]+$"), format: None, trim: false }) },
+    Field { key: "acpAgentId", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^official:[a-z0-9-]+$"), StrCheck::Max(256)] }) },
     Field { key: "action", presence: Presence::Required, shape: Shape::Enum(&["\"install\"", "\"update\"", "\"uninstall\""]) },
     Field { key: "status", presence: Presence::Required, shape: Shape::Enum(&["\"ready\"", "\"manual\"", "\"sign_in\"", "\"unavailable\""]) },
     Field { key: "method", presence: Presence::Optional, shape: Shape::Enum(&["\"npm\"", "\"bun\"", "\"brew\"", "\"script\"", "\"registry\""]) },
@@ -170,11 +150,11 @@ pub(crate) static SERVER_MESSAGE_37_RESULT_0_PLAN_FIELDS: [Field; 19] = [
     Field { key: "prerequisite", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_33::SERVER_MESSAGE_37_RESULT_0_PLAN_PREREQUISITE_FIELDS, extra: Extra::Strip } },
     Field { key: "commands", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_33::SERVER_MESSAGE_37_RESULT_0_PLAN_COMMANDS_FIELDS, extra: Extra::Reject }, min: None, max: Some(4) } },
     Field { key: "verify", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_33::SERVER_MESSAGE_37_RESULT_0_PLAN_COMMANDS_FIELDS, extra: Extra::Reject } },
-    Field { key: "sourceUrl", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(2048), pattern: None, format: Some("url"), trim: false }) },
+    Field { key: "sourceUrl", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Format("url"), StrCheck::Max(2048)] }) },
     Field { key: "needsAdmin", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "versionCheckedAt", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: false }) },
-    Field { key: "installedVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "latestVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "installedVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
+    Field { key: "latestVersion", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
     Field { key: "updateAvailable", presence: Presence::Optional, shape: Shape::Bool },
-    Field { key: "message", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "message", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
 ];

@@ -5,25 +5,173 @@
 #![allow(unused_imports)]
 
 // Part client_message_79.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_23_FIELDS: [Field; 5] = [
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_19_FIELDS: [Field; 4] = [
     Field {
         key: "tabId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "expect",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"fill_form\""]),
+    },
+    Field {
+        key: "fields",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &CLIENT_MESSAGE_160_COMMAND_19_FIELDS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: Some(1),
+            max: Some(64),
+        },
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_19_FIELDS_FIELDS: [Field; 2] = [
+    Field {
+        key: "ref",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "value",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(65536)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_20_FIELDS: [Field; 5] = [
+    Field {
+        key: "tabId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "expect",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"downloads\""]),
+    },
+    Field {
+        key: "operation",
+        presence: Presence::Default("\"list\""),
+        shape: Shape::Enum(&["\"list\"", "\"wait\""]),
+    },
+    Field {
+        key: "timeout",
+        presence: Presence::Default("10000"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(120000.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_21_FIELDS: [Field; 5] = [
+    Field {
+        key: "tabId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "expect",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"pdf\""]),
+    },
+    Field {
+        key: "landscape",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "printBackground",
+        presence: Presence::Default("true"),
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_22_FIELDS: [Field; 4] = [
+    Field {
+        key: "tabId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "expect",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "action",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"extensions\""]),
+    },
+    Field {
+        key: "operation",
+        presence: Presence::Default("\"list\""),
+        shape: Shape::Enum(&["\"list\""]),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_160_COMMAND_23_FIELDS: [Field; 5] = [
+    Field {
+        key: "tabId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "expect",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -36,11 +184,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_23_FIELDS: [Field; 5] = [
         key: "ref",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -48,11 +192,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_23_FIELDS: [Field; 5] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(8192),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(8192)],
             }),
             min: Some(1),
             max: Some(16),
@@ -65,18 +205,14 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_24_FIELDS: [Field; 6] = [
         key: "tabId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "expect",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -89,11 +225,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_24_FIELDS: [Field; 6] = [
         key: "dialogId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -105,11 +237,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_24_FIELDS: [Field; 6] = [
         key: "promptText",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -119,18 +247,14 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_25_FIELDS: [Field; 4] = [
         key: "tabId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "expect",
         presence: Presence::Optional,
         shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
+            fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
             extra: Extra::Strip,
         },
     },
@@ -143,178 +267,7 @@ pub(crate) static CLIENT_MESSAGE_160_COMMAND_25_FIELDS: [Field; 4] = [
         key: "ref",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_26_FIELDS: [Field; 5] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"select\""]),
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "values",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: Some(1),
-            max: Some(100),
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_27_FIELDS: [Field; 4] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"check\""]),
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_28_FIELDS: [Field; 4] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"uncheck\""]),
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_29_FIELDS: [Field; 4] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"focus\""]),
-    },
-    Field {
-        key: "ref",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];

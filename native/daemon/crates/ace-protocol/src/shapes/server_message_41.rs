@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_41.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_FIELDS: [Field; 2] = [
     Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"forge\""]) },
@@ -35,10 +35,10 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_FIELDS: [Field; 2] = [
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_FIELDS: [Field; 14] = [
     Field { key: "pr", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::thread_details::THREAD_DETAILS_PULL_REQUEST_WORKSPACE_REF_FIELDS, extra: Extra::Strip } },
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "version", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{64}$"), format: None, trim: false }) },
-    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-fA-F0-9]{40,64}$"), format: None, trim: false }) },
-    Field { key: "baseSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-fA-F0-9]{40,64}$"), format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "version", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")] }) },
+    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")] }) },
+    Field { key: "baseSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")] }) },
     Field { key: "state", presence: Presence::Required, shape: Shape::Enum(&["\"open\"", "\"draft\"", "\"closed\"", "\"merged\""]) },
     Field { key: "metadata", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_METADATA_FIELDS, extra: Extra::Strip } },
     Field { key: "editableFields", presence: Presence::Required, shape: Shape::Array { item: &Shape::Enum(&["\"title\"", "\"body\"", "\"baseBranch\"", "\"labels\"", "\"assignees\"", "\"milestone\""]), min: None, max: Some(6) } },
@@ -55,33 +55,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_METADATA_FIEL
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "baseBranch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -89,11 +77,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_METADATA_FIEL
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(256)],
             }),
             min: None,
             max: Some(100),
@@ -104,11 +88,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_METADATA_FIEL
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(100),
-                pattern: Some("^[\\w-]+$"),
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Pattern("^[\\w-]+$"), StrCheck::Max(100)],
             }),
             min: None,
             max: Some(100),
@@ -143,11 +123,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_MILESTONE_FIE
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -159,11 +135,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_MILESTONE_FIE
         key: "dueOn",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         })),
     },
 ];

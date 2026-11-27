@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_25.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS: [Field; 4] = [
     Field {
@@ -14,11 +14,7 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS: [Field;
         shape: Shape::OneOf(&[
             Shape::Enum(&["\"off\"", "\"on\"", "\"waiting\"", "\"failed\""]),
             Shape::Str(&StrBounds {
-                min: None,
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(64)],
             }),
         ]),
     },
@@ -26,33 +22,21 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_NETWORKS_LAN_FIELDS: [Field;
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "warning",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "address",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
 ];
@@ -102,11 +86,7 @@ pub(crate) static SERVER_MESSAGE_27_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -198,11 +178,7 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-zA-Z0-9_-]{1,128}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-zA-Z0-9_-]{1,128}$")],
         }),
     },
     Field {
@@ -214,33 +190,21 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
         key: "clientId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(2048)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "domain",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(253),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(253)],
         })),
     },
     Field {
@@ -267,11 +231,7 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
             Shape::Enum(&["\"all\""]),
             Shape::Array {
                 item: &Shape::Str(&StrBounds {
-                    min: Some(1),
-                    max: None,
-                    pattern: None,
-                    format: None,
-                    trim: false,
+                    checks: &[StrCheck::Min(1)],
                 }),
                 min: Some(1),
                 max: Some(256),
@@ -326,11 +286,7 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
         key: "approvedBy",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -338,11 +294,7 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: None,
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1)],
             }),
             min: None,
             max: Some(256),
@@ -353,11 +305,7 @@ pub(crate) static SERVER_MESSAGE_27_RESULT_0_GRANTS_FIELDS: [Field; 14] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: None,
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1)],
             }),
             min: None,
             max: Some(256),

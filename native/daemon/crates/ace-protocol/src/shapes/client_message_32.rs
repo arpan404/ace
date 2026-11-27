@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_32.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_FIELDS: [Field; 2] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"publish\""]) },
@@ -39,11 +39,12 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_1_FIELDS: [Field; 3] = 
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
 ];
@@ -69,33 +70,25 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_FIELDS: [Fiel
         key: "handle",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOUBLE_DASH),
+                StrCheck::Custom(&crate::checks::LENGTH_AT_LEAST_3),
+            ],
         }),
     },
     Field {
         key: "displayName",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(60),
-            pattern: None,
-            format: None,
-            trim: true,
+            checks: &[StrCheck::Trim, StrCheck::Min(1), StrCheck::Max(60)],
         }),
     },
     Field {
         key: "bio",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(500),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(500)],
         }),
     },
     Field {
@@ -117,22 +110,17 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_2_PROFILE_LINKS_FIELDS:
         key: "label",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(40),
-            pattern: None,
-            format: None,
-            trim: true,
+            checks: &[StrCheck::Trim, StrCheck::Min(1), StrCheck::Max(40)],
         }),
     },
     Field {
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: Some("^https:\\/\\/[^\\s/?#@]+(?:[/?#][^\\s]*)?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Max(2048),
+                StrCheck::Pattern("^https:\\/\\/[^\\s/?#@]+(?:[/?#][^\\s]*)?$"),
+            ],
         }),
     },
 ];
@@ -158,22 +146,14 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_3_PROFILE_FIELDS: [Fiel
         key: "displayName",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(60),
-            pattern: None,
-            format: None,
-            trim: true,
+            checks: &[StrCheck::Trim, StrCheck::Min(1), StrCheck::Max(60)],
         }),
     },
     Field {
         key: "bio",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(500),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(500)],
         }),
     },
     Field {
@@ -200,11 +180,11 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_4_FIELDS: [Field; 2] = 
         key: "handle",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOUBLE_DASH),
+                StrCheck::Custom(&crate::checks::LENGTH_AT_LEAST_3),
+            ],
         }),
     },
 ];
@@ -219,11 +199,7 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_5_FIELDS: [Field; 2] = 
         key: "image",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1400000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1400000)],
         }),
     },
 ];
@@ -264,11 +240,12 @@ pub(crate) static CLIENT_MESSAGE_71_OPERATION_26_REQUEST_6_ENTRIES_FIELDS: [Fiel
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
 ];

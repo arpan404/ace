@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_root.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
     key: "type",
@@ -790,14 +790,14 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"files.watch\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_48::CLIENT_MESSAGE_94_FIELDS,
+                fields: &crate::shapes::client_message_49::CLIENT_MESSAGE_94_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"files.credit\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_48::CLIENT_MESSAGE_95_FIELDS,
+                fields: &crate::shapes::client_message_49::CLIENT_MESSAGE_95_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -839,14 +839,14 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"commands.resolve\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_55::CLIENT_MESSAGE_101_FIELDS,
+                fields: &crate::shapes::client_message_56::CLIENT_MESSAGE_101_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"prompts.request\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_55::CLIENT_MESSAGE_102_FIELDS,
+                fields: &crate::shapes::client_message_56::CLIENT_MESSAGE_102_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -860,14 +860,14 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"catalog.unsubscribe\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_56::CLIENT_MESSAGE_104_FIELDS,
+                fields: &crate::shapes::client_message_57::CLIENT_MESSAGE_104_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"skills.request\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_56::CLIENT_MESSAGE_105_FIELDS,
+                fields: &crate::shapes::client_message_57::CLIENT_MESSAGE_105_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -888,21 +888,21 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"spade.http\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_108_FIELDS,
+                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_108_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"spade.http.part\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_109_FIELDS,
+                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_109_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"spade.http.read\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_110_FIELDS,
+                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_110_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -951,21 +951,21 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"spade.computer.drive\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_117_FIELDS,
+                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_117_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"accounts.add\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_118_FIELDS,
+                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_118_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"accounts.rename\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_59::CLIENT_MESSAGE_119_FIELDS,
+                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_119_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1007,28 +1007,28 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"accounts.list\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_125_FIELDS,
+                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_125_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"accounts.refreshLimits\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_126_FIELDS,
+                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_126_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"accounts.status\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_127_FIELDS,
+                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_127_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"accounts.migrate\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_60::CLIENT_MESSAGE_128_FIELDS,
+                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_128_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1063,14 +1063,14 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"provider.accounts.remove\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_133_FIELDS,
+                fields: &crate::shapes::client_message_62::CLIENT_MESSAGE_133_FIELDS,
                 extra: Extra::Reject,
             },
         ),
         (
             "\"provider.accounts.reauth\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_61::CLIENT_MESSAGE_134_FIELDS,
+                fields: &crate::shapes::client_message_62::CLIENT_MESSAGE_134_FIELDS,
                 extra: Extra::Reject,
             },
         ),
@@ -1119,7 +1119,7 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"search.query\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_62::CLIENT_MESSAGE_141_FIELDS,
+                fields: &crate::shapes::client_message_63::CLIENT_MESSAGE_141_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1147,28 +1147,28 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"screen.ack\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_145_FIELDS,
+                fields: &crate::shapes::client_message_69::CLIENT_MESSAGE_145_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"devices.request\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_68::CLIENT_MESSAGE_146_FIELDS,
+                fields: &crate::shapes::client_message_69::CLIENT_MESSAGE_146_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"devices.ack\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_72::CLIENT_MESSAGE_147_FIELDS,
+                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_147_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.open\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_72::CLIENT_MESSAGE_148_FIELDS,
+                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_148_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1196,35 +1196,35 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"browser.tabs.open\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_152_FIELDS,
+                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_152_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.tabs.switch\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_153_FIELDS,
+                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_153_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.tabs.select\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_154_FIELDS,
+                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_154_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.tabs.close\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_155_FIELDS,
+                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_155_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.downloads.list\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_73::CLIENT_MESSAGE_156_FIELDS,
+                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_156_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1245,14 +1245,14 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"browser.certificate.proceed\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_159_FIELDS,
+                fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_159_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"browser.execute\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_74::CLIENT_MESSAGE_160_FIELDS,
+                fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1280,7 +1280,7 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"browser.ack\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_84::CLIENT_MESSAGE_164_FIELDS,
+                fields: &crate::shapes::client_message_85::CLIENT_MESSAGE_164_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1315,7 +1315,7 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"browser.tabs.private\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_85::CLIENT_MESSAGE_169_FIELDS,
+                fields: &crate::shapes::client_message_86::CLIENT_MESSAGE_169_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1427,7 +1427,7 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"notification.feed\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_89::CLIENT_MESSAGE_185_FIELDS,
+                fields: &crate::shapes::client_message_90::CLIENT_MESSAGE_185_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1469,28 +1469,28 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"output.read\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_191_FIELDS,
+                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_191_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"interaction.read\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_192_FIELDS,
+                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_192_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"items.page\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_193_FIELDS,
+                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_193_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"entities.page\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_116::CLIENT_MESSAGE_194_FIELDS,
+                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_194_FIELDS,
                 extra: Extra::Strip,
             },
         ),
@@ -1504,56 +1504,56 @@ pub static CLIENT_MESSAGE: Shape = Shape::Tagged {
         (
             "\"command.status\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_196_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_196_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"ping\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_197_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_197_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.grant.refresh\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_198_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_198_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.standing\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_199_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_199_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"device.standing\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_200_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_200_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.release\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_201_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_201_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.enroll\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_202_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_202_FIELDS,
                 extra: Extra::Strip,
             },
         ),
         (
             "\"account.owner.enroll.confirm\"",
             Shape::Object {
-                fields: &crate::shapes::client_message_117::CLIENT_MESSAGE_203_FIELDS,
+                fields: &crate::shapes::client_message_118::CLIENT_MESSAGE_203_FIELDS,
                 extra: Extra::Strip,
             },
         ),

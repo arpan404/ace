@@ -5,7 +5,123 @@
 #![allow(unused_imports)]
 
 // Part client_message_59.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_108_FIELDS: [Field; 8] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"spade.http\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "method",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"GET\"", "\"POST\"", "\"PUT\"", "\"PATCH\"", "\"DELETE\""]),
+    },
+    Field {
+        key: "path",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(4), StrCheck::Max(2048)],
+        }),
+    },
+    Field {
+        key: "body",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(524288)],
+        }),
+    },
+    Field {
+        key: "encoding",
+        presence: Presence::Default("\"text\""),
+        shape: Shape::Enum(&["\"text\"", "\"base64\""]),
+    },
+    Field {
+        key: "contentType",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "parts",
+        presence: Presence::Optional,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(4096.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_109_FIELDS: [Field; 4] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"spade.http.part\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "index",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(4095.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "body",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(196608)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_110_FIELDS: [Field; 3] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"spade.http.read\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "index",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(1.0),
+            min_inclusive: true,
+            max: Some(63.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_111_FIELDS: [Field; 3] = [
     Field {
@@ -17,22 +133,14 @@ pub(crate) static CLIENT_MESSAGE_111_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(4),
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(4), StrCheck::Max(2048)],
         }),
     },
 ];
@@ -47,11 +155,7 @@ pub(crate) static CLIENT_MESSAGE_112_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -66,11 +170,7 @@ pub(crate) static CLIENT_MESSAGE_113_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -85,11 +185,7 @@ pub(crate) static CLIENT_MESSAGE_114_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -104,28 +200,27 @@ pub(crate) static CLIENT_MESSAGE_115_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "machine",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "request",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Any),
+        shape: Shape::Checked {
+            inner: &Shape::Record {
+                key: &Shape::Str(&StrBounds { checks: &[] }),
+                value: &Shape::Any,
+                keep_proto: false,
+            },
+            check: &crate::checks::SPADE_REQUEST_BYTES,
+        },
     },
 ];
 
@@ -139,200 +234,14 @@ pub(crate) static CLIENT_MESSAGE_116_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "bot",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Za-z0-9_.:-]{1,128}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Za-z0-9_.:-]{1,128}$")],
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_117_FIELDS: [Field; 5] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"spade.computer.drive\""]),
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "bot",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Za-z0-9_.:-]{1,128}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "driver",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"bot\"", "\"person\""]),
-    },
-    Field {
-        key: "mode",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"cowork\"", "\"exclusive\""]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_118_FIELDS: [Field; 5] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"accounts.add\""]),
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "provider",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"codex\"",
-            "\"claude\"",
-            "\"opencode\"",
-            "\"cursor\"",
-            "\"pi\"",
-            "\"antigravity\"",
-        ]),
-    },
-    Field {
-        key: "label",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: Some("\\S"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "shortLabel",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_119_FIELDS: [Field; 8] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"accounts.rename\""]),
-    },
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "instanceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "label",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: Some("\\S"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "shortLabel",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "badgeUsesInitial",
-        presence: Presence::Optional,
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "badgeColor",
-        presence: Presence::Optional,
-        shape: Shape::Nullable(&Shape::Enum(&[
-            "\"neutral\"",
-            "\"blue\"",
-            "\"green\"",
-            "\"amber\"",
-            "\"rose\"",
-            "\"violet\"",
-        ])),
-    },
-    Field {
-        key: "badgeIcon",
-        presence: Presence::Optional,
-        shape: Shape::Nullable(&Shape::Enum(&[
-            "\"briefcase\"",
-            "\"house\"",
-            "\"flask\"",
-            "\"rocket\"",
-            "\"moon\"",
-            "\"wrench\"",
-            "\"code\"",
-            "\"star\"",
-            "\"heart\"",
-            "\"lightning\"",
-        ])),
     },
 ];

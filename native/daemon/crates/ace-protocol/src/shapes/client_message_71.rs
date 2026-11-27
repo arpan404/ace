@@ -5,7 +5,157 @@
 #![allow(unused_imports)]
 
 // Part client_message_71.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_146_OPERATION_18_FIELDS: [Field; 7] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"subscribe\""]),
+    },
+    Field {
+        key: "deviceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Max(256),
+                StrCheck::Pattern("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            ],
+        }),
+    },
+    Field {
+        key: "link",
+        presence: Presence::Optional,
+        shape: Shape::Option(&Shape::Object {
+            fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_14_LINK_FIELDS,
+            extra: Extra::Strip,
+        }),
+    },
+    Field {
+        key: "media",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::client_message_66::CLIENT_MESSAGE_144_OPERATION_14_MEDIA_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "mediaClient",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "deliveryStatus",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["true"]),
+    },
+    Field {
+        key: "codecs",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Str(&StrBounds {
+                checks: &[
+                    StrCheck::Min(1),
+                    StrCheck::Max(64),
+                    StrCheck::Pattern("^[A-Za-z0-9.]+$"),
+                ],
+            }),
+            min: Some(1),
+            max: Some(8),
+        },
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_146_OPERATION_19_FIELDS: [Field; 2] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"unsubscribe\""]),
+    },
+    Field {
+        key: "deviceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Max(256),
+                StrCheck::Pattern("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            ],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_146_OPERATION_20_FIELDS: [Field; 5] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"controller\""]),
+    },
+    Field {
+        key: "deviceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[
+                StrCheck::Max(256),
+                StrCheck::Pattern("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
+            ],
+        }),
+    },
+    Field {
+        key: "controller",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"none\"", "\"human\"", "\"agent\""]),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "agentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_FIELDS: [Field; 3] = [
+    Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"input\""]) },
+    Field { key: "deviceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256), StrCheck::Pattern("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$")] }) },
+    Field { key: "input", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"tap\"", Shape::Object { fields: &CLIENT_MESSAGE_146_OPERATION_21_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"pointer\"", Shape::Object { fields: &CLIENT_MESSAGE_146_OPERATION_21_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"longPress\"", Shape::Object { fields: &CLIENT_MESSAGE_146_OPERATION_21_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"swipe\"", Shape::Object { fields: &CLIENT_MESSAGE_146_OPERATION_21_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"type\"", Shape::Object { fields: &crate::shapes::client_message_72::CLIENT_MESSAGE_146_OPERATION_21_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"key\"", Shape::Object { fields: &crate::shapes::client_message_72::CLIENT_MESSAGE_146_OPERATION_21_INPUT_5_FIELDS, extra: Extra::Strip })] } },
+];
+
+pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_INPUT_0_FIELDS: [Field; 3] = [
+    Field {
+        key: "kind",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"tap\""]),
+    },
+    Field {
+        key: "x",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(16384.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "y",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(16384.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_INPUT_1_FIELDS: [Field; 5] = [
     Field {
@@ -153,183 +303,6 @@ pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_INPUT_3_FIELDS: [Field; 6] = [
             max: Some(10000.0),
             max_inclusive: true,
             integral: true,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_INPUT_4_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"type\""]),
-    },
-    Field {
-        key: "text",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_21_INPUT_5_FIELDS: [Field; 2] = [
-    Field {
-        key: "kind",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"key\""]),
-    },
-    Field {
-        key: "key",
-        presence: Presence::Required,
-        shape: Shape::Enum(&[
-            "\"home\"",
-            "\"back\"",
-            "\"rotate\"",
-            "\"enter\"",
-            "\"power\"",
-            "\"recents\"",
-            "\"volumeUp\"",
-            "\"volumeDown\"",
-            "\"action\"",
-            "\"side\"",
-            "\"keyboard\"",
-        ]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_22_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"posture\""]),
-    },
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "posture",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"closed\"", "\"partiallyOpen\"", "\"open\""]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_23_FIELDS: [Field; 2] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"screenshot\""]),
-    },
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_24_FIELDS: [Field; 2] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"clipboard.get\""]),
-    },
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_25_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"clipboard.set\""]),
-    },
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "text",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_146_OPERATION_26_FIELDS: [Field; 4] = [
-    Field {
-        key: "maxDepth",
-        presence: Presence::Default("8"),
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(16.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "maxNodes",
-        presence: Presence::Default("128"),
-        shape: Shape::Num(&NumBounds {
-            min: Some(1.0),
-            min_inclusive: true,
-            max: Some(512.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"ui.tree\""]),
-    },
-    Field {
-        key: "deviceId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: Some("^(?:ios:[\\da-fA-F-]{36}|android:[\\w.-]{1,200})$"),
-            format: None,
-            trim: false,
         }),
     },
 ];

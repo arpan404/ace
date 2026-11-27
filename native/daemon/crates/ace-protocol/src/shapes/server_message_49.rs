@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_49.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_MOVED_LAYERS_FIELDS: [Field; 4] = [
     Field {
@@ -23,33 +23,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_11_VALUE_MOVED_LAYERS_FIELDS: 
         key: "branch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "reviewed",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
     Field {
         key: "current",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
 ];
@@ -106,11 +94,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_12_VALUE_STACK_FIELDS: [Field;
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -128,11 +112,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_12_VALUE_STACK_FIELDS: [Field;
         key: "trunk",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -176,13 +156,13 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_FIELDS: [Field; 2] = [
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_FIELDS: [Field; 12] = [
-    Field { key: "viewer", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-fA-F0-9]{40,64}$"), format: None, trim: false }) },
+    Field { key: "viewer", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")] }) },
     Field { key: "drafts", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::client_message_98::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_28_ACTION_1_DRAFT_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
     Field { key: "viewed", presence: Presence::Required, shape: Shape::Nullable(&Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_VIEWED_FIELDS, extra: Extra::Strip }, min: None, max: Some(3000) }) },
     Field { key: "canReview", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "canComment", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "resolvableThreads", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }), min: None, max: Some(2000) } },
+    Field { key: "resolvableThreads", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }), min: None, max: Some(2000) } },
     Field { key: "operations", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_OPERATIONS_FIELDS, extra: Extra::Strip }, min: None, max: Some(100) } },
     Field { key: "reactions", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_REACTIONS_FIELDS, extra: Extra::Strip }, min: None, max: Some(4001) }) },
     Field { key: "hidden", presence: Presence::Optional, shape: Shape::Nullable(&Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_50::SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_HIDDEN_FIELDS, extra: Extra::Strip }, min: None, max: Some(4000) }) },
@@ -195,22 +175,14 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_VIEWED_FIELDS: [Field
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "state",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(100)],
         }),
     },
 ];
@@ -220,11 +192,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_13_VALUE_OPERATIONS_FIELDS: [F
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {

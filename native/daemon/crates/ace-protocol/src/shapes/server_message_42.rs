@@ -5,18 +5,14 @@
 #![allow(unused_imports)]
 
 // Part server_message_42.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_HEAD_BRANCH_FIELDS: [Field; 6] = [
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -57,10 +53,10 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_HEAD_BRANCH_F
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_SNAPSHOT_CLOSING_ISSUES_FIELDS: [Field; 5] = [
-    Field { key: "ref", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_97::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_27_OPERATION_0_ACTION_13_ISSUE_FIELDS, extra: Extra::Strip } },
-    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "ref", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_98::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_27_OPERATION_0_ACTION_13_ISSUE_FIELDS, extra: Extra::Strip } },
+    Field { key: "title", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "state", presence: Presence::Required, shape: Shape::Enum(&["\"open\"", "\"closed\""]) },
-    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "url", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "manual", presence: Presence::Required, shape: Shape::Bool },
 ];
 
@@ -69,22 +65,14 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_0_VALUE_OPERATIONS_FIELDS: [Fi
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "kind",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(100)],
         }),
     },
     Field {
@@ -131,8 +119,8 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_0_DATA_1_VALUE_FIELDS: [Field; 10] = 
     Field { key: "nextPage", presence: Presence::Optional, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
     Field { key: "counts", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::server_message_43::SERVER_MESSAGE_52_RESULT_0_DATA_1_VALUE_COUNTS_FIELDS, extra: Extra::Strip } },
     Field { key: "canCreate", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "unavailableReason", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "viewer", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(65536), pattern: None, format: None, trim: false }) },
+    Field { key: "unavailableReason", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(256)] }) },
+    Field { key: "viewer", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
     Field { key: "incomplete", presence: Presence::Required, shape: Shape::Bool },
     Field { key: "truncated", presence: Presence::Required, shape: Shape::Bool },
 ];

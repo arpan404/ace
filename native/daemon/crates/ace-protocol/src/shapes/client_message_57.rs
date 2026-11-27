@@ -5,7 +5,100 @@
 #![allow(unused_imports)]
 
 // Part client_message_57.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_103_WORKSPACE_FIELDS: [Field; 3] = [
+    Field {
+        key: "workspaceId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"claude\"",
+            "\"codex\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"antigravity\"",
+            "\"acp\"",
+            "\"pi\"",
+        ]),
+    },
+    Field {
+        key: "instanceId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_104_FIELDS: [Field; 2] = [
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"catalog.unsubscribe\""]),
+    },
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_105_FIELDS: [Field; 3] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"skills.request\""]) },
+    Field { key: "requestId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(128)] }) },
+    Field { key: "operation", presence: Presence::Required, shape: Shape::Tagged { key: "op", options: &[("\"list\"", Shape::Object { fields: &CLIENT_MESSAGE_105_OPERATION_0_FIELDS, extra: Extra::Strip }), ("\"read\"", Shape::Object { fields: &CLIENT_MESSAGE_105_OPERATION_1_FIELDS, extra: Extra::Strip }), ("\"create\"", Shape::Object { fields: &CLIENT_MESSAGE_105_OPERATION_2_FIELDS, extra: Extra::Strip }), ("\"edit\"", Shape::Object { fields: &CLIENT_MESSAGE_105_OPERATION_3_FIELDS, extra: Extra::Strip }), ("\"setAgents\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_4_FIELDS, extra: Extra::Strip }), ("\"delete\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_5_FIELDS, extra: Extra::Strip }), ("\"checkUpdate\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_6_FIELDS, extra: Extra::Strip }), ("\"prepareUpdate\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_7_FIELDS, extra: Extra::Strip }), ("\"applyUpdate\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_8_FIELDS, extra: Extra::Strip }), ("\"cancelUpdate\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_9_FIELDS, extra: Extra::Strip }), ("\"files\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_10_FIELDS, extra: Extra::Strip }), ("\"usage\"", Shape::Object { fields: &crate::shapes::client_message_58::CLIENT_MESSAGE_105_OPERATION_11_FIELDS, extra: Extra::Strip })] } },
+];
+
+pub(crate) static CLIENT_MESSAGE_105_OPERATION_0_FIELDS: [Field; 3] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"list\""]),
+    },
+    Field {
+        key: "workspaceId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "subscribe",
+        presence: Presence::Default("false"),
+        shape: Shape::Bool,
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_105_OPERATION_1_FIELDS: [Field; 3] = [
+    Field {
+        key: "op",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"read\""]),
+    },
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Pattern("^skl_[a-f0-9]{40}$")],
+        }),
+    },
+    Field {
+        key: "workspaceId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+];
 
 pub(crate) static CLIENT_MESSAGE_105_OPERATION_2_FIELDS: [Field; 7] = [
     Field {
@@ -17,33 +110,25 @@ pub(crate) static CLIENT_MESSAGE_105_OPERATION_2_FIELDS: [Field; 7] = [
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9]+(?:-[a-z0-9]+)*$"),
+            ],
         }),
     },
     Field {
         key: "description",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(262144),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(262144)],
         }),
     },
     Field {
@@ -107,11 +192,7 @@ pub(crate) static CLIENT_MESSAGE_105_OPERATION_2_SCOPE_1_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -126,206 +207,40 @@ pub(crate) static CLIENT_MESSAGE_105_OPERATION_3_FIELDS: [Field; 7] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^skl_[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^skl_[a-f0-9]{40}$")],
         }),
     },
     Field {
         key: "workspaceId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "expectedHash",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
         key: "description",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(262144),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(262144)],
         }),
     },
     Field {
         key: "manual",
         presence: Presence::Required,
         shape: Shape::Bool,
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_105_OPERATION_4_FIELDS: [Field; 4] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"setAgents\""]),
-    },
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^skl_[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "workspaceId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "agents",
-        presence: Presence::Required,
-        shape: Shape::Array {
-            item: &Shape::Enum(&[
-                "\"claude\"",
-                "\"codex\"",
-                "\"opencode\"",
-                "\"cursor\"",
-                "\"pi\"",
-            ]),
-            min: None,
-            max: Some(8),
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_105_OPERATION_5_FIELDS: [Field; 4] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"delete\""]),
-    },
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^skl_[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "workspaceId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expectedHash",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_105_OPERATION_6_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"checkUpdate\""]),
-    },
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^skl_[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "workspaceId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_105_OPERATION_7_FIELDS: [Field; 3] = [
-    Field {
-        key: "op",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"prepareUpdate\""]),
-    },
-    Field {
-        key: "id",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^skl_[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "workspaceId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
     },
 ];

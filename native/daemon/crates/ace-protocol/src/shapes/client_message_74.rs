@@ -5,29 +5,159 @@
 #![allow(unused_imports)]
 
 // Part client_message_74.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static CLIENT_MESSAGE_157_FIELDS: [Field; 7] = [
+pub(crate) static CLIENT_MESSAGE_152_FIELDS: [Field; 4] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.tabs.open\""]),
+    },
+    Field {
+        key: "url",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(8192)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_153_FIELDS: [Field; 4] = [
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.tabs.switch\""]),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_154_FIELDS: [Field; 4] = [
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.tabs.select\""]),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_155_FIELDS: [Field; 4] = [
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.tabs.close\""]),
+    },
+    Field {
+        key: "tabId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_156_FIELDS: [Field; 3] = [
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
+        }),
+    },
+    Field {
+        key: "type",
+        presence: Presence::Required,
+        shape: Shape::Enum(&["\"browser.downloads.list\""]),
+    },
+];
+
+pub(crate) static CLIENT_MESSAGE_157_FIELDS: [Field; 7] = [
+    Field {
+        key: "requestId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "threadId",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -39,22 +169,14 @@ pub(crate) static CLIENT_MESSAGE_157_FIELDS: [Field; 7] = [
         key: "tabId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "dialogId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -66,11 +188,7 @@ pub(crate) static CLIENT_MESSAGE_157_FIELDS: [Field; 7] = [
         key: "promptText",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -80,22 +198,14 @@ pub(crate) static CLIENT_MESSAGE_158_FIELDS: [Field; 6] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -107,22 +217,14 @@ pub(crate) static CLIENT_MESSAGE_158_FIELDS: [Field; 6] = [
         key: "tabId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "authId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -140,160 +242,14 @@ pub(crate) static CLIENT_MESSAGE_158_CREDENTIALS_FIELDS: [Field; 2] = [
         key: "username",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "password",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_159_FIELDS: [Field; 5] = [
-    Field {
-        key: "requestId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "threadId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"browser.certificate.proceed\""]),
-    },
-    Field {
-        key: "tabId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "url",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_FIELDS: [Field; 4] = [
-    Field { key: "requestId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "threadId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
-    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"browser.execute\""]) },
-    Field { key: "command", presence: Presence::Required, shape: Shape::Tagged { key: "action", options: &[("\"navigation_history\"", Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_0_FIELDS, extra: Extra::Strip }), ("\"selection\"", Shape::Object { fields: &CLIENT_MESSAGE_160_COMMAND_1_FIELDS, extra: Extra::Strip }), ("\"history\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_2_FIELDS, extra: Extra::Strip }), ("\"find_text\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_3_FIELDS, extra: Extra::Strip }), ("\"navigate\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_4_FIELDS, extra: Extra::Strip }), ("\"click\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_5_FIELDS, extra: Extra::Strip }), ("\"type\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_6_FIELDS, extra: Extra::Strip }), ("\"press\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_7_FIELDS, extra: Extra::Strip }), ("\"scroll\"", Shape::Object { fields: &crate::shapes::client_message_75::CLIENT_MESSAGE_160_COMMAND_8_FIELDS, extra: Extra::Strip }), ("\"drag\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_9_FIELDS, extra: Extra::Strip }), ("\"measure_interaction\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_10_FIELDS, extra: Extra::Strip }), ("\"snapshot\"", Shape::Object { fields: &crate::shapes::client_message_76::CLIENT_MESSAGE_160_COMMAND_11_FIELDS, extra: Extra::Strip }), ("\"screenshot\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_12_FIELDS, extra: Extra::Strip }), ("\"evaluate\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_13_FIELDS, extra: Extra::Strip }), ("\"wait_for\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_14_FIELDS, extra: Extra::Strip }), ("\"logs\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_15_FIELDS, extra: Extra::Strip }), ("\"resize\"", Shape::Object { fields: &crate::shapes::client_message_77::CLIENT_MESSAGE_160_COMMAND_16_FIELDS, extra: Extra::Strip }), ("\"emulate\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_17_FIELDS, extra: Extra::Strip }), ("\"tabs\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_18_FIELDS, extra: Extra::Strip }), ("\"fill_form\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_19_FIELDS, extra: Extra::Strip }), ("\"downloads\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_20_FIELDS, extra: Extra::Strip }), ("\"pdf\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_21_FIELDS, extra: Extra::Strip }), ("\"extensions\"", Shape::Object { fields: &crate::shapes::client_message_78::CLIENT_MESSAGE_160_COMMAND_22_FIELDS, extra: Extra::Strip }), ("\"upload\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_23_FIELDS, extra: Extra::Strip }), ("\"dialog\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_24_FIELDS, extra: Extra::Strip }), ("\"hover\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_25_FIELDS, extra: Extra::Strip }), ("\"select\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_26_FIELDS, extra: Extra::Strip }), ("\"check\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_27_FIELDS, extra: Extra::Strip }), ("\"uncheck\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_28_FIELDS, extra: Extra::Strip }), ("\"focus\"", Shape::Object { fields: &crate::shapes::client_message_79::CLIENT_MESSAGE_160_COMMAND_29_FIELDS, extra: Extra::Strip }), ("\"find\"", Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_30_FIELDS, extra: Extra::Strip }), ("\"network_body\"", Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_31_FIELDS, extra: Extra::Strip }), ("\"record_start\"", Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_32_FIELDS, extra: Extra::Strip }), ("\"record_stop\"", Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_33_FIELDS, extra: Extra::Strip }), ("\"annotate\"", Shape::OneOf(&[Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_34_0_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::client_message_80::CLIENT_MESSAGE_160_COMMAND_34_1_FIELDS, extra: Extra::Strip }, Shape::Object { fields: &crate::shapes::client_message_81::CLIENT_MESSAGE_160_COMMAND_34_2_FIELDS, extra: Extra::Strip }])), ("\"zoom\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_35_FIELDS, extra: Extra::Strip }), ("\"clear_data\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_36_FIELDS, extra: Extra::Strip }), ("\"page_source\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_37_FIELDS, extra: Extra::Strip }), ("\"context_target\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_38_FIELDS, extra: Extra::Strip }), ("\"image_data\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_39_FIELDS, extra: Extra::Strip }), ("\"annotate_capture\"", Shape::Object { fields: &crate::shapes::client_message_83::CLIENT_MESSAGE_160_COMMAND_40_FIELDS, extra: Extra::Strip })] } },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_0_FIELDS: [Field; 3] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"navigation_history\""]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS: [Field; 2] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "url",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_160_COMMAND_1_FIELDS: [Field; 3] = [
-    Field {
-        key: "tabId",
-        presence: Presence::Optional,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "expect",
-        presence: Presence::Optional,
-        shape: Shape::Object {
-            fields: &CLIENT_MESSAGE_160_COMMAND_0_EXPECT_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"selection\""]),
     },
 ];

@@ -5,14 +5,14 @@
 #![allow(unused_imports)]
 
 // Part server_message_37.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_47_RUNS_FIELDS: [Field; 14] = [
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: None, format: None, trim: false }) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(64)] }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "target", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"check\"", Shape::Object { fields: &crate::shapes::client_message_14::CLIENT_MESSAGE_57_OP_2_TARGET_0_FIELDS, extra: Extra::Strip }), ("\"merge\"", Shape::Object { fields: &crate::shapes::client_message_14::CLIENT_MESSAGE_57_OP_2_TARGET_1_FIELDS, extra: Extra::Strip })] } },
     Field { key: "state", presence: Presence::Required, shape: Shape::Enum(&["\"queued\"", "\"running\"", "\"passed\"", "\"failed\"", "\"merging\"", "\"merged\"", "\"stopped\"", "\"cancelled\"", "\"interrupted\""]) },
-    Field { key: "command", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(1024), pattern: None, format: None, trim: false }) },
+    Field { key: "command", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(1024)] }) },
     Field { key: "base", presence: Presence::Optional, shape: Shape::Object { fields: &SERVER_MESSAGE_47_RUNS_BASE_FIELDS, extra: Extra::Strip } },
     Field { key: "steps", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_47_RUNS_STEPS_FIELDS, extra: Extra::Strip }, min: None, max: Some(32) } },
     Field { key: "createdAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
@@ -29,22 +29,14 @@ pub(crate) static SERVER_MESSAGE_47_RUNS_BASE_FIELDS: [Field; 2] = [
         key: "branch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "sha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-fA-F0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-fA-F0-9]{40,64}$")],
         }),
     },
 ];
@@ -129,11 +121,7 @@ pub(crate) static SERVER_MESSAGE_47_RUNS_FAILURE_FIELDS: [Field; 4] = [
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
     Field {
@@ -165,11 +153,7 @@ pub(crate) static SERVER_MESSAGE_47_LOG_FIELDS: [Field; 4] = [
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2097152),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2097152)],
         }),
     },
     Field {
@@ -230,13 +214,7 @@ pub(crate) static SERVER_MESSAGE_49_FIELDS: [Field; 3] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "queue",

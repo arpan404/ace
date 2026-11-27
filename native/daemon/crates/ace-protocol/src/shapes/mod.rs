@@ -6,7 +6,7 @@
 
 // Split by root so no file outgrows the source limit.
 // What Zod's parse keeps, in schema order, with the defaults it inserts.
-// Depth 17: the deepest Shape nesting, which bounds the walk; the walk follows
+// Depth 18: the deepest Shape nesting, which bounds the walk; the walk follows
 // this table, never the value.
 
 mod thread_client_column;
@@ -43,6 +43,7 @@ mod client_message_114;
 mod client_message_115;
 mod client_message_116;
 mod client_message_117;
+mod client_message_118;
 mod client_message_12;
 mod client_message_13;
 mod client_message_14;
@@ -202,6 +203,8 @@ mod server_message_150;
 mod server_message_151;
 mod server_message_152;
 mod server_message_153;
+mod server_message_154;
+mod server_message_155;
 mod server_message_16;
 mod server_message_17;
 mod server_message_18;

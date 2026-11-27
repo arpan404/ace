@@ -171,8 +171,19 @@ function stripValidation(node: unknown): void {
     delete record.pattern;
     delete record.format;
     delete record.propertyNames;
-    delete record.additionalProperties;
     delete record.not;
+    // A loose object's open catchall (`additionalProperties: {}`) is kept so `typify` emits a
+    // flattened extra map and a typed body keeps the fields Zod's loose object keeps. A closed
+    // object (`false`) or a record's value schema has no such field.
+    const additional = record.additionalProperties;
+    if (
+      additional === null ||
+      typeof additional !== "object" ||
+      Array.isArray(additional) ||
+      Object.keys(additional as Record<string, unknown>).length > 0 ||
+      record.properties === undefined
+    )
+      delete record.additionalProperties;
     // A tuple's `items: false` only forbids extra elements; typify reads it as the element
     // schema and emits an empty enum. The prefix items are the element types.
     if (record.items === false && Array.isArray(record.prefixItems)) delete record.items;
@@ -294,6 +305,7 @@ mergePrimitiveUnions(schema);
  */
 splitEnumTags(schema);
 titleInlineSchemas(schema);
+titleUntitledObjects(schema);
 /*
  * `typify` names `$defs` entries by their key, not their `title`. Point the
  * titled entries at their titles so the Rust types are named for the schema
@@ -853,6 +865,235 @@ ${encodeFns(messages.server, "server")}
 `;
 }
 
+/** What one generated object keeps beyond its field types: absent versus null/empty. */
+interface Presence {
+  nullable: Set<string>;
+  arrays: Set<string>;
+}
+
+function isNullSchema(node: unknown): boolean {
+  if (node === null || typeof node !== "object" || Array.isArray(node)) return false;
+  const record = node as Record<string, unknown>;
+  if (record.type === "null" || record.const === null) return true;
+  const values = record.enum;
+  return Array.isArray(values) && values.length === 1 && values[0] === null;
+}
+
+function isNullable(node: unknown): boolean {
+  if (isNullSchema(node)) return true;
+  if (node === null || typeof node !== "object" || Array.isArray(node)) return false;
+  const record = node as Record<string, unknown>;
+  for (const combinator of ["anyOf", "oneOf"]) {
+    const branches = record[combinator];
+    if (Array.isArray(branches) && branches.some(isNullSchema)) return true;
+  }
+  return false;
+}
+
+/** The optional properties that lose their presence through `typify`'s `Option`. */
+function collectPresence(document: unknown): Map<string, Presence> {
+  const found = new Map<string, Presence>();
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (
+      typeof record.title === "string" &&
+      record.properties !== null &&
+      typeof record.properties === "object" &&
+      !Array.isArray(record.properties)
+    ) {
+      const required = new Set(Array.isArray(record.required) ? (record.required as string[]) : []);
+      const presence: Presence = {
+        nullable: new Set(),
+        arrays: new Set(),
+      };
+      for (const [key, property] of Object.entries(record.properties as Record<string, unknown>)) {
+        if (required.has(key)) continue;
+        if (isNullable(property)) presence.nullable.add(key);
+        else if (
+          property !== null &&
+          typeof property === "object" &&
+          !Array.isArray(property) &&
+          (property as Record<string, unknown>).type === "array"
+        )
+          presence.arrays.add(key);
+      }
+      if (presence.nullable.size > 0 || presence.arrays.size > 0) found.set(record.title, presence);
+    }
+    for (const value of Object.values(record)) walk(value);
+  };
+  walk(document);
+  return found;
+}
+
+function snakeKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+const OPTION_PREFIX = "::std::option::Option<";
+const VEC_PREFIX = "::std::vec::Vec<";
+
+function wrapOption(type: string): string | null {
+  if (!type.startsWith(OPTION_PREFIX) || !type.endsWith(">")) return null;
+  return `${OPTION_PREFIX}${OPTION_PREFIX}${type.slice(OPTION_PREFIX.length, -1)}>>`;
+}
+
+function wrapVec(type: string): string | null {
+  if (!type.startsWith(VEC_PREFIX) || !type.endsWith(">")) return null;
+  return `${OPTION_PREFIX}${type}>`;
+}
+
+/**
+ * Rewrite the generated fields a plain `Option` flattens: an optional nullable field becomes
+ * `Option<Option<T>>` (with a `deserialize_with` that keeps a present `null`), and an optional
+ * array becomes `Option<Vec<T>>` (so `[]` is not an absent key).
+ */
+function applyPresence(source: string, presence: Map<string, Presence>): string {
+  const lines = source.split("\n");
+  const out: string[] = [];
+  let pending: string | undefined;
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index]!;
+    const doc = /^#\[doc = "`?([^`"]+)`?"\]$/.exec(line.trim());
+    if (doc !== null) pending = doc[1];
+    const isStruct = /^\s*pub struct\s+[A-Za-z0-9_]+\s*\{\s*$/.test(line);
+    const isVariant = /^\s*[A-Z][A-Za-z0-9_]*\s*\{\s*$/.test(line);
+    if (pending === undefined || (!isStruct && !isVariant)) {
+      out.push(line);
+      index += 1;
+      continue;
+    }
+    const shape = presence.get(pending);
+    pending = undefined;
+    if (shape === undefined) {
+      out.push(line);
+      index += 1;
+      continue;
+    }
+    let depth = 0;
+    let end = index;
+    for (; end < lines.length; end += 1) {
+      const candidate = lines[end]!;
+      if (!candidate.trimStart().startsWith("#[doc")) {
+        for (const character of candidate) {
+          if (character === "{") depth += 1;
+          else if (character === "}") depth -= 1;
+        }
+      }
+      if (end > index && depth <= 0) break;
+    }
+    const block = lines.slice(index, end + 1);
+    let rename: string | undefined;
+    let previousField = 0;
+    for (let at = 0; at < block.length; at += 1) {
+      const candidate = block[at]!;
+      const renamed = /rename\s*=\s*"([^"]+)"/.exec(candidate);
+      if (renamed !== null) rename = renamed[1];
+      const field = /^(\s*)(?:pub\s+)?([a-z][a-z0-9_]*):\s*(.+),\s*$/.exec(candidate);
+      if (field === null) continue;
+      const fieldName = field[2]!;
+      const property = rename ?? fieldName;
+      rename = undefined;
+      const nullableField = shape.nullable.has(property) || shape.nullable.has(snakeKey(fieldName));
+      const arrayField = shape.arrays.has(property) || shape.arrays.has(snakeKey(fieldName));
+      if (!nullableField && !arrayField) {
+        previousField = at;
+        continue;
+      }
+      let type = field[3]!;
+      if (nullableField) {
+        const wrapped = wrapOption(type);
+        if (wrapped !== null) {
+          type = wrapped;
+          block[at] =
+            `${field[1]}${candidate.includes("pub ") ? "pub " : ""}${fieldName}: ${type},`;
+          block.splice(
+            at,
+            0,
+            `${field[1]}#[serde(default, deserialize_with = "crate::presence::some_or_none")]`,
+          );
+          at += 1;
+        }
+      } else if (arrayField) {
+        const wrapped = wrapVec(type);
+        if (wrapped !== null) {
+          type = wrapped;
+          block[at] =
+            `${field[1]}${candidate.includes("pub ") ? "pub " : ""}${fieldName}: ${type},`;
+          for (let before = previousField + 1; before < at; before += 1)
+            block[before] = block[before]!.replace(
+              "::std::vec::Vec::is_empty",
+              "::std::option::Option::is_none",
+            );
+        }
+      }
+      previousField = at;
+    }
+    out.push(...block);
+    index = end + 1;
+  }
+  return out.join("\n");
+}
+
+/** Give every object still without a title one from its path, so presence can be matched. */
+function walkUntitled(node: unknown, parent: string): void {
+  {
+    if (Array.isArray(node)) {
+      for (const item of node) walkUntitled(item, parent);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (typeof record.$ref === "string") return;
+    if (
+      record.type === "object" &&
+      record.properties !== null &&
+      typeof record.properties === "object" &&
+      !Array.isArray(record.properties) &&
+      typeof record.title !== "string" &&
+      parent !== ""
+    )
+      record.title = parent;
+    const named = typeof record.title === "string" ? pascal(record.title) : parent;
+    const properties = record.properties;
+    if (properties !== null && typeof properties === "object" && !Array.isArray(properties)) {
+      for (const [key, child] of Object.entries(properties as Record<string, unknown>))
+        walkUntitled(child, `${named}${pascal(key)}`);
+    }
+    if (record.items !== undefined) walkUntitled(record.items, `${named}Item`);
+    if (record.additionalProperties !== null && typeof record.additionalProperties === "object")
+      walkUntitled(record.additionalProperties, `${named}Value`);
+    for (const combinator of ["anyOf", "oneOf", "allOf"]) {
+      const branches = record[combinator];
+      if (!Array.isArray(branches)) continue;
+      for (const [index, branch] of branches.entries())
+        walkUntitled(branch, `${named}Branch${index}`);
+    }
+  }
+}
+
+function titleUntitledObjects(document: unknown): void {
+  const properties = (document as Record<string, unknown>).properties;
+  if (properties !== null && typeof properties === "object")
+    for (const [name, child] of Object.entries(properties as Record<string, unknown>))
+      walkUntitled(child, pascal(name));
+  const defs = (document as Record<string, unknown>).$defs;
+  if (defs !== null && typeof defs === "object")
+    for (const [key, child] of Object.entries(defs as Record<string, unknown>)) {
+      const title = (child as Record<string, unknown> | null)?.title;
+      walkUntitled(child, typeof title === "string" ? pascal(title) : pascal(key));
+    }
+}
+
 function runMain(): void {
   const scratchDir = mkdtempSync(join(tmpdir(), "ace-protocol-"));
   try {
@@ -926,12 +1167,20 @@ function generate(scratchDir: string): void {
   const replaced = readFileSync(raw, "utf8")
     .replaceAll("::serde_json::Map<::std::string::String, ::serde_json::Value>", "::ace_json::Map")
     .replaceAll("::serde_json::Map::is_empty", "::ace_json::Map::is_empty")
+    // A loose object's flattened catchall keeps the unnamed keys; `ace_json::Map` writes as one
+    // pre-serialized value, so the generated field takes the map-shaped wrapper instead.
+    .replaceAll("pub extra: ::ace_json::Map,", "pub extra: crate::presence::Extra,")
+    .replaceAll("extra: ::ace_json::Map,", "extra: crate::presence::Extra,")
     .replaceAll("::serde_json::Value", "::ace_json::Value")
     .replaceAll("::serde_json::Map", "::ace_json::Map")
     // typify's `Default` for an unconstrained object's `{}`: `ace_json::Map`'s item type is
     // fixed, so the empty literal can't infer it.
     .replaceAll("[].into_iter().collect()", "Default::default()");
   writeFileSync(raw, replaced);
+  runRustfmt(raw);
+  const presence = collectPresence(schema);
+  const withPresence = applyPresence(readFileSync(raw, "utf8"), presence);
+  writeFileSync(raw, withPresence);
   runRustfmt(raw);
   const generated = join(root, "native", "daemon", "crates", "ace-protocol", "src", "generated.rs");
   const formatted = readFileSync(raw, "utf8");
@@ -993,6 +1242,15 @@ function generate(scratchDir: string): void {
     for (const name of readdirSync(shapesDir)) {
       if (name.endsWith(".rs") && !written.has(name)) rmSync(join(shapesDir, name));
     }
+  } else {
+    const written = new Set(shapeFiles.keys());
+    const extra = readdirSync(shapesDir).filter(
+      (name) => name.endsWith(".rs") && !written.has(name),
+    );
+    if (extra.length > 0)
+      throw new Error(
+        `${shapesDir} holds stale shape files: ${extra.join(", ")}; run bun scripts/generate-rust-protocol.ts`,
+      );
   }
   // Write every part first, so rustfmt can resolve `mod` from `mod.rs` in the scratch dir.
   const rawPaths = [...shapeFiles].map(([name, source]) => {

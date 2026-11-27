@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_5.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_FIELDS: [Field; 5] = [
     Field {
@@ -17,22 +17,14 @@ pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_FIELDS: [Field; 5] = [
         key: "extensionId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64)],
         }),
     },
     Field {
         key: "extensionPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -66,28 +58,20 @@ pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_INSTALLED_FIELDS: [Field; 2] 
         key: "browser",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64)],
         }),
     },
     Field {
         key: "manifestPath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
 
 pub(crate) static SERVER_MESSAGE_8_RESULT_0_STATUS_CONNECTIONS_FIELDS: [Field; 4] = [
-    Field { key: "connectionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "connectionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "browser", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_0_BROWSER_FIELDS, extra: Extra::Strip } },
     Field { key: "connectedAt", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: true, max: None, max_inclusive: false, integral: true }) },
     Field { key: "tabs", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::user_browser_extension_message::USER_BROWSER_EXTENSION_MESSAGE_2_EVENT_0_TABS_FIELDS, extra: Extra::Strip }, min: None, max: Some(512) } },
@@ -113,11 +97,7 @@ pub(crate) static SERVER_MESSAGE_8_RESULT_1_FIELDS: [Field; 3] = [
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
 ];
@@ -127,22 +107,14 @@ pub(crate) static SERVER_MESSAGE_9_FIELDS: [Field; 16] = [
         key: "commandId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -231,11 +203,7 @@ pub(crate) static SERVER_MESSAGE_9_FIELDS: [Field; 16] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(1024),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(1024)],
             }),
             min: None,
             max: Some(200),
@@ -245,33 +213,21 @@ pub(crate) static SERVER_MESSAGE_9_FIELDS: [Field; 16] = [
         key: "message",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "lockPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -304,13 +260,7 @@ pub(crate) static SERVER_MESSAGE_10_FIELDS: [Field; 5] = [
     Field {
         key: "requestId",
         presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
+        shape: Shape::Str(&StrBounds { checks: &[] }),
     },
     Field {
         key: "ok",

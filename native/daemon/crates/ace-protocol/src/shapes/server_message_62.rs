@@ -5,40 +5,28 @@
 #![allow(unused_imports)]
 
 // Part server_message_62.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_14_WORKSPACES_NOTES_FIELDS: [Field; 4] = [
     Field {
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64)],
         }),
     },
     Field {
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -59,11 +47,9 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_14_WORKSPACES_IDENTITY_FIELDS: [Field
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )],
         }),
     },
     Field {
@@ -71,11 +57,9 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_14_WORKSPACES_IDENTITY_FIELDS: [Field
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: None,
-                pattern: Some("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Pattern(
+                    "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                )],
             }),
             min: None,
             max: Some(32),
@@ -94,11 +78,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_14_WORKSPACES_REMOTE_KEY_FIELDS: [Fie
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
             }),
             min: Some(1),
             max: Some(64),
@@ -108,11 +88,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_14_WORKSPACES_REMOTE_KEY_FIELDS: [Fie
         key: "subpath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -138,45 +114,29 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_15_CONTEXT_FIELDS: [Field; 8] = [
         key: "fingerprint",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
         key: "head",
         presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
+        shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[] })),
     },
     Field {
         key: "base",
         presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
-        })),
+        shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[] })),
     },
     Field {
         key: "paths",
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[
+                    StrCheck::Min(1),
+                    StrCheck::Max(4096),
+                    StrCheck::Custom(&crate::checks::NO_NUL),
+                ],
             }),
             min: None,
             max: Some(1000),
@@ -186,11 +146,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_15_CONTEXT_FIELDS: [Field; 8] = [
         key: "patch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -214,11 +170,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_15_CONTEXT_FIELDS: [Field; 8] = [
         key: "recentCommits",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
 ];
@@ -228,22 +180,18 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_15_CONTEXT_CONVENTIONS_FIELDS: [Field
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(4096),
+                StrCheck::Custom(&crate::checks::NO_NUL),
+            ],
         }),
     },
     Field {
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(16384),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(16384)],
         }),
     },
 ];
@@ -277,22 +225,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_16_DRAFT_FIELDS: [Field; 2] = [
         key: "subject",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(200),
+                StrCheck::Custom(&crate::checks::TITLE_NO_NEWLINE),
+            ],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(7800),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Max(7800),
+                StrCheck::Custom(&crate::checks::NO_NUL),
+            ],
         }),
     },
 ];
@@ -331,11 +278,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_18_FIELDS: [Field; 4] = [
         key: "head",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[0-9a-f]{40,64}$")],
         })),
     },
 ];

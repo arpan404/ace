@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part browser_backend_server_message.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_0_FIELDS: [Field; 4] = [
     Field {
@@ -17,42 +17,30 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_0_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "backendId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "connectionId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];
 
 pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_FIELDS: [Field; 5] = [
-    Field { key: "backendId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "sessionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "backendId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "sessionId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"browser.backend.request\""]) },
-    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
+    Field { key: "id", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
     Field { key: "operation", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"open\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_0_FIELDS, extra: Extra::Strip }), ("\"cdp\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_1_FIELDS, extra: Extra::Strip }), ("\"navigate\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_2_FIELDS, extra: Extra::Strip }), ("\"press\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_3_FIELDS, extra: Extra::Strip }), ("\"resize\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_4_FIELDS, extra: Extra::Strip }), ("\"agentUse\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_5_FIELDS, extra: Extra::Strip }), ("\"close\"", Shape::Object { fields: &BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_6_FIELDS, extra: Extra::Strip }), ("\"purge\"", Shape::Object { fields: &crate::shapes::browser_backend_server_message_2::BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_7_FIELDS, extra: Extra::Strip }), ("\"purgeProject\"", Shape::Object { fields: &crate::shapes::browser_backend_server_message_2::BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_8_FIELDS, extra: Extra::Strip })] } },
 ];
 
@@ -79,11 +67,7 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_0_FIELDS: [Field; 5
         key: "downloadDir",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(8192)],
         }),
     },
     Field {
@@ -131,17 +115,17 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_1_FIELDS: [Field; 3
         key: "method",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "params",
         presence: Presence::Optional,
-        shape: Shape::Record(&Shape::Any),
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds { checks: &[] }),
+            value: &Shape::Any,
+            keep_proto: false,
+        },
     },
 ];
 
@@ -155,11 +139,7 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_2_FIELDS: [Field; 3
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
     Field {
@@ -185,11 +165,7 @@ pub(crate) static BROWSER_BACKEND_SERVER_MESSAGE_1_OPERATION_3_FIELDS: [Field; 2
         key: "key",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];

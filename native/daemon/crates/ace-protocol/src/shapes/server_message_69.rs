@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_69.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_61_EVENT_1_FIELDS: [Field; 3] = [
     Field {
@@ -99,11 +99,7 @@ pub(crate) static SERVER_MESSAGE_62_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
@@ -247,10 +243,10 @@ pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_FIELDS: [Field; 2] = [
 pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_FIELDS: [Field; 6] = [
     Field { key: "install", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_INSTALL_FIELDS, extra: Extra::Reject } },
     Field { key: "enabled", presence: Presence::Required, shape: Shape::Bool },
-    Field { key: "root", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "root", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096)] }) },
     Field { key: "components", presence: Presence::Required, shape: Shape::Array { item: &Shape::Object { fields: &SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_COMPONENTS_FIELDS, extra: Extra::Reject }, min: None, max: Some(1024) } },
     Field { key: "executions", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "kind", options: &[("\"hook\"", Shape::Object { fields: &crate::shapes::server_message_70::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_0_FIELDS, extra: Extra::Reject }), ("\"stdio\"", Shape::Object { fields: &crate::shapes::server_message_70::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_1_FIELDS, extra: Extra::Reject }), ("\"remote\"", Shape::Object { fields: &crate::shapes::server_message_70::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_EXECUTIONS_2_FIELDS, extra: Extra::Reject })] }, min: None, max: Some(512) } },
-    Field { key: "unsupported", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { min: None, max: Some(8192), pattern: None, format: None, trim: false }), min: None, max: Some(512) } },
+    Field { key: "unsupported", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Max(8192)] }), min: None, max: Some(512) } },
 ];
 
 pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_INSTALL_FIELDS: [Field; 5] = [
@@ -258,44 +254,33 @@ pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_INSTALL_FIELDS: [Field; 5]
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64),
-            pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(64),
+                StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"),
+                StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH),
+            ],
         }),
     },
     Field {
         key: "version",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "commit",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{40}$")],
         }),
     },
     Field {
         key: "hash",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -313,11 +298,11 @@ pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_INSTALL_FIELDS: [Field; 5]
 
 pub(crate) static SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_COMPONENTS_FIELDS: [Field; 8] = [
     Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"skill\"", "\"command\"", "\"agent\"", "\"rule\""]) },
-    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(64), pattern: Some("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"), format: None, trim: false }) },
-    Field { key: "path", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(512), pattern: None, format: None, trim: false }) },
-    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(8192), pattern: None, format: None, trim: false }) },
-    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(200), pattern: None, format: None, trim: false }) },
-    Field { key: "text", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(262144), pattern: None, format: None, trim: false }) },
-    Field { key: "omitted", presence: Presence::Optional, shape: Shape::Str(&StrBounds { min: None, max: Some(200), pattern: None, format: None, trim: false }) },
+    Field { key: "name", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(64), StrCheck::Pattern("^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"), StrCheck::Custom(&crate::checks::NO_DOTDOT_OR_DOUBLE_DASH)] }) },
+    Field { key: "path", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(512)] }) },
+    Field { key: "description", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(8192)] }) },
+    Field { key: "title", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(200)] }) },
+    Field { key: "text", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(262144)] }) },
+    Field { key: "omitted", presence: Presence::Optional, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(200)] }) },
     Field { key: "files", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_70::SERVER_MESSAGE_62_RESPONSE_0_PLUGIN_COMPONENTS_FILES_FIELDS, extra: Extra::Reject }, min: None, max: Some(200) } },
 ];

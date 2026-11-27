@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_24.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_26_RESULT_5_FIELDS: [Field; 1] = [Field {
     key: "kind",
@@ -35,11 +35,7 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_6_FIELDS: [Field; 3] = [
         key: "selfId",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -74,11 +70,7 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_7_DEVICES_FIELDS: [Field; 3] = [
         key: "deviceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -175,11 +167,7 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_FIELDS: [Field; 8] = [
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -213,33 +201,21 @@ pub(crate) static SERVER_MESSAGE_26_RESULT_8_STATUS_RELAY_FIELDS: [Field; 3] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2048),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2048)],
         }),
     },
     Field {
         key: "fingerprint",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[A-Z2-7]{52}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[A-Z2-7]{52}$")],
         }),
     },
     Field {
         key: "hostId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
 ];

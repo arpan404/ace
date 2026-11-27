@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_39.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_51_RESULT_0_FIELDS: [Field; 2] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_0_FIELDS: [Field; 2] = [
         key: "reason",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
 ];
@@ -97,22 +93,14 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_FIELDS: [Field; 14] = [
         key: "source",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "digest",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")],
         }),
     },
     Field {
@@ -130,22 +118,14 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_FIELDS: [Field; 14] = [
         key: "schemaVersion",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
     Field {
         key: "release",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
@@ -166,55 +146,35 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
         key: "acpAgentId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
         }),
     },
     Field {
         key: "version",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "description",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(8192),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(8192)],
         }),
     },
     Field {
         key: "source",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -222,11 +182,7 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(256)],
             }),
             min: None,
             max: Some(64),
@@ -255,11 +211,7 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
         key: "loginHint",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
     Field {
@@ -276,11 +228,7 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
         key: "icon",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -296,33 +244,25 @@ pub(crate) static SERVER_MESSAGE_51_RESULT_1_AGENTS_FIELDS: [Field; 16] = [
         key: "homepage",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "license",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];
 
 pub(crate) static SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_FIELDS: [Field; 11] = [
-    Field { key: "acpAgentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "installationId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "instanceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "version", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "profileRevision", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(256), pattern: None, format: None, trim: false }) },
-    Field { key: "source", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "acpAgentId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "installationId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "instanceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "version", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "profileRevision", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(256)] }) },
+    Field { key: "source", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
     Field { key: "evidence", presence: Presence::Required, shape: Shape::Enum(&["\"user_local_binding\"", "\"sha256\"", "\"package_manager\"", "\"unsigned_https\""]) },
     Field { key: "packageManager", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::server_message_40::SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_PACKAGE_MANAGER_FIELDS, extra: Extra::Strip } },
     Field { key: "approvals", presence: Presence::Optional, shape: Shape::Array { item: &Shape::Object { fields: &crate::shapes::server_message_40::SERVER_MESSAGE_51_RESULT_1_INSTALLATIONS_APPROVALS_FIELDS, extra: Extra::Strip }, min: None, max: Some(16) } },

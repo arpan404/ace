@@ -5,18 +5,14 @@
 #![allow(unused_imports)]
 
 // Part server_message_2.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_1_RESULT_1_PLAN_ITEMS_FIELDS: [Field; 12] = [
     Field {
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -35,11 +31,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_1_PLAN_ITEMS_FIELDS: [Field; 12] = [
         key: "label",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -69,11 +61,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_1_PLAN_ITEMS_FIELDS: [Field; 12] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: None,
-                max: Some(128),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Max(128)],
             }),
             min: None,
             max: None,
@@ -132,11 +120,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_1_PLAN_ITEMS_FIELDS: [Field; 12] = [
         key: "branch",
         presence: Presence::Optional,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1024)],
         })),
     },
     Field {
@@ -183,11 +167,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_APPLY_FIELDS: [Field; 3] = [
         key: "planId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -214,11 +194,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_APPLY_ITEMS_FIELDS: [Field; 4] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -265,11 +241,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_2_APPLY_ITEMS_FIELDS: [Field; 4] = [
         key: "error",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(128)],
         }),
     },
 ];
@@ -295,11 +267,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_3_COMPACTION_FIELDS: [Field; 7] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -373,11 +341,7 @@ pub(crate) static SERVER_MESSAGE_1_RESULT_4_FIELDS: [Field; 3] = [
         key: "message",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
 ];

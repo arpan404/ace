@@ -9,12 +9,15 @@
 import { z } from "zod";
 import {
   catchFallback,
+  checksOf,
+  customSource,
   lengthBounds,
   numBounds,
   strBounds,
   type NumBounds,
   type StrBounds,
 } from "./rust-protocol-bounds.ts";
+import { resolveCheck } from "./rust-protocol-checks.ts";
 
 type Extra = "strip" | "reject" | "keep" | "shaped";
 
@@ -29,7 +32,7 @@ type Node =
   | { kind: "object"; plan: Plan; extra: Extra; rest?: Node }
   | { kind: "array"; item: Node; min?: number; max?: number }
   | { kind: "tuple"; items: Node[] }
-  | { kind: "record"; inner: Node }
+  | { kind: "record"; key: Node; inner: Node; keepProto: boolean }
   | { kind: "nullable"; inner: Node }
   | { kind: "tagged"; key: string; options: { literal: string; shape: Node }[] }
   | { kind: "oneOf"; options: Node[] }
@@ -38,7 +41,8 @@ type Node =
   | { kind: "custom"; path: string }
   | { kind: "option"; inner: Node }
   | { kind: "catch"; inner: Node; fallback: string }
-  | { kind: "fallback"; rest: Node; input: Node; fallback: string };
+  | { kind: "fallback"; rest: Node; input: Node; fallback: string }
+  | { kind: "checked"; inner: Node; check: string };
 
 interface Plan {
   readonly fields: { key: string; presence: Presence; shape: Node }[];
@@ -194,9 +198,35 @@ class Planner {
     const custom = this.customs.get(schema);
     if (custom !== undefined) return { kind: "custom", path: custom };
     const def = defOf(schema);
+    const checks = checksOf(def as unknown as Record<string, unknown>)
+      .filter((check) => check.check === "custom")
+      .map((check) => {
+        const source = customSource(check);
+        if (source === undefined) fail(path, "a refinement has no function");
+        return resolveCheck(source, path);
+      });
+    const node = this.shapeInner(schema, path, def);
+    // A string's refinements run at their place among its ordered checks, so they are already
+    // part of `StrBounds`; every other node wraps its own rule around the parsed value.
+    let wrapped = node;
+    if (node.kind !== "str")
+      for (const check of checks)
+        if (check.message !== true)
+          wrapped = { kind: "checked", inner: wrapped, check: check.name };
+    return wrapped;
+  }
+
+  private shapeInner(schema: z.ZodType, path: string, def: Def): Node {
     switch (def.type) {
       case "string":
-        return { kind: "str", bounds: strBounds(def as unknown as Record<string, unknown>, path) };
+        return {
+          kind: "str",
+          bounds: strBounds(
+            def as unknown as Record<string, unknown>,
+            path,
+            (source, at) => resolveCheck(source, at).name,
+          ),
+        };
       case "number":
       case "int":
         return { kind: "num", bounds: numBounds(def as unknown as Record<string, unknown>, path) };
@@ -247,9 +277,36 @@ class Planner {
         if (keyType === undefined || valueType === undefined)
           return fail(path, "a record has no key or value type");
         const keyDef = defOf(keyType);
-        if (keyDef.type !== "string" && keyDef.type !== "enum")
+        if (keyDef.type === "enum") {
+          // An enum-keyed record is an object with exactly those keys: all required for
+          // `z.record`, each optional for `z.partialRecord`, any other key rejected.
+          const partial = (def as unknown as { partial?: unknown }).partial === true;
+          const entries = Object.values(keyDef.entries ?? {});
+          if (entries.length === 0) return fail(path, "an enum-keyed record has no keys");
+          let unique = snake(path);
+          for (let suffix = 2; this.used.has(unique); suffix += 1)
+            unique = `${snake(path)}_${suffix}`;
+          this.used.add(unique);
+          const plan: Plan = { name: unique, fields: [], root: this.root, file: "" };
+          this.order.push(plan);
+          for (const value of entries) {
+            const key = String(value);
+            plan.fields.push({
+              key,
+              presence: partial ? { kind: "optional" } : { kind: "required" },
+              shape: this.shape(valueType, `${path}{${key}}`),
+            });
+          }
+          return { kind: "object", plan, extra: "reject" };
+        }
+        if (keyDef.type !== "string" && keyDef.type !== "template_literal")
           return fail(path, "a record's key is not a string");
-        return { kind: "record", inner: this.shape(valueType, `${path}{value}`) };
+        return {
+          kind: "record",
+          key: this.shape(keyType, `${path}{key}`),
+          inner: this.shape(valueType, `${path}{value}`),
+          keepProto: false,
+        };
       }
       case "nullable": {
         const inner = requireInner(def, path);
@@ -305,6 +362,24 @@ class Planner {
       case "pipe":
       case "transform":
       case "custom": {
+        const meta = (schema as unknown as { meta?: () => Record<string, unknown> }).meta?.();
+        if (meta?.["x-ace-record"] === "opaque") {
+          const named = metaInput(schema);
+          if (named === undefined) return fail(path, "an opaque record names no input schema");
+          const record = defOf(named);
+          if (
+            record.type !== "record" ||
+            record.keyType === undefined ||
+            record.valueType === undefined
+          )
+            return fail(path, "an opaque record is not a record");
+          return {
+            kind: "record",
+            key: this.shape(record.keyType, `${path}{key}`),
+            inner: this.shape(record.valueType, `${path}{value}`),
+            keepProto: true,
+          };
+        }
         const named = metaInput(schema);
         if (named !== undefined) return this.shape(named, path);
         return fail(path, `a ${def.type} names no input schema (x-ace-json-input)`);
@@ -358,6 +433,22 @@ class Planner {
   }
 
   merge(a: Node, b: Node, path: string): Node {
+    const checks: string[] = [];
+    let left = a;
+    while (left.kind === "checked") {
+      checks.push(left.check);
+      left = left.inner;
+    }
+    let right = b;
+    while (right.kind === "checked") {
+      checks.push(right.check);
+      right = right.inner;
+    }
+    const merged = this.mergeInner(left, right, path);
+    return checks.reduce<Node>((node, check) => ({ kind: "checked", inner: node, check }), merged);
+  }
+
+  private mergeInner(a: Node, b: Node, path: string): Node {
     if (a.kind === "any") return b;
     if (b.kind === "any") return a;
     if (a.kind === b.kind && a.kind !== "tagged" && a.kind !== "object")
@@ -428,9 +519,11 @@ class Planner {
       case "array":
         return 1 + this.depth(node.item);
       case "record":
+        return 1 + Math.max(this.depth(node.key), this.depth(node.inner));
       case "nullable":
       case "option":
       case "catch":
+      case "checked":
         return 1 + this.depth(node.inner);
       case "fallback":
         return 1 + Math.max(this.depth(node.rest), this.depth(node.input));
@@ -507,7 +600,23 @@ function optionalFloat(value: number | undefined): string {
 }
 
 function strExpr(bounds: StrBounds): string {
-  return `Shape::Str(&StrBounds { min: ${optionalNumber(bounds.min)}, max: ${optionalNumber(bounds.max)}, pattern: ${bounds.pattern === undefined ? "None" : `Some(${rustString(bounds.pattern)})`}, format: ${bounds.format === undefined ? "None" : `Some(${rustString(bounds.format)})`}, trim: ${bounds.trim === true} })`;
+  const checks = bounds.checks.map((check) => {
+    switch (check.kind) {
+      case "min":
+        return `StrCheck::Min(${check.value})`;
+      case "max":
+        return `StrCheck::Max(${check.value})`;
+      case "pattern":
+        return `StrCheck::Pattern(${rustString(check.value)})`;
+      case "format":
+        return `StrCheck::Format(${rustString(check.value)})`;
+      case "trim":
+        return "StrCheck::Trim";
+      case "custom":
+        return `StrCheck::Custom(&crate::checks::${check.name})`;
+    }
+  });
+  return `Shape::Str(&StrBounds { checks: &[${checks.join(", ")}] })`;
 }
 
 function numExpr(bounds: NumBounds): string {
@@ -543,7 +652,7 @@ function shapeExpr(node: Node, file: string): string {
     case "tuple":
       return `Shape::Tuple(&[${node.items.map((item) => shapeExpr(item, file)).join(", ")}])`;
     case "record":
-      return `Shape::Record(&${shapeExpr(node.inner, file)})`;
+      return `Shape::Record { key: &${shapeExpr(node.key, file)}, value: &${shapeExpr(node.inner, file)}, keep_proto: ${node.keepProto} }`;
     case "nullable":
       return `Shape::Nullable(&${shapeExpr(node.inner, file)})`;
     case "option":
@@ -570,6 +679,8 @@ function shapeExpr(node: Node, file: string): string {
     }
     case "custom":
       return `Shape::Custom(&${node.path})`;
+    case "checked":
+      return `Shape::Checked { inner: &${shapeExpr(node.inner, file)}, check: &crate::checks::${node.check} }`;
   }
 }
 
@@ -674,7 +785,7 @@ export function shapesSource(
     const lines = [
       ...head,
       `// Part ${chunk.file}.`,
-      "use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};",
+      "use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};",
       "",
     ];
     for (const plan of chunk.plans) {

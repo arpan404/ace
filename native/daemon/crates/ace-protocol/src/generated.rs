@@ -291,8 +291,8 @@ pub enum AgentItem {
     Message {
         #[serde(rename = "agentId")]
         agent_id: Schema252,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        attachments: ::std::vec::Vec<Schema674>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        attachments: ::std::option::Option<::std::vec::Vec<Schema674>>,
         complete: Schema671,
         #[serde(rename = "createdAt")]
         created_at: Schema53,
@@ -1013,8 +1013,8 @@ pub struct AgentItemImageImage {
 pub struct AgentItemMessage {
     #[serde(rename = "agentId")]
     pub agent_id: Schema252,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub attachments: ::std::vec::Vec<Schema674>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub attachments: ::std::option::Option<::std::vec::Vec<Schema674>>,
     pub complete: Schema671,
     #[serde(rename = "createdAt")]
     pub created_at: Schema53,
@@ -1399,7 +1399,8 @@ pub enum AgentItemToolCallCallDetail {
             rename = "exitCode",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        exit_code: ::std::option::Option<i64>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        exit_code: ::std::option::Option<::std::option::Option<i64>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         output: ::std::option::Option<AgentItemToolCallCallDetailBranch0Output>,
         #[serde(
@@ -1497,8 +1498,8 @@ pub enum AgentItemToolCallCallDetail {
     Plan {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         markdown: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        todos: ::std::vec::Vec<Schema684>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        todos: ::std::option::Option<::std::vec::Vec<Schema684>>,
     },
     #[serde(rename = "ask_user")]
     AskUser,
@@ -2244,9 +2245,9 @@ pub struct Capabilities {
     #[serde(
         rename = "accessModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub access_modes: ::std::vec::Vec<Schema741>,
+    pub access_modes: ::std::option::Option<::std::vec::Vec<Schema741>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub approvals: ::std::option::Option<CapabilitiesApprovals>,
     #[serde(
@@ -2279,9 +2280,9 @@ pub struct Capabilities {
     #[serde(
         rename = "forkPoints",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub fork_points: ::std::vec::Vec<Schema1194>,
+    pub fork_points: ::std::option::Option<::std::vec::Vec<Schema1194>>,
     #[serde(
         rename = "forkSubagents",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -2301,15 +2302,15 @@ pub struct Capabilities {
     #[serde(
         rename = "launchOptions",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub launch_options: ::std::vec::Vec<Schema1193>,
+    pub launch_options: ::std::option::Option<::std::vec::Vec<Schema1193>>,
     #[serde(
         rename = "permissionModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub permission_modes: ::std::vec::Vec<Schema739>,
+    pub permission_modes: ::std::option::Option<::std::vec::Vec<Schema739>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub permissions: ::std::option::Option<Schema1045>,
     #[serde(rename = "planMode")]
@@ -2996,12 +2997,14 @@ pub struct ClientAccountsRename {
         rename = "badgeColor",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub badge_color: ::std::option::Option<Schema307>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub badge_color: ::std::option::Option<::std::option::Option<Schema307>>,
     #[serde(
         rename = "badgeIcon",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub badge_icon: ::std::option::Option<Schema308>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub badge_icon: ::std::option::Option<::std::option::Option<Schema308>>,
     #[serde(
         rename = "badgeUsesInitial",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -3049,14 +3052,14 @@ pub struct ClientActivityMarkRead {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub all_before: ::std::option::Option<Schema95>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub read: ::std::vec::Vec<Schema94>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub read: ::std::option::Option<::std::vec::Vec<Schema94>>,
     #[serde(rename = "requestId")]
     pub request_id: Schema93,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub unread: ::std::vec::Vec<Schema94>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub unread: ::std::option::Option<::std::vec::Vec<Schema94>>,
 }
 #[doc = "`ClientActivityReads`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -3127,7 +3130,8 @@ pub struct ClientAutomationPut {
         rename = "expectedRevision",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub expected_revision: ::std::option::Option<Schema89>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub expected_revision: ::std::option::Option<::std::option::Option<Schema89>>,
     #[serde(rename = "requestId")]
     pub request_id: Schema86,
     #[serde(rename = "type")]
@@ -3140,7 +3144,8 @@ pub struct ClientAutomationRemove {
         rename = "expectedRevision",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub expected_revision: ::std::option::Option<Schema89>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub expected_revision: ::std::option::Option<::std::option::Option<Schema89>>,
     pub id: Schema86,
     #[serde(rename = "requestId")]
     pub request_id: Schema86,
@@ -4125,8 +4130,8 @@ pub enum ClientBrowserInputInput {
     Pick {
         #[serde(rename = "pickerId")]
         picker_id: Schema371,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        values: ::std::vec::Vec<Schema427>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        values: ::std::option::Option<::std::vec::Vec<Schema427>>,
     },
 }
 #[doc = "`ClientBrowserOpen`"]
@@ -4353,12 +4358,12 @@ pub enum ClientCliRequestOperation {
     #[doc = "ClientMessageCliRequestOperationBranch2"]
     #[serde(rename = "mcp.enroll")]
     McpEnroll {
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        allow: ::std::vec::Vec<Schema2>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        allow: ::std::option::Option<::std::vec::Vec<Schema2>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         name: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        projects: ::std::vec::Vec<Schema1>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        projects: ::std::option::Option<::std::vec::Vec<Schema1>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         scope: ::std::option::Option<ClientMessageCliRequestOperationBranch2Scope>,
         #[serde(
@@ -5321,7 +5326,8 @@ pub enum ClientFleetRequestOperation {
             rename = "deviceTtlMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        device_ttl_ms: ::std::option::Option<Schema62>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        device_ttl_ms: ::std::option::Option<::std::option::Option<Schema62>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         label: ::std::option::Option<::std::string::String>,
         scopes: ::std::vec::Vec<Schema61>,
@@ -5364,9 +5370,9 @@ pub enum ClientFleetRequestOperation {
         #[serde(
             rename = "deviceIds",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        device_ids: ::std::vec::Vec<Schema63>,
+        device_ids: ::std::option::Option<::std::vec::Vec<Schema63>>,
     },
     #[doc = "ClientMessageFleetRequestOperationBranch12"]
     #[serde(rename = "grant")]
@@ -8292,8 +8298,8 @@ impl ::std::convert::TryFrom<::std::string::String>
 #[doc = "`ClientMessageMachineCallRequestOrigin`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ClientMessageMachineCallRequestOrigin {
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub accepts: ::std::vec::Vec<Schema253>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub accepts: ::std::option::Option<::std::vec::Vec<Schema253>>,
     #[serde(
         rename = "agentId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -8311,7 +8317,8 @@ pub struct ClientMessageMachineCallRequestOrigin {
         rename = "rootThreadId",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub root_thread_id: ::std::option::Option<ThreadId>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub root_thread_id: ::std::option::Option<::std::option::Option<ThreadId>>,
     #[serde(rename = "threadId")]
     pub thread_id: ThreadId,
     #[serde(rename = "threadTitle")]
@@ -8567,8 +8574,8 @@ pub struct ClientMessageMachineTransferRequestBranch0CallBranch3ThreadHandoff {
     pub since: ::std::option::Option<i64>,
     #[serde(rename = "sourceThreadId")]
     pub source_thread_id: ThreadId,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub sources: ::std::vec::Vec<Schema268>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sources: ::std::option::Option<::std::vec::Vec<Schema268>>,
     #[serde(rename = "throughSeq")]
     pub through_seq: i64,
     pub version: f64,
@@ -9172,8 +9179,8 @@ pub struct ClientMessageMarketplaceRequestOperationBranch26RequestBranch3Profile
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub display_name: ::std::option::Option<Schema171>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub links: ::std::vec::Vec<Schema173>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub links: ::std::option::Option<::std::vec::Vec<Schema173>>,
 }
 #[doc = "`ClientMessageModelsListOptions`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -11221,7 +11228,8 @@ pub enum ClientOutsideRequestOperation {
             rename = "expiresAt",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        expires_at: ::std::option::Option<Schema69>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        expires_at: ::std::option::Option<::std::option::Option<Schema69>>,
         #[serde(rename = "grantId")]
         grant_id: Schema66,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -11649,12 +11657,14 @@ pub struct ClientProviderAccountsRename {
         rename = "badgeColor",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub badge_color: ::std::option::Option<Schema307>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub badge_color: ::std::option::Option<::std::option::Option<Schema307>>,
     #[serde(
         rename = "badgeIcon",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub badge_icon: ::std::option::Option<Schema308>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub badge_icon: ::std::option::Option<::std::option::Option<Schema308>>,
     #[serde(
         rename = "badgeUsesInitial",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -12613,8 +12623,8 @@ pub enum ClientStorageRequestOperation {
     CleanupPlan {
         #[serde(rename = "forceItems")]
         force_items: ::std::vec::Vec<Schema24>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        kinds: ::std::vec::Vec<Schema21>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        kinds: ::std::option::Option<::std::vec::Vec<Schema21>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         retention: ::std::option::Option<Schema22>,
     },
@@ -16774,7 +16784,8 @@ pub enum EventPayload {
             rename = "archivedAt",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        archived_at: ::std::option::Option<Schema53>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        archived_at: ::std::option::Option<::std::option::Option<Schema53>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         backend: ::std::option::Option<Schema1244>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -16797,7 +16808,8 @@ pub enum EventPayload {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         execution: ::std::option::Option<ExecutionSelection>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        goal: ::std::option::Option<Schema1241>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        goal: ::std::option::Option<::std::option::Option<Schema1241>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         lineage: ::std::option::Option<Schema1202>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -16808,7 +16820,8 @@ pub enum EventPayload {
             rename = "queuedLaunch",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        queued_launch: ::std::option::Option<Schema1253>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        queued_launch: ::std::option::Option<::std::option::Option<Schema1253>>,
         #[serde(
             rename = "startedBy",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -16893,14 +16906,16 @@ pub enum EventPayload {
             rename = "parentId",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        parent_id: ::std::option::Option<Schema252>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        parent_id: ::std::option::Option<::std::option::Option<Schema252>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         role: ::std::option::Option<::std::string::String>,
         #[serde(
             rename = "spawnedBy",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
-        spawned_by: ::std::option::Option<Schema38>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        spawned_by: ::std::option::Option<::std::option::Option<Schema38>>,
     },
     #[doc = "EventPayloadRunClientUpdated"]
     #[serde(rename = "run.client.updated")]
@@ -17400,12 +17415,14 @@ pub struct EventPayloadThreadClientUpdatedChanges {
         rename = "autoSettle",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub auto_settle: ::std::option::Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub auto_settle: ::std::option::Option<::std::option::Option<bool>>,
     #[serde(
         rename = "autoSettleAt",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub auto_settle_at: ::std::option::Option<Schema53>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub auto_settle_at: ::std::option::Option<::std::option::Option<Schema53>>,
     #[serde(
         rename = "deletedAt",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -17436,24 +17453,28 @@ pub struct EventPayloadThreadClientUpdatedChanges {
         rename = "movedFrom",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub moved_from: ::std::option::Option<Schema1238>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub moved_from: ::std::option::Option<::std::option::Option<Schema1238>>,
     #[serde(
         rename = "pinOrder",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub pin_order: ::std::option::Option<Schema487>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub pin_order: ::std::option::Option<::std::option::Option<Schema487>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub pinned: ::std::option::Option<Schema1221>,
     #[serde(
         rename = "prSettled",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub pr_settled: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub pr_settled: ::std::option::Option<::std::option::Option<::std::num::NonZeroU64>>,
     #[serde(
         rename = "prSettledKey",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub pr_settled_key: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub pr_settled_key: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(
         rename = "readAt",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -17463,37 +17484,44 @@ pub struct EventPayloadThreadClientUpdatedChanges {
         rename = "settleWhenDone",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub settle_when_done: ::std::option::Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub settle_when_done: ::std::option::Option<::std::option::Option<bool>>,
     #[serde(
         rename = "settledAt",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub settled_at: ::std::option::Option<Schema53>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub settled_at: ::std::option::Option<::std::option::Option<Schema53>>,
     #[serde(
         rename = "settledOverQueue",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub settled_over_queue: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub settled_over_queue: ::std::option::Option<::std::option::Option<i64>>,
     #[serde(
         rename = "settledReason",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub settled_reason: ::std::option::Option<Schema1225>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub settled_reason: ::std::option::Option<::std::option::Option<Schema1225>>,
     #[serde(
         rename = "snoozeWake",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub snooze_wake: ::std::option::Option<Schema1226>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub snooze_wake: ::std::option::Option<::std::option::Option<Schema1226>>,
     #[serde(
         rename = "snoozeWoke",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub snooze_woke: ::std::option::Option<Schema1228>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub snooze_woke: ::std::option::Option<::std::option::Option<Schema1228>>,
     #[serde(
         rename = "snoozedUntil",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub snoozed_until: ::std::option::Option<Schema53>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub snoozed_until: ::std::option::Option<::std::option::Option<Schema53>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub unread: ::std::option::Option<Schema1223>,
 }
@@ -17963,14 +17991,14 @@ pub struct MessageOrigin {
     pub parent_thread_id: ::std::option::Option<ThreadId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub role: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub sources: ::std::vec::Vec<Schema268>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sources: ::std::option::Option<::std::vec::Vec<Schema268>>,
     #[serde(
         rename = "threadIds",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub thread_ids: ::std::vec::Vec<ThreadId>,
+    pub thread_ids: ::std::option::Option<::std::vec::Vec<ThreadId>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub to: ::std::option::Option<MessageOriginTo>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -19051,7 +19079,8 @@ pub struct Schema1012Held {
 pub struct Schema1012Previous {
     pub hash: Schema148,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub registry: ::std::option::Option<Schema163>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub registry: ::std::option::Option<::std::option::Option<Schema163>>,
     pub version: ::std::string::String,
 }
 #[doc = "`Schema1012State`"]
@@ -19166,9 +19195,9 @@ pub enum Schema1013Body {
         #[serde(
             rename = "allowedTools",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        allowed_tools: ::std::vec::Vec<Schema1016>,
+        allowed_tools: ::std::option::Option<::std::vec::Vec<Schema1016>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         compatibility: ::std::option::Option<::std::string::String>,
         description: ::std::string::String,
@@ -19178,8 +19207,8 @@ pub enum Schema1013Body {
         license: ::std::option::Option<::std::string::String>,
         #[serde(rename = "skillName")]
         skill_name: ::std::string::String,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        unused: ::std::vec::Vec<Schema1017>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        unused: ::std::option::Option<::std::vec::Vec<Schema1017>>,
     },
     #[doc = "Schema1013BodySpadePlugin"]
     #[serde(rename = "spade-plugin")]
@@ -19195,10 +19224,10 @@ pub enum Schema1013Body {
         #[serde(rename = "botName")]
         bot_name: ::std::string::String,
         brings: ::std::vec::Vec<Schema1021>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        code: ::std::vec::Vec<Schema1025>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        effects: ::std::vec::Vec<Schema1023>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        code: ::std::option::Option<::std::vec::Vec<Schema1025>>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        effects: ::std::option::Option<::std::vec::Vec<Schema1023>>,
         #[serde(default, skip_serializing_if = "::ace_json::Map::is_empty")]
         face: ::ace_json::Map,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -19219,12 +19248,12 @@ pub enum Schema1013Body {
         #[serde(rename = "spadeReady")]
         spade_ready: bool,
         task: ::std::string::String,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        tools: ::std::vec::Vec<Schema1019>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        triggers: ::std::vec::Vec<Schema978>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        unused: ::std::vec::Vec<Schema1026>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        tools: ::std::option::Option<::std::vec::Vec<Schema1019>>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        triggers: ::std::option::Option<::std::vec::Vec<Schema978>>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        unused: ::std::option::Option<::std::vec::Vec<Schema1026>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         update: ::std::option::Option<Schema1013BodySpadeBotUpdate>,
     },
@@ -19709,8 +19738,8 @@ pub struct Schema1023 {
     pub effect: Schema983,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub grant: ::std::option::Option<Schema985>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub hosts: ::std::vec::Vec<Schema1024>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hosts: ::std::option::Option<::std::vec::Vec<Schema1024>>,
     pub key: ::std::string::String,
     pub why: ::std::string::String,
 }
@@ -20743,17 +20772,17 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema1044 {
 #[doc = "`Schema1045`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema1045 {
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub guarantees: ::std::vec::Vec<Schema1046>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub guarantees: ::std::option::Option<::std::vec::Vec<Schema1046>>,
     pub modes: ::std::vec::Vec<PermissionMode>,
     #[serde(rename = "nativeAutoReview")]
     pub native_auto_review: bool,
     #[serde(
         rename = "permissionModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub permission_modes: ::std::vec::Vec<Schema739>,
+    pub permission_modes: ::std::option::Option<::std::vec::Vec<Schema739>>,
     #[serde(rename = "toolGate")]
     pub tool_gate: bool,
 }
@@ -22728,7 +22757,8 @@ pub struct Schema1074ResetCredits {
         rename = "nextExpiresAt",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub next_expires_at: ::std::option::Option<f64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub next_expires_at: ::std::option::Option<::std::option::Option<f64>>,
 }
 #[doc = "`Schema1074UsageNotice`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -25164,6 +25194,8 @@ pub struct Schema1115 {
     pub permission: ::std::option::Option<::std::string::String>,
     pub state: ::std::string::String,
     pub title: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema1116`"]
 #[derive(
@@ -28646,9 +28678,9 @@ pub struct Schema1184 {
     #[serde(
         rename = "accessModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub access_modes: ::std::vec::Vec<Schema741>,
+    pub access_modes: ::std::option::Option<::std::vec::Vec<Schema741>>,
     #[serde(
         rename = "acpAgentId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -28687,9 +28719,9 @@ pub struct Schema1184 {
     #[serde(
         rename = "permissionModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub permission_modes: ::std::vec::Vec<Schema739>,
+    pub permission_modes: ::std::option::Option<::std::vec::Vec<Schema739>>,
     pub provider: ProviderKind,
     #[serde(
         rename = "refreshedAt",
@@ -28697,8 +28729,8 @@ pub struct Schema1184 {
     )]
     pub refreshed_at: ::std::option::Option<f64>,
     pub refreshing: bool,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub sources: ::std::vec::Vec<Schema1186>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sources: ::std::option::Option<::std::vec::Vec<Schema1186>>,
     pub stale: bool,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<Schema1184Status>,
@@ -29114,9 +29146,9 @@ pub struct Schema1187 {
     #[serde(
         rename = "threadIds",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub thread_ids: ::std::vec::Vec<Schema1189>,
+    pub thread_ids: ::std::option::Option<::std::vec::Vec<Schema1189>>,
     pub title: ::std::string::String,
 }
 #[doc = "`Schema1187Spade`"]
@@ -29128,8 +29160,8 @@ pub struct Schema1187Spade {
     pub conversation: ::std::option::Option<Schema435>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub digest: ::std::option::Option<i64>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub items: ::std::vec::Vec<Schema1190>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub items: ::std::option::Option<::std::vec::Vec<Schema1190>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub request: ::std::option::Option<Schema435>,
 }
@@ -30026,7 +30058,8 @@ pub struct Schema1200 {
         rename = "spawnedBy",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub spawned_by: ::std::option::Option<Schema38>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub spawned_by: ::std::option::Option<::std::option::Option<Schema38>>,
     pub status: AgentStatus,
     #[serde(rename = "threadId")]
     pub thread_id: ThreadId,
@@ -30156,8 +30189,8 @@ pub struct Schema1203 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub acp_agent_id: ::std::option::Option<Schema8>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub aliases: ::std::vec::Vec<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub aliases: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     #[serde(
         rename = "forkedFromNativeId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -30304,9 +30337,9 @@ pub enum Schema1206Request {
         #[serde(
             rename = "permissionUpdates",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        permission_updates: ::std::vec::Vec<::ace_json::Value>,
+        permission_updates: ::std::option::Option<::std::vec::Vec<::ace_json::Value>>,
         #[serde(
             rename = "suppressAlwaysAllowRule",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -30336,8 +30369,8 @@ pub enum Schema1206Request {
         summary: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         title: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        todos: ::std::vec::Vec<Schema684>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        todos: ::std::option::Option<::std::vec::Vec<Schema684>>,
     },
     #[doc = "Schema1206RequestBranch3"]
     #[serde(rename = "elicitation")]
@@ -30380,6 +30413,8 @@ pub enum Schema1206Request {
 pub struct Schema1206RequestBranch0McpServer {
     pub name: ::std::string::String,
     pub source: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema1206RequestBranch0OptionsItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -30673,8 +30708,8 @@ pub struct Schema1207 {
     pub input: ::std::option::Option<::ace_json::Value>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub origin: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub paths: ::std::vec::Vec<Schema1208>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub paths: ::std::option::Option<::std::vec::Vec<Schema1208>>,
     #[serde(
         rename = "riskClass",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -30953,8 +30988,8 @@ pub struct Schema1210 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub internal: ::std::option::Option<bool>,
     pub kind: Schema1210Kind,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub listening: ::std::vec::Vec<Schema1212>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub listening: ::std::option::Option<::std::vec::Vec<Schema1212>>,
     #[serde(
         rename = "outputPath",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -31327,8 +31362,8 @@ pub enum Schema1217 {
     #[doc = "Schema1217Branch1"]
     #[serde(rename = "threads")]
     Threads {
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        keep: ::std::vec::Vec<ThreadId>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        keep: ::std::option::Option<::std::vec::Vec<ThreadId>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         reads: ::std::option::Option<Schema1268>,
         seq: Schema463,
@@ -32449,14 +32484,14 @@ impl ::std::convert::From<Schema869> for Schema1233 {
 pub struct Schema1234 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub account: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub asking: ::std::vec::Vec<Schema1236>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub asking: ::std::option::Option<::std::vec::Vec<Schema1236>>,
     #[serde(
         rename = "askingThreads",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub asking_threads: ::std::vec::Vec<Schema1237>,
+    pub asking_threads: ::std::option::Option<::std::vec::Vec<Schema1237>>,
     #[serde(
         rename = "backgroundTaskCount",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -32482,7 +32517,8 @@ pub struct Schema1234 {
         rename = "rootRunId",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub root_run_id: ::std::option::Option<Schema485>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub root_run_id: ::std::option::Option<::std::option::Option<Schema485>>,
     #[serde(
         rename = "runningSubagentCount",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -32510,8 +32546,8 @@ pub struct Schema1234 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub waiting_since: ::std::option::Option<Schema53>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub watching: ::std::vec::Vec<Schema1235>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub watching: ::std::option::Option<::std::vec::Vec<Schema1235>>,
     #[serde(
         rename = "watchingCount",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -48597,6 +48633,8 @@ pub struct Schema416 {
     pub title: ::std::string::String,
     pub url: ::std::string::String,
     pub viewport: Schema416Viewport,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema416Kind`"]
 #[derive(
@@ -48666,12 +48704,16 @@ pub struct Schema416Region {
     #[serde(rename = "box")]
     pub box_: Schema419,
     pub elements: ::std::vec::Vec<Schema418>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema416Text`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema416Text {
     pub after: ::std::string::String,
     pub before: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema416Viewport`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -48743,6 +48785,8 @@ pub struct Schema418 {
     pub tag: ::std::string::String,
     pub text: ::std::string::String,
     pub xpath: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema419`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -48801,6 +48845,8 @@ pub struct Schema420 {
     pub after: ::std::string::String,
     pub before: ::std::string::String,
     pub property: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema421`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -50651,8 +50697,8 @@ pub struct Schema470 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub draft_id: ::std::option::Option<Schema198>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub items: ::std::vec::Vec<Schema471>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub items: ::std::option::Option<::std::vec::Vec<Schema471>>,
     pub mentions: ::std::vec::Vec<Schema202>,
 }
 #[doc = "`Schema471`"]
@@ -56589,7 +56635,8 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema615State {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema616 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub branch: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub branch: ::std::option::Option<::std::option::Option<::std::string::String>>,
     pub bytes: Schema614,
     pub disposition: Schema616Disposition,
     pub effects: ::std::vec::Vec<Schema618>,
@@ -57141,7 +57188,8 @@ pub struct Schema624ReportBranch0 {
     pub checked_instruction: ::std::option::Option<::std::string::String>,
     pub downloaded: bool,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub error: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub error: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(
         rename = "inPlace",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -57150,7 +57198,8 @@ pub struct Schema624ReportBranch0 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub line: ::std::option::Option<Schema624ReportBranch0Line>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub percent: ::std::option::Option<f64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub percent: ::std::option::Option<::std::option::Option<f64>>,
     #[serde(
         rename = "releaseUrl",
         deserialize_with = "::std::option::Option::deserialize"
@@ -57246,6 +57295,8 @@ pub struct Schema625 {
     pub release_url: ::std::option::Option<::std::string::String>,
     pub state: ::std::string::String,
     pub version: Schema26,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema625AskBranch0`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -57255,6 +57306,8 @@ pub struct Schema625AskBranch0 {
     #[serde(rename = "requestedAt")]
     pub requested_at: Schema627,
     pub version: Schema26,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema625LastBranch0`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -57265,6 +57318,8 @@ pub struct Schema625LastBranch0 {
     pub from: Schema26,
     pub ok: bool,
     pub to: Schema26,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema625Line`"]
 #[derive(
@@ -58908,7 +58963,8 @@ pub struct Schema660 {
         rename = "exitCode",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub exit_code: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub exit_code: ::std::option::Option<::std::option::Option<i64>>,
     pub failed: bool,
     #[serde(rename = "itemId")]
     pub item_id: Schema38,
@@ -59093,8 +59149,8 @@ pub enum Schema665 {
     Message {
         #[serde(rename = "agentId")]
         agent_id: Schema252,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        attachments: ::std::vec::Vec<Schema674>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        attachments: ::std::option::Option<::std::vec::Vec<Schema674>>,
         complete: Schema671,
         #[serde(rename = "createdAt")]
         created_at: Schema53,
@@ -59472,8 +59528,8 @@ pub enum Schema665 {
         execution_source: ::std::option::Option<Schema669>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         filename: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        flags: ::std::vec::Vec<Schema665ArtifactFlagsItem>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        flags: ::std::option::Option<::std::vec::Vec<Schema665ArtifactFlagsItem>>,
         id: Schema38,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         inherited: ::std::option::Option<Schema672>,
@@ -60296,9 +60352,9 @@ pub struct Schema686 {
     #[serde(
         rename = "longTasks",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub long_tasks: ::std::vec::Vec<Schema688>,
+    pub long_tasks: ::std::option::Option<::std::vec::Vec<Schema688>>,
     pub notes: ::std::vec::Vec<Schema691>,
     #[serde(rename = "refreshHz")]
     pub refresh_hz: f64,
@@ -61128,6 +61184,8 @@ pub struct Schema704Surface {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema704SurfaceIcon {
     pub kind: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema705`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -61354,7 +61412,11 @@ impl ::std::str::FromStr for Schema71 {
 #[serde(untagged)]
 pub enum Schema710 {
     Variant0(Schema710Variant0),
-    Variant1 { kind: ::std::string::String },
+    Variant1 {
+        kind: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
 }
 impl ::std::convert::From<Schema710Variant0> for Schema710 {
     fn from(value: Schema710Variant0) -> Self {
@@ -61461,7 +61523,8 @@ pub struct Schema712 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub origin: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub owner: ::std::option::Option<Schema712Owner>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub owner: ::std::option::Option<::std::option::Option<Schema712Owner>>,
     #[serde(
         rename = "relayHostId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -61471,7 +61534,8 @@ pub struct Schema712 {
         rename = "sessionId",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub session_id: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub session_id: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(
         rename = "signInAgain",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -61596,7 +61660,8 @@ pub struct Schema713 {
         rename = "expiresAt",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub expires_at: ::std::option::Option<Schema715>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub expires_at: ::std::option::Option<::std::option::Option<Schema715>>,
     pub id: Schema63,
     #[serde(rename = "lastSeenAt")]
     pub last_seen_at: Schema715,
@@ -62612,26 +62677,42 @@ impl ::std::convert::TryFrom<String> for Schema734 {
 }
 #[doc = "`Schema735`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(tag = "state")]
+#[serde(untagged)]
 pub enum Schema735 {
-    #[serde(rename = "off")]
-    Off,
-    #[serde(rename = "installing")]
-    Installing,
-    #[serde(rename = "on")]
-    On,
-    #[serde(rename = "needsApproval")]
-    NeedsApproval,
-    #[doc = "Schema735Branch4"]
-    #[serde(rename = "installFailed")]
-    InstallFailed {
+    Branch0 {
+        state: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
+    Branch1 {
+        state: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
+    Branch2 {
+        state: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
+    Branch3 {
+        state: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
+    Branch4 {
         reason: Schema736,
+        state: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         unavailable: ::std::option::Option<bool>,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
     },
-    #[doc = "Schema735Branch5"]
-    #[serde(rename = "driftRepairNeeded")]
-    DriftRepairNeeded { reason: Schema736 },
+    Branch5 {
+        reason: Schema736,
+        state: ::std::string::String,
+        #[serde(flatten)]
+        extra: crate::presence::Extra,
+    },
 }
 #[doc = "`Schema736`"]
 #[derive(
@@ -63060,9 +63141,9 @@ pub struct Schema738 {
     #[serde(
         rename = "accessModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub access_modes: ::std::vec::Vec<Schema741>,
+    pub access_modes: ::std::option::Option<::std::vec::Vec<Schema741>>,
     #[serde(
         rename = "accountLabel",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -63135,17 +63216,17 @@ pub struct Schema738 {
     #[serde(
         rename = "nativeTools",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub native_tools: ::std::vec::Vec<Schema745>,
+    pub native_tools: ::std::option::Option<::std::vec::Vec<Schema745>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub path: ::std::option::Option<::std::string::String>,
     #[serde(
         rename = "permissionModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub permission_modes: ::std::vec::Vec<Schema739>,
+    pub permission_modes: ::std::option::Option<::std::vec::Vec<Schema739>>,
     pub provider: ProviderKind,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub readiness: ::std::option::Option<Schema738Readiness>,
@@ -63555,8 +63636,8 @@ pub struct Schema743 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub reason: ::std::option::Option<::std::string::String>,
     pub supported: bool,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub upstreams: ::std::vec::Vec<Schema744>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub upstreams: ::std::option::Option<::std::vec::Vec<Schema744>>,
 }
 #[doc = "`Schema744`"]
 #[derive(
@@ -63632,8 +63713,8 @@ impl ::std::convert::From<::ace_json::Value> for Schema746 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema747 {
     pub action: Schema747Action,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub choices: ::std::vec::Vec<Schema748>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub choices: ::std::option::Option<::std::vec::Vec<Schema748>>,
     #[serde(
         rename = "codeEntry",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -64283,7 +64364,8 @@ pub struct Schema755 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub agent: ::std::option::Option<Schema80>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub exit: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub exit: ::std::option::Option<::std::option::Option<i64>>,
     pub lines: ::std::vec::Vec<Schema756>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub message: ::std::option::Option<::std::string::String>,
@@ -64847,7 +64929,8 @@ pub struct Schema766 {
         rename = "exitCode",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub exit_code: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub exit_code: ::std::option::Option<::std::option::Option<i64>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub failure: ::std::option::Option<Schema766Failure>,
     pub id: Schema97,
@@ -65857,8 +65940,8 @@ pub struct Schema780 {
     #[serde(rename = "loginHint")]
     pub login_hint: ::std::string::String,
     pub name: ::std::string::String,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub runtimes: ::std::vec::Vec<Schema782>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub runtimes: ::std::option::Option<::std::vec::Vec<Schema782>>,
     pub source: ::std::string::String,
     pub version: Schema8,
     pub visibility: ::std::string::String,
@@ -66075,8 +66158,8 @@ pub struct Schema783 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub approval_generation: ::std::option::Option<i64>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub approvals: ::std::vec::Vec<Schema784>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub approvals: ::std::option::Option<::std::vec::Vec<Schema784>>,
     pub evidence: Schema783Evidence,
     #[serde(rename = "installationId")]
     pub installation_id: Schema8,
@@ -68041,7 +68124,8 @@ pub struct Schema821 {
         rename = "commitSha",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub commit_sha: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub commit_sha: ::std::option::Option<::std::option::Option<::std::string::String>>,
     pub id: ::std::num::NonZeroU64,
     pub login: Schema815,
     pub state: Schema821State,
@@ -68155,14 +68239,14 @@ pub struct Schema823 {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub commit_messages: ::std::option::Option<Schema823CommitMessages>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub deployments: ::std::vec::Vec<Schema824>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub deployments: ::std::option::Option<::std::vec::Vec<Schema824>>,
     #[serde(rename = "headSha")]
     pub head_sha: ::std::string::String,
     #[serde(rename = "mergeState")]
     pub merge_state: Schema517,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub methods: ::std::vec::Vec<Schema825>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub methods: ::std::option::Option<::std::vec::Vec<Schema825>>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub queue: ::std::option::Option<Schema823QueueBranch0>,
     pub raw: ::ace_json::Value,
@@ -68171,8 +68255,8 @@ pub struct Schema823 {
         deserialize_with = "::std::option::Option::deserialize"
     )]
     pub review_decision: ::std::option::Option<Schema517>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub rules: ::std::vec::Vec<Schema517>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub rules: ::std::option::Option<::std::vec::Vec<Schema517>>,
     pub state: Schema517,
     #[serde(
         rename = "writeState",
@@ -68206,7 +68290,8 @@ pub struct Schema823QueueBranch0 {
         rename = "estimatedTimeToMerge",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub estimated_time_to_merge: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub estimated_time_to_merge: ::std::option::Option<::std::option::Option<i64>>,
     pub id: Schema517,
     pub position: i64,
     pub state: Schema517,
@@ -68930,8 +69015,8 @@ impl ::std::str::FromStr for Schema838 {
 pub struct Schema839 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub additions: ::std::option::Option<i64>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub assignees: ::std::vec::Vec<Schema838>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub assignees: ::std::option::Option<::std::vec::Vec<Schema838>>,
     pub author: Schema838,
     #[serde(
         rename = "authorAvatarUrl",
@@ -68992,9 +69077,11 @@ pub struct Schema839 {
         rename = "reviewDecision",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub review_decision: ::std::option::Option<Schema839ReviewDecisionBranch0>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub reviewers: ::std::vec::Vec<Schema838>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub review_decision:
+        ::std::option::Option<::std::option::Option<Schema839ReviewDecisionBranch0>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub reviewers: ::std::option::Option<::std::vec::Vec<Schema838>>,
     pub state: Schema839State,
     pub title: Schema838,
     #[serde(rename = "updatedAt")]
@@ -69749,12 +69836,14 @@ pub struct Schema847 {
         rename = "originalLine",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub original_line: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub original_line: ::std::option::Option<::std::option::Option<i64>>,
     #[serde(
         rename = "originalStartLine",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub original_start_line: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub original_start_line: ::std::option::Option<::std::option::Option<i64>>,
     pub outdated: bool,
     pub resolved: bool,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -69763,7 +69852,8 @@ pub struct Schema847 {
         rename = "startLine",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub start_line: ::std::option::Option<i64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub start_line: ::std::option::Option<::std::option::Option<i64>>,
     #[serde(
         rename = "startSide",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -70748,7 +70838,8 @@ pub struct Schema869 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub behind: ::std::option::Option<i64>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub branch: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub branch: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(
         rename = "checkoutMissing",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -70769,7 +70860,8 @@ pub struct Schema869 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub guest: ::std::option::Option<Schema869Guest>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub head: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub head: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(
         rename = "linkedIssues",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -70797,7 +70889,8 @@ pub struct Schema869 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub repository: ::std::option::Option<Schema874>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub upstream: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub upstream: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub workspace: ::std::option::Option<Schema872>,
     #[serde(
@@ -71427,9 +71520,11 @@ pub struct Schema872 {
         rename = "defaultIcon",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub default_icon: ::std::option::Option<Schema529>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub default_icon: ::std::option::Option<::std::option::Option<Schema529>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub icon: ::std::option::Option<Schema529>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub icon: ::std::option::Option<::std::option::Option<Schema529>>,
     pub id: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<Schema873>,
@@ -72182,7 +72277,8 @@ pub struct Schema881 {
         rename = "permissionMode",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub permission_mode: ::std::option::Option<PermissionMode>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub permission_mode: ::std::option::Option<::std::option::Option<PermissionMode>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub provider: ::std::option::Option<ProviderKind>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -72478,19 +72574,21 @@ pub struct Schema886 {
         rename = "defaultIcon",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub default_icon: ::std::option::Option<Schema529>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub default_icon: ::std::option::Option<::std::option::Option<Schema529>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub defaults: ::std::option::Option<Schema531>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub icon: ::std::option::Option<Schema529>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub icon: ::std::option::Option<::std::option::Option<Schema529>>,
     pub id: Schema1,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub identity: ::std::option::Option<Schema886Identity>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<Schema873>,
     pub name: ::std::string::String,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub notes: ::std::vec::Vec<Schema887>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notes: ::std::option::Option<::std::vec::Vec<Schema887>>,
     #[serde(
         rename = "openedAt",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -73667,8 +73765,8 @@ pub struct Schema916 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema917 {
     pub description: Schema149,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub files: ::std::vec::Vec<Schema919>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub files: ::std::option::Option<::std::vec::Vec<Schema919>>,
     pub kind: Schema918,
     pub name: Schema145,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -74130,7 +74228,7 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema931SchemesItem {
     }
 }
 #[doc = "`Schema932`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema932 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub accent: ::std::option::Option<Schema933>,
@@ -74185,7 +74283,8 @@ pub struct Schema932 {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub faint: ::std::option::Option<Schema933>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub glass: ::std::option::Option<Schema932GlassBranch0>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub glass: ::std::option::Option<::std::option::Option<Schema932GlassBranch0>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub hover: ::std::option::Option<Schema933>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -74202,6 +74301,8 @@ pub struct Schema932 {
     pub syntax: ::std::option::Option<Schema932Syntax>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub text: ::std::option::Option<Schema933>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema932GlassBranch0`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -74210,7 +74311,7 @@ pub struct Schema932GlassBranch0 {
     pub saturate: f64,
 }
 #[doc = "`Schema932Syntax`"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, Default)]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema932Syntax {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub com: ::std::option::Option<Schema933>,
@@ -74229,6 +74330,8 @@ pub struct Schema932Syntax {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub type_: ::std::option::Option<Schema933>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`Schema933`"]
 #[derive(
@@ -74758,8 +74861,8 @@ pub struct Schema945 {
     pub keywords: ::std::vec::Vec<Schema947>,
     pub line: ::std::string::String,
     pub name: Schema145,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub previews: ::std::vec::Vec<Schema148>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub previews: ::std::option::Option<::std::vec::Vec<Schema148>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub publisher: ::std::option::Option<Schema946>,
     pub reviewed: bool,
@@ -75817,12 +75920,12 @@ impl ::std::convert::TryFrom<::std::string::String> for Schema967 {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema968 {
     pub blurb: ::std::string::String,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub checks: ::std::vec::Vec<Schema992>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub code: ::std::vec::Vec<Schema993>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub contracts: ::std::vec::Vec<Schema987>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub checks: ::std::option::Option<::std::vec::Vec<Schema992>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub code: ::std::option::Option<::std::vec::Vec<Schema993>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub contracts: ::std::option::Option<::std::vec::Vec<Schema987>>,
     pub effects: ::std::vec::Vec<Schema982>,
     #[serde(default, skip_serializing_if = "::ace_json::Map::is_empty")]
     pub face: ::ace_json::Map,
@@ -75844,13 +75947,13 @@ pub struct Schema968 {
     pub spec: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub style: ::std::option::Option<Schema968Style>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub surfaces: ::std::vec::Vec<Schema990>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub surfaces: ::std::option::Option<::std::vec::Vec<Schema990>>,
     pub task: ::std::string::String,
     pub tests: ::std::vec::Vec<Schema989>,
     pub triggers: ::std::vec::Vec<Schema978>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub uses: ::std::vec::Vec<Schema977>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub uses: ::std::option::Option<::std::vec::Vec<Schema977>>,
     pub version: f64,
 }
 #[doc = "`Schema968Model`"]
@@ -75913,8 +76016,8 @@ impl ::std::default::Default for Schema968Model {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Schema968Needs {
     pub connectors: ::std::vec::Vec<Schema972>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub tools: ::std::vec::Vec<Schema974>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub tools: ::std::option::Option<::std::vec::Vec<Schema974>>,
 }
 impl ::std::default::Default for Schema968Needs {
     fn default() -> Self {
@@ -76603,8 +76706,8 @@ pub struct Schema982 {
     pub effect: Schema983,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub grant: ::std::option::Option<Schema985>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub hosts: ::std::vec::Vec<Schema984>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub hosts: ::std::option::Option<::std::vec::Vec<Schema984>>,
     pub why: ::std::string::String,
 }
 #[doc = "`Schema983`"]
@@ -76878,8 +76981,8 @@ pub enum Schema990 {
     #[doc = "Schema990Branch1"]
     #[serde(rename = "panel")]
     Panel {
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        actions: ::std::vec::Vec<Schema991>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        actions: ::std::option::Option<::std::vec::Vec<Schema991>>,
         file: ::std::string::String,
         id: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -77361,8 +77464,8 @@ pub struct ServerAppUpdateResult {
 #[doc = "`ServerAutomationResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerAutomationResult {
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub automations: ::std::vec::Vec<Schema87>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub automations: ::std::option::Option<::std::vec::Vec<Schema87>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub error: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -77372,14 +77475,14 @@ pub struct ServerAutomationResult {
     pub request_id: Schema86,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub run: ::std::option::Option<Schema761>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub schedules: ::std::vec::Vec<Schema759>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub schedules: ::std::option::Option<::std::vec::Vec<Schema759>>,
     #[serde(
         rename = "threadAutomations",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub thread_automations: ::std::vec::Vec<Schema764>,
+    pub thread_automations: ::std::option::Option<::std::vec::Vec<Schema764>>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
@@ -77977,16 +78080,16 @@ pub struct ServerDiagnosticsHealthResult {
 pub struct ServerDiagnosticsResult {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub error: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub repairs: ::std::vec::Vec<Schema1042>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repairs: ::std::option::Option<::std::vec::Vec<Schema1042>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub report: ::std::option::Option<Schema1040>,
     #[serde(rename = "requestId")]
     pub request_id: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub run: ::std::option::Option<ServerDiagnosticsResultRun>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub toolchains: ::std::vec::Vec<Schema1043>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub toolchains: ::std::option::Option<::std::vec::Vec<Schema1043>>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
@@ -78013,8 +78116,8 @@ pub enum ServerDiagnosticsResultRun {
         finished_at: f64,
         id: Schema197,
         operation: Schema1044,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        repairs: ::std::vec::Vec<Schema1042>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        repairs: ::std::option::Option<::std::vec::Vec<Schema1042>>,
         report: Schema1040,
         #[serde(rename = "startedAt")]
         started_at: f64,
@@ -78058,9 +78161,9 @@ pub enum ServerEntitiesPagePage {
         #[serde(
             rename = "tooLarge",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        too_large: ::std::vec::Vec<Schema1213>,
+        too_large: ::std::option::Option<::std::vec::Vec<Schema1213>>,
     },
     #[doc = "ServerMessageEntitiesPagePageBranch1"]
     #[serde(rename = "runs")]
@@ -78077,9 +78180,9 @@ pub enum ServerEntitiesPagePage {
         #[serde(
             rename = "tooLarge",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        too_large: ::std::vec::Vec<Schema1213>,
+        too_large: ::std::option::Option<::std::vec::Vec<Schema1213>>,
     },
     #[doc = "ServerMessageEntitiesPagePageBranch2"]
     #[serde(rename = "interactions")]
@@ -78096,9 +78199,9 @@ pub enum ServerEntitiesPagePage {
         #[serde(
             rename = "tooLarge",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        too_large: ::std::vec::Vec<Schema1213>,
+        too_large: ::std::option::Option<::std::vec::Vec<Schema1213>>,
     },
     #[doc = "ServerMessageEntitiesPagePageBranch3"]
     #[serde(rename = "backgroundTasks")]
@@ -78115,9 +78218,9 @@ pub enum ServerEntitiesPagePage {
         #[serde(
             rename = "tooLarge",
             default,
-            skip_serializing_if = "::std::vec::Vec::is_empty"
+            skip_serializing_if = "::std::option::Option::is_none"
         )]
-        too_large: ::std::vec::Vec<Schema1213>,
+        too_large: ::std::option::Option<::std::vec::Vec<Schema1213>>,
     },
 }
 #[doc = "`ServerEntitiesPagePart`"]
@@ -78223,7 +78326,8 @@ pub struct ServerFilesError {
     pub channel: ::std::option::Option<f64>,
     pub code: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub current: ::std::option::Option<Schema248>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub current: ::std::option::Option<::std::option::Option<Schema248>>,
     pub message: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub recovery: ::std::option::Option<Schema246>,
@@ -78480,8 +78584,8 @@ pub struct ServerHistoryRelease {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerHostIdentityResult {
     pub identity: ServerMessageHostIdentityResultIdentity,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub paths: ::std::vec::Vec<Schema710>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub paths: ::std::option::Option<::std::vec::Vec<Schema710>>,
     #[serde(rename = "requestId")]
     pub request_id: Schema54,
     #[serde(rename = "type")]
@@ -78866,8 +78970,8 @@ pub enum ServerMarketplaceResultResult {
         action: ::std::option::Option<::std::string::String>,
         code: ServerMessageMarketplaceResultResultBranch19Code,
         message: ::std::string::String,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        problems: ::std::vec::Vec<Schema956>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        problems: ::std::option::Option<::std::vec::Vec<Schema956>>,
         #[serde(
             rename = "registryKey",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -79216,6 +79320,8 @@ pub struct ServerMessageAutomationResultInbox {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerMessageBrowserAnnotationEvent {
     pub kind: ::std::string::String,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`ServerMessageBrowserBackendLostRecovery`"]
 #[derive(
@@ -79380,8 +79486,8 @@ pub struct ServerMessageBrowserPagePagePicker {
     pub max: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub min: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub options: ::std::vec::Vec<Schema1141>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub options: ::std::option::Option<::std::vec::Vec<Schema1141>>,
     #[serde(rename = "pickerId")]
     pub picker_id: Schema1137,
     pub rect: Schema1138,
@@ -79484,10 +79590,10 @@ pub struct ServerMessageBrowserStateState {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub blocked: ::std::option::Option<Schema1130>,
     pub closed: bool,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub downloads: ::std::vec::Vec<Schema1135>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub features: ::std::vec::Vec<Schema1136>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub downloads: ::std::option::Option<::std::vec::Vec<Schema1135>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub features: ::std::option::Option<::std::vec::Vec<Schema1136>>,
     #[serde(
         rename = "loadError",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -79518,8 +79624,8 @@ pub struct ServerMessageBrowserStateState {
     pub recording_notice: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<ServerMessageBrowserStateStateStatus>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub tabs: ::std::vec::Vec<Schema1131>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub tabs: ::std::option::Option<::std::vec::Vec<Schema1131>>,
     #[serde(rename = "threadId")]
     pub thread_id: ThreadId,
     pub url: ::std::string::String,
@@ -80026,8 +80132,8 @@ pub struct ServerMessageCommandResultInspection {
 pub struct ServerMessageCommandResultReview {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub comment: ::std::option::Option<Schema1299>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub comments: ::std::vec::Vec<Schema1299>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub comments: ::std::option::Option<::std::vec::Vec<Schema1299>>,
     #[serde(
         rename = "intentId",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -80038,14 +80144,14 @@ pub struct ServerMessageCommandResultReview {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub next_cursor: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub replies: ::std::vec::Vec<Schema1302>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub replies: ::std::option::Option<::std::vec::Vec<Schema1302>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub reply: ::std::option::Option<Schema1302>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub session: ::std::option::Option<Schema1298>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub sessions: ::std::vec::Vec<Schema1298>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sessions: ::std::option::Option<::std::vec::Vec<Schema1298>>,
 }
 #[doc = "`ServerMessageCommandStatusCommandsItem`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -82945,8 +83051,8 @@ pub struct ServerMessageScreenStateStateCapabilities {
     pub background: ::std::option::Option<bool>,
     pub capture: ServerMessageScreenStateStateCapabilitiesCapture,
     pub codecs: ::std::vec::Vec<Schema1117>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub encoders: ::std::vec::Vec<Schema1118>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub encoders: ::std::option::Option<::std::vec::Vec<Schema1118>>,
     pub input: ServerMessageScreenStateStateCapabilitiesInput,
     #[serde(
         rename = "inspectionOnly",
@@ -82980,6 +83086,8 @@ pub struct ServerMessageScreenStateStateCapabilities {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub window_selection: ::std::option::Option<bool>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`ServerMessageScreenStateStateCapabilitiesCapture`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -83314,8 +83422,8 @@ pub struct ServerMessageScreenStateStatePermissions {
     pub accessibility: bool,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub platform: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub requirements: ::std::vec::Vec<Schema1115>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub requirements: ::std::option::Option<::std::vec::Vec<Schema1115>>,
     #[serde(rename = "screenRecording")]
     pub screen_recording: bool,
 }
@@ -84381,8 +84489,8 @@ pub struct ServerMessageSuitResultResponseBranch1SuitManifest {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub motion: ::std::option::Option<ServerMessageSuitResultResponseBranch1SuitManifestMotion>,
     pub name: ::std::string::String,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub ornaments: ::std::vec::Vec<Schema936>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub ornaments: ::std::option::Option<::std::vec::Vec<Schema936>>,
     #[serde(default, skip_serializing_if = "::ace_json::Map::is_empty")]
     pub regions: ::ace_json::Map,
     #[serde(default, skip_serializing_if = "::ace_json::Map::is_empty")]
@@ -84400,6 +84508,8 @@ pub struct ServerMessageSuitResultResponseBranch1SuitManifest {
     pub version: ::std::string::String,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub video: ::std::option::Option<ServerMessageSuitResultResponseBranch1SuitManifestVideo>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`ServerMessageSuitResultResponseBranch1SuitManifestBase`"]
 #[derive(
@@ -85073,6 +85183,8 @@ pub struct ServerMessageSuitResultResponseBranch1SuitManifestVideo {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub poster: ::std::option::Option<Schema935>,
     pub sources: ::std::vec::Vec<Schema938>,
+    #[serde(flatten)]
+    pub extra: crate::presence::Extra,
 }
 #[doc = "`ServerMessageSuitResultResponseBranch1SuitManifestVideoAudio`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -85343,10 +85455,10 @@ impl ::std::convert::TryFrom<::std::string::String> for ServerMessageUsageResult
 #[doc = "`ServerMessageUsageResultResult`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerMessageUsageResultResult {
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub accounts: ::std::vec::Vec<Schema1056>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub burn: ::std::vec::Vec<Schema1084>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub accounts: ::std::option::Option<::std::vec::Vec<Schema1056>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub burn: ::std::option::Option<::std::vec::Vec<Schema1084>>,
     #[serde(
         rename = "costLabel",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -85365,9 +85477,9 @@ pub struct ServerMessageUsageResultResult {
     #[serde(
         rename = "priceSources",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub price_sources: ::std::vec::Vec<Schema1055>,
+    pub price_sources: ::std::option::Option<::std::vec::Vec<Schema1055>>,
     #[serde(rename = "priceVersion")]
     pub price_version: Schema231,
     #[serde(
@@ -85795,8 +85907,8 @@ pub enum ServerMessageWorkspaceResultResultBranch0Data {
     #[doc = "ServerMessageWorkspaceResultResultBranch0DataBranch21"]
     #[serde(rename = "prCommits")]
     PrCommits {
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        alongside: ::std::vec::Vec<Schema121>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        alongside: ::std::option::Option<::std::vec::Vec<Schema121>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         before: ::std::option::Option<Schema121>,
         commits: ::std::vec::Vec<Schema850>,
@@ -85854,9 +85966,9 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch0ValueSnapshot {
     #[serde(
         rename = "closingIssues",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub closing_issues: ::std::vec::Vec<Schema791>,
+    pub closing_issues: ::std::option::Option<::std::vec::Vec<Schema791>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub conversation: ::std::option::Option<
         ServerMessageWorkspaceResultResultBranch0DataBranch0ValueSnapshotConversation,
@@ -85906,9 +86018,9 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch0ValueSnapshotHead
     #[serde(
         rename = "usedBy",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub used_by: ::std::vec::Vec<Schema790>,
+    pub used_by: ::std::option::Option<::std::vec::Vec<Schema790>>,
 }
 #[doc = "`ServerMessageWorkspaceResultResultBranch0DataBranch0ValueSnapshotMetadata`"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
@@ -86114,9 +86226,11 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch13Value {
     #[serde(rename = "headSha")]
     pub head_sha: Schema502,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub hidden: ::std::option::Option<::std::vec::Vec<Schema835>>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub hidden: ::std::option::Option<::std::option::Option<::std::vec::Vec<Schema835>>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub hideable: ::std::option::Option<::std::vec::Vec<Schema836>>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub hideable: ::std::option::Option<::std::option::Option<::std::vec::Vec<Schema836>>>,
     #[serde(
         rename = "hostedPending",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -86126,7 +86240,8 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch13Value {
     >,
     pub operations: ::std::vec::Vec<Schema832>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub reactions: ::std::option::Option<::std::vec::Vec<Schema833>>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub reactions: ::std::option::Option<::std::option::Option<::std::vec::Vec<Schema833>>>,
     #[serde(rename = "resolvableThreads")]
     pub resolvable_threads: ::std::vec::Vec<Schema498>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
@@ -86261,8 +86376,8 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch20Value {
     pub created_at: ::std::option::Option<Schema838>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub deletions: ::std::option::Option<i64>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub files: ::std::vec::Vec<Schema848>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub files: ::std::option::Option<::std::vec::Vec<Schema848>>,
     #[serde(rename = "headBranch")]
     pub head_branch: Schema838,
     #[serde(
@@ -86301,9 +86416,9 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch20Value {
     #[serde(
         rename = "unavailableResources",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub unavailable_resources: ::std::vec::Vec<Schema842>,
+    pub unavailable_resources: ::std::option::Option<::std::vec::Vec<Schema842>>,
     #[serde(
         rename = "updatedAt",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -86597,7 +86712,8 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch2Value {
         rename = "milestoneNumber",
         skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub milestone_number: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub milestone_number: ::std::option::Option<::std::option::Option<::std::num::NonZeroU64>>,
     pub permissions: ServerMessageWorkspaceResultResultBranch0DataBranch2ValuePermissions,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub raw: ::std::option::Option<Schema805>,
@@ -86709,9 +86825,9 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch5Value {
     #[serde(
         rename = "projectRepositories",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub project_repositories: ::std::vec::Vec<Schema101>,
+    pub project_repositories: ::std::option::Option<::std::vec::Vec<Schema101>>,
     #[serde(
         rename = "projectRepository",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -86764,7 +86880,8 @@ pub struct ServerMessageWorkspaceResultResultBranch0DataBranch9Value {
     pub reviews: ::std::vec::Vec<Schema821>,
     pub suggested: ::std::vec::Vec<Schema822>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub viewer: ::std::option::Option<Schema815>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub viewer: ::std::option::Option<::std::option::Option<Schema815>>,
 }
 #[doc = "`ServerMessageWorkspaceResultResultBranch11Hooks`"]
 #[derive(
@@ -87172,9 +87289,9 @@ pub struct ServerPermissionsCapabilitiesResult {
     #[serde(
         rename = "accessModes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub access_modes: ::std::vec::Vec<Schema741>,
+    pub access_modes: ::std::option::Option<::std::vec::Vec<Schema741>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub error: ::std::option::Option<::std::string::String>,
     pub ok: bool,
@@ -87291,8 +87408,8 @@ pub enum ServerPluginResultResponse {
     #[doc = "ServerMessagePluginResultResponsePluginsList"]
     #[serde(rename = "plugins.list")]
     PluginsList {
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        availability: ::std::vec::Vec<Schema924>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        availability: ::std::option::Option<::std::vec::Vec<Schema924>>,
         installs: ::std::vec::Vec<Schema916>,
         reviews: ::std::vec::Vec<Schema927>,
     },
@@ -87335,12 +87452,12 @@ pub struct ServerPreviewResult {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub link: ::std::option::Option<ServerMessagePreviewResultLink>,
     pub ok: bool,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub previews: ::std::vec::Vec<Schema757>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub previews: ::std::option::Option<::std::vec::Vec<Schema757>>,
     #[serde(rename = "requestId")]
     pub request_id: Schema84,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub suggestions: ::std::vec::Vec<Schema758>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub suggestions: ::std::option::Option<::std::vec::Vec<Schema758>>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
@@ -87883,8 +88000,8 @@ pub enum ServerSkillsResultResult {
     #[serde(rename = "skill")]
     Skill {
         entry: Schema1098,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        kept: ::std::vec::Vec<Schema1100>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        kept: ::std::option::Option<::std::vec::Vec<Schema1100>>,
         text: Schema289,
     },
     #[doc = "ServerMessageSkillsResultResultBranch2"]
@@ -88329,8 +88446,8 @@ pub struct ServerTerminalResult {
     pub request_id: Schema142,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub terminal: ::std::option::Option<Schema915>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub terminals: ::std::vec::Vec<Schema915>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub terminals: ::std::option::Option<::std::vec::Vec<Schema915>>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
@@ -88560,7 +88677,8 @@ pub struct ServerVerifyChanged {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct ServerVerifyResult {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub command: ::std::option::Option<::std::string::String>,
+    #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+    pub command: ::std::option::Option<::std::option::Option<::std::string::String>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub error: ::std::option::Option<ServerMessageVerifyResultError>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -88570,8 +88688,8 @@ pub struct ServerVerifyResult {
     pub request_id: Schema96,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub run: ::std::option::Option<Schema766>,
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub runs: ::std::vec::Vec<Schema766>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub runs: ::std::option::Option<::std::vec::Vec<Schema766>>,
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
@@ -88602,9 +88720,9 @@ pub struct ServerWelcome {
     #[serde(
         rename = "relayHandshakes",
         default,
-        skip_serializing_if = "::std::vec::Vec::is_empty"
+        skip_serializing_if = "::std::option::Option::is_none"
     )]
-    pub relay_handshakes: ::std::vec::Vec<Schema1214>,
+    pub relay_handshakes: ::std::option::Option<::std::vec::Vec<Schema1214>>,
     #[serde(
         rename = "releaseLine",
         skip_serializing_if = "::std::option::Option::is_none"
@@ -88682,8 +88800,8 @@ pub enum ServerWorkspaceResultResult {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         file_manager: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        terminals: ::std::vec::Vec<Schema865>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        terminals: ::std::option::Option<::std::vec::Vec<Schema865>>,
     },
     #[serde(rename = "opened")]
     Opened,
@@ -88696,8 +88814,8 @@ pub enum ServerWorkspaceResultResult {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         default_branch: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        refs: ::std::vec::Vec<Schema867>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        refs: ::std::option::Option<::std::vec::Vec<Schema867>>,
         truncated: bool,
         #[serde(
             rename = "unbornHead",
@@ -88756,25 +88874,28 @@ pub enum ServerWorkspaceResultResult {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         behind: ::std::option::Option<i64>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        branch: ::std::option::Option<::std::string::String>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        conflicted: ::std::vec::Vec<Schema880>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        branch: ::std::option::Option<::std::option::Option<::std::string::String>>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        conflicted: ::std::option::Option<::std::vec::Vec<Schema880>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         detached: ::std::option::Option<bool>,
         files: ::std::vec::Vec<Schema879>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        head: ::std::option::Option<::std::string::String>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        head: ::std::option::Option<::std::option::Option<::std::string::String>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         hooks: ::std::option::Option<ServerMessageWorkspaceResultResultBranch11Hooks>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        staged: ::std::vec::Vec<Schema880>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        staged: ::std::option::Option<::std::vec::Vec<Schema880>>,
         truncated: bool,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        unstaged: ::std::vec::Vec<Schema880>,
-        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-        untracked: ::std::vec::Vec<Schema880>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        unstaged: ::std::option::Option<::std::vec::Vec<Schema880>>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        untracked: ::std::option::Option<::std::vec::Vec<Schema880>>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        upstream: ::std::option::Option<::std::string::String>,
+        #[serde(default, deserialize_with = "crate::presence::some_or_none")]
+        upstream: ::std::option::Option<::std::option::Option<::std::string::String>>,
     },
     #[doc = "ServerMessageWorkspaceResultResultBranch12"]
     #[serde(rename = "gitDiff")]

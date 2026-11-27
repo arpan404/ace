@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part thread_client_column_3.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_FIELDS: [Field; 4] = [
     Field {
@@ -68,33 +68,25 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS: [Fiel
         key: "host",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(253),
-            pattern: Some("^[a-zA-Z0-9.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-zA-Z0-9.-]+$"), StrCheck::Max(253)],
         }),
     },
     Field {
         key: "owner",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: Some("^[\\w.-]+(?:\\/[\\w.-]+)*$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Pattern("^[\\w.-]+(?:\\/[\\w.-]+)*$"),
+                StrCheck::Max(512),
+                StrCheck::Custom(&crate::checks::NO_DOT_PARTS),
+            ],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: Some("^[\\w.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[\\w.-]+$"), StrCheck::Max(100)],
         }),
     },
 ];
@@ -123,11 +115,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS: [Fiel
         key: "url",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
     Field {
@@ -139,11 +127,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS: [Fiel
         key: "title",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -161,11 +145,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PRS_FIELDS: [Fiel
         key: "head",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64)],
         }),
     },
     Field {
@@ -211,11 +191,7 @@ pub(crate) static THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_LINKED_PR_FIELDS: [Field
         key: "url",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(4096)],
         }),
     },
 ];

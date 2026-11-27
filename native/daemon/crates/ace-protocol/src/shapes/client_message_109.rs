@@ -5,13 +5,41 @@
 #![allow(unused_imports)]
 
 // Part client_message_109.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_70_FIELDS: [Field; 4] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.comment.reply\""]) },
+    Field { key: "link", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS, extra: Extra::Strip } },
+    Field { key: "commentId", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
+    Field { key: "body", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(65536)] }) },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_71_FIELDS: [Field; 3] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.review.request\""]) },
+    Field { key: "link", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS, extra: Extra::Strip } },
+    Field { key: "reviewers", presence: Presence::Required, shape: Shape::Array { item: &Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[\\w.-]+$"), StrCheck::Max(100)] }), min: Some(1), max: Some(100) } },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_72_FIELDS: [Field; 5] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.pr.merge\""]) },
+    Field { key: "link", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS, extra: Extra::Strip } },
+    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "method", presence: Presence::Required, shape: Shape::Enum(&["\"merge\"", "\"squash\"", "\"rebase\""]) },
+    Field { key: "commit", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::client_message_101::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_30_COMMIT_FIELDS, extra: Extra::Strip } },
+];
+
+pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_73_FIELDS: [Field; 4] = [
+    Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.pr.auto-merge\""]) },
+    Field { key: "link", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::client_message_107::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_64_LINK_FIELDS, extra: Extra::Strip } },
+    Field { key: "headSha", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[] }) },
+    Field { key: "method", presence: Presence::Required, shape: Shape::Enum(&["\"merge\"", "\"squash\"", "\"rebase\""]) },
+];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_FIELDS: [Field; 4] = [
     Field { key: "type", presence: Presence::Required, shape: Shape::Enum(&["\"forge.issue.write\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Required, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
-    Field { key: "input", presence: Presence::Required, shape: Shape::Tagged { key: "action", options: &[("\"create\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"comment\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"edit\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"state\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"labels\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"assignees\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_5_FIELDS, extra: Extra::Strip }), ("\"milestone\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_6_FIELDS, extra: Extra::Strip })] } },
+    Field { key: "input", presence: Presence::Required, shape: Shape::Tagged { key: "action", options: &[("\"create\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_0_FIELDS, extra: Extra::Strip }), ("\"comment\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_1_FIELDS, extra: Extra::Strip }), ("\"edit\"", Shape::Object { fields: &CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_2_FIELDS, extra: Extra::Strip }), ("\"state\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_3_FIELDS, extra: Extra::Strip }), ("\"labels\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_4_FIELDS, extra: Extra::Strip }), ("\"assignees\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_5_FIELDS, extra: Extra::Strip }), ("\"milestone\"", Shape::Object { fields: &crate::shapes::client_message_110::CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_6_FIELDS, extra: Extra::Strip })] } },
 ];
 
 pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_0_FIELDS: [Field; 3] = [
@@ -24,22 +52,14 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_0_FIELDS: [Field; 
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(64000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(64000)],
         }),
     },
 ];
@@ -65,11 +85,7 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_1_FIELDS: [Field; 
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(64000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(64000)],
         }),
     },
 ];
@@ -95,33 +111,21 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_2_FIELDS: [Field; 
         key: "expectedUpdatedAt",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
@@ -139,190 +143,14 @@ pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_2_BASE_FIELDS: [Fi
         key: "title",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
     },
     Field {
         key: "body",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(65536)],
         }),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_3_FIELDS: [Field; 5] = [
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"state\""]),
-    },
-    Field {
-        key: "number",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "expectedUpdatedAt",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(65536),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "state",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"open\"", "\"closed\""]),
-    },
-    Field {
-        key: "reason",
-        presence: Presence::Optional,
-        shape: Shape::Enum(&["\"completed\"", "\"not_planned\""]),
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_4_FIELDS: [Field; 4] = [
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"labels\""]),
-    },
-    Field {
-        key: "number",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "add",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(100),
-        },
-    },
-    Field {
-        key: "remove",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(256),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(100),
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_5_FIELDS: [Field; 4] = [
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"assignees\""]),
-    },
-    Field {
-        key: "number",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "add",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(100),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(10),
-        },
-    },
-    Field {
-        key: "remove",
-        presence: Presence::Default("[]"),
-        shape: Shape::Array {
-            item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(100),
-                pattern: None,
-                format: None,
-                trim: false,
-            }),
-            min: None,
-            max: Some(100),
-        },
-    },
-];
-
-pub(crate) static CLIENT_MESSAGE_190_COMMAND_PAYLOAD_74_INPUT_6_FIELDS: [Field; 3] = [
-    Field {
-        key: "action",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"milestone\""]),
-    },
-    Field {
-        key: "number",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "milestone",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: true,
-        })),
     },
 ];

@@ -5,62 +5,42 @@
 #![allow(unused_imports)]
 
 // Part server_message_63.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_18_ENTRIES_FIELDS: [Field; 8] = [
     Field {
         key: "sha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[0-9a-f]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[0-9a-f]{40,64}$")],
         }),
     },
     Field {
         key: "shortSha",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(7),
-            max: Some(16),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(7), StrCheck::Max(16)],
         }),
     },
     Field {
         key: "subject",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
     Field {
         key: "authorName",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
     Field {
         key: "authorEmail",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(512)],
         }),
     },
     Field {
@@ -78,22 +58,22 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_18_ENTRIES_FIELDS: [Field; 8] = [
         key: "path",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(1024),
+                StrCheck::Custom(&crate::checks::REVIEW_PATH),
+            ],
         }),
     },
     Field {
         key: "previousPath",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(1024),
+                StrCheck::Custom(&crate::checks::REVIEW_PATH),
+            ],
         }),
     },
 ];
@@ -119,11 +99,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FIELDS: [Field; 5] = [
         key: "head",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: None,
-            pattern: Some("^[a-f0-9]{40,64}$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^[a-f0-9]{40,64}$")],
         })),
     },
     Field {
@@ -156,7 +132,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FIELDS: [Field; 5] = [
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_FIELDS: [Field; 3] = [
-    Field { key: "path", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "path", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1), StrCheck::Max(4096), StrCheck::Custom(&crate::checks::NO_NUL_PATH)] }) },
     Field { key: "stages", presence: Presence::Required, shape: Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_STAGES_FIELDS, extra: Extra::Strip } },
     Field { key: "content", presence: Presence::Required, shape: Shape::Tagged { key: "kind", options: &[("\"text\"", Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_FIELDS, extra: Extra::Strip }), ("\"unavailable\"", Shape::Object { fields: &crate::shapes::server_message_64::SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_1_FIELDS, extra: Extra::Strip })] } },
 ];
@@ -181,7 +157,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_STAGES_FIELDS: [Fi
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_FIELDS: [Field; 3] = [
     Field { key: "kind", presence: Presence::Required, shape: Shape::Enum(&["\"text\""]) },
-    Field { key: "revision", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: None, pattern: Some("^[a-f0-9]{64}$"), format: None, trim: false }) },
+    Field { key: "revision", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Pattern("^[a-f0-9]{64}$")] }) },
     Field { key: "segments", presence: Presence::Required, shape: Shape::Array { item: &Shape::Tagged { key: "kind", options: &[("\"text\"", Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS_0_FIELDS, extra: Extra::Strip }), ("\"conflict\"", Shape::Object { fields: &SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS_1_FIELDS, extra: Extra::Strip })] }, min: None, max: Some(20000) } },
 ];
 
@@ -196,11 +172,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS
         key: "text",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(131072),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(131072)],
         }),
     },
 ];
@@ -216,33 +188,21 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS
         key: "ours",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(131072),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(131072)],
         }),
     },
     Field {
         key: "base",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(131072),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(131072)],
         })),
     },
     Field {
         key: "theirs",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(131072),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(131072)],
         }),
     },
     Field {
@@ -257,8 +217,8 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS
 ];
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_19_CONFLICTS_FILES_CONTENT_0_SEGMENTS_1_MARKERS_FIELDS: [Field; 4] = [
-    Field { key: "ours", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "base", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false })) },
-    Field { key: "separator", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
-    Field { key: "theirs", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: None, max: Some(4096), pattern: None, format: None, trim: false }) },
+    Field { key: "ours", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
+    Field { key: "base", presence: Presence::Required, shape: Shape::Nullable(&Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] })) },
+    Field { key: "separator", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
+    Field { key: "theirs", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Max(4096)] }) },
 ];

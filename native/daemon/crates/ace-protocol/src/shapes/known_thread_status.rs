@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part known_thread_status.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static KNOWN_THREAD_STATUS_0_FIELDS: [Field; 2] = [
     Field {
@@ -154,33 +154,21 @@ pub(crate) static KNOWN_THREAD_STATUS_6_TO_FIELDS: [Field; 3] = [
         key: "hostId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
         key: "threadId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -206,6 +194,10 @@ pub(crate) static KNOWN_THREAD_STATUS_9_FIELDS: [Field; 2] = [
     Field {
         key: "raw",
         presence: Presence::Required,
-        shape: Shape::Record(&Shape::Any),
+        shape: Shape::Record {
+            key: &Shape::Str(&StrBounds { checks: &[] }),
+            value: &Shape::Any,
+            keep_proto: false,
+        },
     },
 ];

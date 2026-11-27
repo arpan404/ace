@@ -5,355 +5,350 @@
 #![allow(unused_imports)]
 
 // Part server_message_104.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
-pub(crate) static SERVER_MESSAGE_82_RESULT_ROWS_TOTALS_FIELDS: [Field; 19] = [
-    Field {
-        key: "inputTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "outputTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "cachedInputTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "reasoningTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "cacheWriteTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "cacheWrite1hTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "providerReportedUsd",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "estimatedUsd",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "equivalentApiUsd",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        })),
-    },
-    Field {
-        key: "overflow",
-        presence: Presence::Default("false"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "unpricedTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "subscriptionTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "unknownBillingTokens",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "apiInputUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "apiCacheReadUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "apiCacheWriteUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "apiOutputUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "apiReasoningUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "cacheSavingsUsd",
-        presence: Presence::Optional,
-        shape: Shape::Num(&NumBounds {
-            min: None,
-            min_inclusive: false,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_BURN_FIELDS: [Field; 8] = [
-    Field {
-        key: "windowId",
-        presence: Presence::Required,
-        shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
-        }),
-    },
-    Field {
-        key: "unit",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"tokens\"", "\"usd\""]),
-    },
-    Field {
-        key: "observed",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "overflow",
-        presence: Presence::Default("false"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "complete",
-        presence: Presence::Default("true"),
-        shape: Shape::Bool,
-    },
-    Field {
-        key: "perHour",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        }),
-    },
-    Field {
-        key: "remaining",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        })),
-    },
-    Field {
-        key: "exhaustionAt",
-        presence: Presence::Required,
-        shape: Shape::Nullable(&Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: None,
-            max_inclusive: false,
-            integral: false,
-        })),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_82_RESULT_FILLING_FIELDS: [Field; 2] = [
-    Field {
-        key: "through",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-    Field {
-        key: "head",
-        presence: Presence::Required,
-        shape: Shape::Num(&NumBounds {
-            min: Some(0.0),
-            min_inclusive: true,
-            max: Some(9007199254740991.0),
-            max_inclusive: true,
-            integral: true,
-        }),
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_83_FIELDS: [Field; 2] = [
+pub(crate) static SERVER_MESSAGE_82_FIELDS: [Field; 4] = [
     Field {
         key: "type",
         presence: Presence::Required,
-        shape: Shape::Enum(&["\"usage.limits_changed\""]),
-    },
-    Field {
-        key: "account",
-        presence: Presence::Required,
-        shape: Shape::Object {
-            fields: &crate::shapes::server_message_102::SERVER_MESSAGE_82_RESULT_ACCOUNTS_FIELDS,
-            extra: Extra::Strip,
-        },
-    },
-];
-
-pub(crate) static SERVER_MESSAGE_84_FIELDS: [Field; 3] = [
-    Field {
-        key: "type",
-        presence: Presence::Required,
-        shape: Shape::Enum(&["\"usage.session_totals.result\""]),
+        shape: Shape::Enum(&["\"usage.result\""]),
     },
     Field {
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(512),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
         }),
     },
     Field {
-        key: "totals",
+        key: "kind",
         presence: Presence::Required,
+        shape: Shape::Enum(&["\"summary\"", "\"series\""]),
+    },
+    Field {
+        key: "result",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields: &SERVER_MESSAGE_82_RESULT_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_82_RESULT_FIELDS: [Field; 14] = [
+    Field {
+        key: "cursor",
+        presence: Presence::Required,
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "omittedEvents",
+        presence: Presence::Default("0"),
+        shape: Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: Some(9007199254740991.0),
+            max_inclusive: true,
+            integral: true,
+        }),
+    },
+    Field {
+        key: "timezone",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
+        }),
+    },
+    Field {
+        key: "priceVersion",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(512)],
+        }),
+    },
+    Field {
+        key: "priceAsOf",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Format("date")],
+        }),
+    },
+    Field {
+        key: "priceSources",
+        presence: Presence::Optional,
         shape: Shape::Array {
-            item: &Shape::Object {
-                fields: &crate::shapes::server_message_105::SERVER_MESSAGE_84_TOTALS_FIELDS,
-                extra: Extra::Strip,
-            },
+            item: &Shape::Str(&StrBounds {
+                checks: &[StrCheck::Format("url")],
+            }),
             min: None,
             max: Some(100),
         },
+    },
+    Field {
+        key: "costLabel",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"estimate\""]),
+    },
+    Field {
+        key: "tokenSource",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"cli\""]),
+    },
+    Field {
+        key: "retainedFrom",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Format("date")],
+        }),
+    },
+    Field {
+        key: "accounts",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &SERVER_MESSAGE_82_RESULT_ACCOUNTS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(256),
+        },
+    },
+    Field {
+        key: "rows",
+        presence: Presence::Required,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::server_message_105::SERVER_MESSAGE_82_RESULT_ROWS_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(1000),
+        },
+    },
+    Field {
+        key: "truncated",
+        presence: Presence::Required,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "burn",
+        presence: Presence::Optional,
+        shape: Shape::Array {
+            item: &Shape::Object {
+                fields: &crate::shapes::server_message_106::SERVER_MESSAGE_82_RESULT_BURN_FIELDS,
+                extra: Extra::Strip,
+            },
+            min: None,
+            max: Some(20),
+        },
+    },
+    Field {
+        key: "filling",
+        presence: Presence::Optional,
+        shape: Shape::Object {
+            fields: &crate::shapes::server_message_106::SERVER_MESSAGE_82_RESULT_FILLING_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+];
+
+pub(crate) static SERVER_MESSAGE_82_RESULT_ACCOUNTS_FIELDS: [Field; 24] = [
+    Field {
+        key: "cliHome",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(4096)],
+        }),
+    },
+    Field {
+        key: "implicit",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "isDefault",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "id",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "acpAgentId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "installationId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "instanceId",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "homeStrategy",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"default_cli\"", "\"managed\""]),
+    },
+    Field {
+        key: "isolation",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"unsupported\""]),
+    },
+    Field {
+        key: "authMethod",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"browser\"", "\"api_key\"", "\"unknown\""]),
+    },
+    Field {
+        key: "signedInAs",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "antigravitySignIn",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&["\"google\"", "\"enterprise\"", "\"agent_platform\""]),
+    },
+    Field {
+        key: "loginRevision",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "profileRevision",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "installationVersion",
+        presence: Presence::Optional,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(256)],
+        }),
+    },
+    Field {
+        key: "provider",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"codex\"",
+            "\"claude\"",
+            "\"opencode\"",
+            "\"cursor\"",
+            "\"pi\"",
+            "\"acp\"",
+        ]),
+    },
+    Field {
+        key: "label",
+        presence: Presence::Required,
+        shape: Shape::Str(&StrBounds {
+            checks: &[StrCheck::Max(128)],
+        }),
+    },
+    Field {
+        key: "shortLabel",
+        presence: Presence::Optional,
+        shape: Shape::OneOf(&[
+            Shape::Str(&StrBounds {
+                checks: &[
+                    StrCheck::Min(1),
+                    StrCheck::Max(64),
+                    StrCheck::Custom(&crate::checks::ICON_GLYPH),
+                ],
+            }),
+            Shape::Str(&StrBounds {
+                checks: &[StrCheck::Pattern("^\\S{1,3}$")],
+            }),
+        ]),
+    },
+    Field {
+        key: "badgeUsesInitial",
+        presence: Presence::Optional,
+        shape: Shape::Bool,
+    },
+    Field {
+        key: "badgeColor",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&[
+            "\"neutral\"",
+            "\"blue\"",
+            "\"green\"",
+            "\"amber\"",
+            "\"rose\"",
+            "\"violet\"",
+        ]),
+    },
+    Field {
+        key: "badgeIcon",
+        presence: Presence::Optional,
+        shape: Shape::Enum(&[
+            "\"briefcase\"",
+            "\"house\"",
+            "\"flask\"",
+            "\"rocket\"",
+            "\"moon\"",
+            "\"wrench\"",
+            "\"code\"",
+            "\"star\"",
+            "\"heart\"",
+            "\"lightning\"",
+        ]),
+    },
+    Field {
+        key: "quota",
+        presence: Presence::Required,
+        shape: Shape::Object {
+            fields:
+                &crate::shapes::server_message_105::SERVER_MESSAGE_82_RESULT_ACCOUNTS_QUOTA_FIELDS,
+            extra: Extra::Strip,
+        },
+    },
+    Field {
+        key: "availability",
+        presence: Presence::Required,
+        shape: Shape::Enum(&[
+            "\"available\"",
+            "\"near_limit\"",
+            "\"exhausted\"",
+            "\"logged_out\"",
+            "\"unknown\"",
+        ]),
+    },
+    Field {
+        key: "blockedUntil",
+        presence: Presence::Optional,
+        shape: Shape::Nullable(&Shape::Num(&NumBounds {
+            min: Some(0.0),
+            min_inclusive: true,
+            max: None,
+            max_inclusive: false,
+            integral: false,
+        })),
     },
 ];

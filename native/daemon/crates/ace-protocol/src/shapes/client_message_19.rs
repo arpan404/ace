@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_19.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_15_QUERY_FIELDS: [Field; 11] = [
     Field {
@@ -29,44 +29,28 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_15_QUERY_FIELDS: [Field; 11] = [
         key: "search",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(256)],
         }),
     },
     Field {
         key: "author",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: Some("^(@me|[\\w.-]*)$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(@me|[\\w.-]*)$"), StrCheck::Max(100)],
         }),
     },
     Field {
         key: "reviewer",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: Some("^(@me|[\\w.-]*)$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(@me|[\\w.-]*)$"), StrCheck::Max(100)],
         }),
     },
     Field {
         key: "assignee",
         presence: Presence::Default("\"\""),
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(100),
-            pattern: Some("^(@me|[\\w.-]*)$"),
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Pattern("^(@me|[\\w.-]*)$"), StrCheck::Max(100)],
         }),
     },
     Field {
@@ -74,11 +58,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_15_QUERY_FIELDS: [Field; 11] = [
         presence: Presence::Default("[]"),
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(100),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(100)],
             }),
             min: None,
             max: Some(20),
@@ -120,7 +100,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_15_QUERY_FIELDS: [Field; 11] = [
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_16_FIELDS: [Field; 3] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.open-work\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
 ];
 
@@ -134,11 +114,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_17_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
@@ -153,18 +129,14 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_18_FIELDS: [Field; 2] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
 ];
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_FIELDS: [Field; 4] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.group-counts\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
     Field { key: "grouping", presence: Presence::Required, shape: Shape::Tagged { key: "by", options: &[("\"readiness\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_0_FIELDS, extra: Extra::Strip }), ("\"pr-people\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_1_FIELDS, extra: Extra::Strip }), ("\"issue-people\"", Shape::Object { fields: &CLIENT_MESSAGE_61_OPERATION_19_GROUPING_2_FIELDS, extra: Extra::Strip })] } },
 ];
@@ -219,7 +191,7 @@ pub(crate) static CLIENT_MESSAGE_61_OPERATION_19_GROUPING_2_FIELDS: [Field; 2] =
 
 pub(crate) static CLIENT_MESSAGE_61_OPERATION_20_FIELDS: [Field; 4] = [
     Field { key: "op", presence: Presence::Required, shape: Shape::Enum(&["\"forge.pr.detail\""]) },
-    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { min: Some(1), max: None, pattern: None, format: None, trim: false }) },
+    Field { key: "workspaceId", presence: Presence::Required, shape: Shape::Str(&StrBounds { checks: &[StrCheck::Min(1)] }) },
     Field { key: "repository", presence: Presence::Optional, shape: Shape::Object { fields: &crate::shapes::thread_client_column_3::THREAD_CLIENT_COLUMN_MOVED_FROM_LINKS_REPOSITORY_FIELDS, extra: Extra::Strip } },
     Field { key: "number", presence: Presence::Required, shape: Shape::Num(&NumBounds { min: Some(0.0), min_inclusive: false, max: None, max_inclusive: false, integral: true }) },
 ];

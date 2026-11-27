@@ -5,40 +5,33 @@
 #![allow(unused_imports)]
 
 // Part server_message_59.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_52_RESULT_4_REFS_FIELDS: [Field; 5] = [
     Field {
         key: "name",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(1024),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(1024)],
         }),
     },
     Field {
         key: "remote",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: Some("^[\\w.-]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(128),
+                StrCheck::Pattern("^[\\w.-]+$"),
+                StrCheck::Custom(&crate::checks::NO_LEADING_DASH_OR_DOT),
+            ],
         }),
     },
     Field {
         key: "upstream",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(1200),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(1200)],
         }),
     },
     Field {
@@ -75,22 +68,14 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_5_FIELDS: [Field; 3] = [
         key: "url",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         })),
     },
     Field {
         key: "key",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -105,11 +90,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_6_FIELDS: [Field; 3] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         })),
     },
     Field {
@@ -146,11 +127,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_7_CHECKOUT_FIELDS: [Field; 3] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
             }),
             min: None,
             max: Some(64),
@@ -160,11 +137,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_7_CHECKOUT_FIELDS: [Field; 3] = [
         key: "subpath",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: None,
-            max: Some(4096),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(4096)],
         }),
     },
 ];
@@ -191,11 +164,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_8_FIELDS: [Field; 3] = [
         key: "next",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         })),
     },
 ];
@@ -205,11 +174,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_8_SUGGESTIONS_FIELDS: [Field; 4] = [
         key: "workspaceId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: None,
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1)],
         }),
     },
     Field {
@@ -217,11 +182,7 @@ pub(crate) static SERVER_MESSAGE_52_RESULT_8_SUGGESTIONS_FIELDS: [Field; 4] = [
         presence: Presence::Required,
         shape: Shape::Array {
             item: &Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(4096),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(4096)],
             }),
             min: None,
             max: Some(64),

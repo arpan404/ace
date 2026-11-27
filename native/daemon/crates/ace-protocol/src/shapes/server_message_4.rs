@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part server_message_4.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static SERVER_MESSAGE_6_FIELDS: [Field; 5] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static SERVER_MESSAGE_6_FIELDS: [Field; 5] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -50,11 +46,7 @@ pub(crate) static SERVER_MESSAGE_6_FIELDS: [Field; 5] = [
                 "\"invalid\"",
             ]),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(64)],
             }),
         ]),
     },
@@ -65,33 +57,21 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
         key: "version",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
         key: "platform",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(32),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(32)],
         }),
     },
     Field {
         key: "arch",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(32),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(32)],
         }),
     },
     Field {
@@ -100,11 +80,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
         shape: Shape::OneOf(&[
             Shape::Enum(&["\"desktop\"", "\"standalone\"", "\"source\""]),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(64)],
             }),
         ]),
     },
@@ -129,11 +105,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
                 "\"failed\"",
             ]),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(64)],
             }),
         ]),
     },
@@ -141,22 +113,14 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
         key: "available",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         })),
     },
     Field {
         key: "releaseUrl",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(400),
-            pattern: None,
-            format: Some("url"),
-            trim: false,
+            checks: &[StrCheck::Format("url"), StrCheck::Max(400)],
         })),
     },
     Field {
@@ -170,11 +134,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
                 "\"unknown\"",
             ]),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(64)],
             }),
         ])),
     },
@@ -212,11 +172,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_FIELDS: [Field; 15] = [
         key: "error",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2000)],
         })),
     },
     Field {
@@ -245,11 +201,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_ASK_FIELDS: [Field; 4] = [
         key: "id",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -258,11 +210,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_ASK_FIELDS: [Field; 4] = [
         shape: Shape::OneOf(&[
             Shape::Enum(&["\"idle\"", "\"now\""]),
             Shape::Str(&StrBounds {
-                min: Some(1),
-                max: Some(64),
-                pattern: None,
-                format: None,
-                trim: false,
+                checks: &[StrCheck::Min(1), StrCheck::Max(64)],
             }),
         ]),
     },
@@ -270,11 +218,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_ASK_FIELDS: [Field; 4] = [
         key: "version",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
@@ -295,22 +239,14 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_LAST_FIELDS: [Field; 5] = [
         key: "from",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
         key: "to",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(80),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(80)],
         }),
     },
     Field {
@@ -322,11 +258,7 @@ pub(crate) static SERVER_MESSAGE_6_UPDATE_LAST_FIELDS: [Field; 5] = [
         key: "error",
         presence: Presence::Required,
         shape: Shape::Nullable(&Shape::Str(&StrBounds {
-            min: None,
-            max: Some(2000),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Max(2000)],
         })),
     },
     Field {
@@ -368,11 +300,7 @@ pub(crate) static SERVER_MESSAGE_8_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {

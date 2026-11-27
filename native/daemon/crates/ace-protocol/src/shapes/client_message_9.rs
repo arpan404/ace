@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 // Part client_message_9.
-use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds};
+use crate::shape::{Extra, Field, NumBounds, Presence, Shape, StrBounds, StrCheck};
 
 pub(crate) static CLIENT_MESSAGE_29_FIELDS: [Field; 2] = [
     Field {
@@ -17,11 +17,7 @@ pub(crate) static CLIENT_MESSAGE_29_FIELDS: [Field; 2] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -36,11 +32,7 @@ pub(crate) static CLIENT_MESSAGE_30_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -91,11 +83,7 @@ pub(crate) static CLIENT_MESSAGE_30_OPERATION_1_FIELDS: [Field; 2] = [
         key: "transferId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -110,11 +98,7 @@ pub(crate) static CLIENT_MESSAGE_30_OPERATION_2_FIELDS: [Field; 2] = [
         key: "transferId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
 ];
@@ -129,11 +113,7 @@ pub(crate) static CLIENT_MESSAGE_31_FIELDS: [Field; 3] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -153,11 +133,7 @@ pub(crate) static CLIENT_MESSAGE_32_FIELDS: [Field; 7] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
@@ -177,11 +153,7 @@ pub(crate) static CLIENT_MESSAGE_32_FIELDS: [Field; 7] = [
         key: "instance",
         presence: Presence::Optional,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(256),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(256)],
         }),
     },
     Field {
@@ -247,22 +219,24 @@ pub(crate) static CLIENT_MESSAGE_32_SIGN_IN_1_FIELDS: [Field; 3] = [
         key: "project",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(6),
-            max: Some(100),
-            pattern: Some("^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(6),
+                StrCheck::Max(100),
+                StrCheck::Pattern(
+                    "^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$",
+                ),
+            ],
         }),
     },
     Field {
         key: "location",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(2),
-            max: Some(63),
-            pattern: Some("^[a-z][a-z0-9-]*[a-z0-9]$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(2),
+                StrCheck::Max(63),
+                StrCheck::Pattern("^[a-z][a-z0-9-]*[a-z0-9]$"),
+            ],
         }),
     },
 ];
@@ -277,22 +251,24 @@ pub(crate) static CLIENT_MESSAGE_32_SIGN_IN_2_FIELDS: [Field; 3] = [
         key: "project",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(6),
-            max: Some(100),
-            pattern: Some("^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(6),
+                StrCheck::Max(100),
+                StrCheck::Pattern(
+                    "^(?:[a-z0-9][a-z0-9.-]{0,61}[a-z0-9]:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$",
+                ),
+            ],
         }),
     },
     Field {
         key: "location",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(2),
-            max: Some(63),
-            pattern: Some("^[a-z][a-z0-9-]*[a-z0-9]$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(2),
+                StrCheck::Max(63),
+                StrCheck::Pattern("^[a-z][a-z0-9-]*[a-z0-9]$"),
+            ],
         }),
     },
 ];
@@ -307,33 +283,25 @@ pub(crate) static CLIENT_MESSAGE_33_FIELDS: [Field; 4] = [
         key: "requestId",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "session",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(128),
-            pattern: None,
-            format: None,
-            trim: false,
+            checks: &[StrCheck::Min(1), StrCheck::Max(128)],
         }),
     },
     Field {
         key: "apiKey",
         presence: Presence::Required,
         shape: Shape::Str(&StrBounds {
-            min: Some(1),
-            max: Some(8192),
-            pattern: Some("^[^\\s\\x00-\\x1f\\x7f]+$"),
-            format: None,
-            trim: false,
+            checks: &[
+                StrCheck::Min(1),
+                StrCheck::Max(8192),
+                StrCheck::Pattern("^[^\\s\\x00-\\x1f\\x7f]+$"),
+            ],
         }),
     },
 ];
