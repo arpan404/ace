@@ -347,38 +347,51 @@ fn a_pairing_link_cannot_grant_scopes_the_creator_does_not_hold() {
     assert_eq!(status.code(), Some(0));
 }
 
-/// `access-http.ts:35`–`:50`: a body over 16 KiB is refused while it streams, not
-/// collected first. The body is chunked and left open one byte past the limit, so the
-/// daemon's answer has to come before any body could have been collected; a
-/// collect-then-check reader sends nothing and the read times out.
+/// `access-http.ts:30`–`:61`: `/v1/pair` and `/v1/pairings` use `body()` (4 KiB) and
+/// `/v1/stop` uses `optionalBody()` (16 KiB). Each refuses a body while it streams, not
+/// after collecting it: the chunked body stops one byte past the route's limit with no
+/// terminating chunk, so 413 has to arrive while the body is still open.
 #[test]
 fn an_oversized_body_is_refused_at_its_limit() {
     let home = Home::new("body-limit");
-    let mut daemon = home.start(false);
+    let mut daemon = home.start_with(false, &[("ACE_LISTEN", "lan"), ("ACE_REMOTE_PORT", "0")]);
     let endpoint = daemon.ready(&home);
     let token = home.token();
-    // 16 KiB is the limit; one byte past it is refused.
-    for (path, auth) in [("/v1/pair", ""), ("/v1/stop", token.as_str())] {
-        let answered = answer_to_an_unfinished_chunked_body(&endpoint, path, auth, 16 * 1024 + 1);
+    for (path, auth, limit) in [
+        ("/v1/pair", "", 4 * 1024),
+        ("/v1/pairings", token.as_str(), 4 * 1024),
+        ("/v1/stop", token.as_str(), 16 * 1024),
+    ] {
+        let answered = answer_to_an_unfinished_chunked_body(&endpoint, path, auth, limit + 1);
         assert_eq!(
             answered,
             Some(413),
-            "{path} answers 413 while its body is still open"
+            "{path} answers 413 at {} bytes while its body is still open",
+            limit + 1
         );
     }
-    // A body at the limit is not refused for its size: `/v1/pair` rejects its code, not the
-    // body. (The body ends here, so this also proves the reader accepts a complete one.)
+    // Many chunks streaming well past the limit: even if the server closes the socket
+    // mid-write (BrokenPipe / ConnectionReset), the client still reads the 413 answer.
+    let answered =
+        support::answer_to_streamed_unfinished_chunks(&endpoint, "/v1/stop", &token, 4096, 16);
+    assert_eq!(
+        answered,
+        Some(413),
+        "/v1/stop answers 413 reliably when streaming multiple chunks past 16 KiB"
+    );
+    // A body at the exact 4 KiB limit is not refused for its size: `/v1/pair` rejects
+    // its code, not the body.
     let prefix = "{\"code\":\"abc\",\"padding\":\"";
     let suffix = "\"}";
     let at_limit = format!(
         "{prefix}{}{suffix}",
-        "x".repeat(16 * 1024 - prefix.len() - suffix.len())
+        "x".repeat(4 * 1024 - prefix.len() - suffix.len())
     );
-    assert_eq!(at_limit.len(), 16 * 1024);
+    assert_eq!(at_limit.len(), 4 * 1024);
     let (status, body) = request(&endpoint, "POST", "/v1/pair", "", &at_limit);
     assert_ne!(
         status, 413,
-        "a body at the limit is read, not refused: {body}"
+        "a 4 KiB body on /v1/pair is read, not refused: {body}"
     );
     // The daemon is still serving.
     let (status, _) = request(&endpoint, "GET", "/v1/status", &token, "");

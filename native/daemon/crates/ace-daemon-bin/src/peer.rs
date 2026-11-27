@@ -151,6 +151,21 @@ fn linux_holds(pid: i64, client: (u16, u16)) -> bool {
 /// (`peer-process.ts:77`–`:86`): a listing that never answers proves nobody.
 #[cfg(target_os = "macos")]
 fn lsof_holds(pid: i64, client: (u16, u16)) -> bool {
+    lsof_holds_with(
+        std::path::Path::new("/usr/sbin/lsof"),
+        pid,
+        client,
+        crate::bounded_command::LSOF_PROCESS,
+    )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn lsof_holds_with(
+    command: &std::path::Path,
+    pid: i64,
+    client: (u16, u16),
+    bounds: crate::bounded_command::Bounds,
+) -> bool {
     let args: Vec<std::ffi::OsString> = [
         "-nP".to_owned(),
         "-a".to_owned(),
@@ -163,11 +178,7 @@ fn lsof_holds(pid: i64, client: (u16, u16)) -> bool {
     .into_iter()
     .map(Into::into)
     .collect();
-    let Some(stdout) = crate::bounded_command::stdout(
-        std::path::Path::new("/usr/sbin/lsof"),
-        &args,
-        crate::bounded_command::LSOF_PROCESS,
-    ) else {
+    let Some(stdout) = crate::bounded_command::stdout(command, &args, bounds) else {
         return false;
     };
     parse_lsof_tcp(&String::from_utf8_lossy(&stdout))
@@ -334,5 +345,32 @@ mod tests {
 
         drop(client);
         drop(server);
+    }
+
+    /// `peer-process.ts:77`–`:86`: a hanging `lsof` is killed at its timeout and proves nobody.
+    #[test]
+    #[cfg(unix)]
+    fn a_hanging_lsof_times_out_and_verifies_nobody() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = crate::test_support::TempDir::new("ace-peer-lsof-timeout");
+        let script = dir.path().join("slow-lsof.sh");
+        let _ = std::fs::write(&script, "#!/bin/sh\nsleep 30\n");
+        let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700));
+        let began = std::time::Instant::now();
+        let holds = lsof_holds_with(
+            &script,
+            i64::from(std::process::id()),
+            (54321, 8080),
+            crate::bounded_command::Bounds {
+                timeout: std::time::Duration::from_millis(200),
+                max_bytes: 1024,
+            },
+        );
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(3),
+            "peer lsof must be bounded, took {:?}",
+            began.elapsed()
+        );
+        assert!(!holds);
     }
 }

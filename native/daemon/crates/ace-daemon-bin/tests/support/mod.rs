@@ -271,7 +271,12 @@ pub fn exchange_headers(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n{body}",
         body.len()
     );
-    if stream.write_all(request.as_bytes()).is_err() {
+    if let Err(error) = stream.write_all(request.as_bytes())
+        && !matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+        )
+    {
         return String::new();
     }
     let mut response = Vec::new();
@@ -291,6 +296,18 @@ pub fn answer_to_an_unfinished_chunked_body(
     token: &str,
     size: usize,
 ) -> Option<u16> {
+    answer_to_streamed_unfinished_chunks(endpoint, path, token, size, 1)
+}
+
+/// Sends `count` chunks of `chunk_size` bytes with no terminating zero chunk, reading the
+/// daemon's status even when the daemon closes the socket mid-write after answering `413`.
+pub fn answer_to_streamed_unfinished_chunks(
+    endpoint: &str,
+    path: &str,
+    token: &str,
+    chunk_size: usize,
+    count: usize,
+) -> Option<u16> {
     let port = endpoint
         .trim_start_matches("http://127.0.0.1:")
         .trim_end_matches('/')
@@ -304,12 +321,20 @@ pub fn answer_to_an_unfinished_chunked_body(
     let head = format!(
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
     );
-    // One chunk of exactly `size` bytes, and no terminating zero chunk.
-    let chunk = format!("{size:x}\r\n{}\r\n", "x".repeat(size));
-    if stream.write_all(head.as_bytes()).is_err() || stream.write_all(chunk.as_bytes()).is_err() {
-        return None;
+    stream.write_all(head.as_bytes()).ok()?;
+    let chunk = format!("{chunk_size:x}\r\n{}\r\n", "x".repeat(chunk_size));
+    for _ in 0..count {
+        if let Err(error) = stream.write_all(chunk.as_bytes()) {
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            ) {
+                break;
+            }
+            return None;
+        }
+        let _ = stream.flush();
     }
-    let _ = stream.flush();
     let mut response = Vec::new();
     let _ = stream.read_to_end(&mut response);
     String::from_utf8_lossy(&response)

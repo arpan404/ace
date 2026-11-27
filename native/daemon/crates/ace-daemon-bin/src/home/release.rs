@@ -51,7 +51,13 @@ const TARGETS: [&str; 6] = [
 /// `carryRelease`: moves the release from `backup` into `home`, returning its
 /// version, or none when the backup holds no release this build would run.
 pub fn carry(backup: &Path, home: &Path) -> Option<String> {
-    let version = carried_version(backup, home, Platform::current())?;
+    carry_on(backup, home, Platform::current())
+}
+
+/// `carryRelease` for an explicit host platform, so both POSIX and Windows release
+/// layouts are tested end to end on any OS.
+pub fn carry_on(backup: &Path, home: &Path, platform: Platform) -> Option<String> {
+    let version = carried_version(backup, home, platform)?;
     for name in INSTALLATION {
         if present(&backup.join(name)) && !present(&home.join(name)) {
             let _ = std::fs::rename(backup.join(name), home.join(name));
@@ -86,10 +92,10 @@ pub fn carried_version(backup: &Path, home: &Path, platform: Platform) -> Option
     }
     let launcher =
         std::fs::read_to_string(backup.join("bin").join(launcher_name(platform))).ok()?;
-    // `slice(0, 8192)` compared with the rendered launcher: exact bytes, never a
+    // `slice(0, 8192)` compared with the rendered launcher: exact text, never a
     // substring, so `~/.ace2`'s launcher (or an older script) is not carried.
-    let head = &launcher.as_bytes()[..launcher.len().min(8192)];
-    if head != render_launcher(home, platform)?.as_bytes() {
+    let head = slice_utf16(&launcher, 8192);
+    if head != render_launcher(home, platform)? {
         return None;
     }
     Some(version.to_owned())
@@ -161,7 +167,7 @@ fn release_target(backup: &Path, platform: Platform) -> Option<String> {
         Platform::Windows => {
             let text = std::fs::read_to_string(&current).ok()?;
             // `pointerText(slice(0, 256))`: one trailing CRLF is the terminator.
-            let head = &text[..text.len().min(256)];
+            let head = slice_utf16(&text, 256);
             head.strip_suffix("\r\n").unwrap_or(head).to_owned()
         }
     };
@@ -174,6 +180,22 @@ fn release_target(backup: &Path, platform: Platform) -> Option<String> {
                 .is_some_and(release_version)
         })
         .then_some(text)
+}
+
+/// Prefix of `text` fitting within `max_units` UTF-16 code units, matching JS
+/// `String.prototype.slice(0, max_units)` without slicing inside a UTF-8 scalar.
+fn slice_utf16(text: &str, max_units: usize) -> &str {
+    let mut units = 0;
+    let mut end = 0;
+    for (index, ch) in text.char_indices() {
+        let next = units + ch.len_utf16();
+        if next > max_units {
+            return &text[..index];
+        }
+        units = next;
+        end = index + ch.len_utf8();
+    }
+    &text[..end]
 }
 
 /// `ReleaseVersion`: `\d+\.\d+\.\d+(?:-[a-z0-9.]+)?`, at most 80 characters.

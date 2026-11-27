@@ -34,12 +34,19 @@ pub const LSOF_OPENERS: Bounds = Bounds {
     max_bytes: 1_048_576,
 };
 
-/// Runs `command` and returns its stdout, or `None` when it could not be spawned.
+/// One bounded command's stdout and whether the deadline stopped it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Outcome {
+    pub stdout: Vec<u8>,
+    pub timed_out: bool,
+}
+
+/// Runs `command` and returns its stdout plus whether it timed out, or `None` when it
+/// could not be spawned.
 ///
 /// Output past `max_bytes` is cut there, and a child still running at the deadline is
-/// killed: a partial answer is returned, as `execFile`'s callback sees partial stdout
-/// with its timeout error.
-pub fn stdout(command: &Path, args: &[OsString], bounds: Bounds) -> Option<Vec<u8>> {
+/// killed along with its process group.
+pub fn run(command: &Path, args: &[OsString], bounds: Bounds) -> Option<Outcome> {
     let mut command = Command::new(command);
     command
         .args(args)
@@ -64,18 +71,29 @@ pub fn stdout(command: &Path, args: &[OsString], bounds: Bounds) -> Option<Vec<u
         bytes
     });
     let deadline = Instant::now() + bounds.timeout;
+    let mut timed_out = false;
     loop {
         match child.try_wait() {
             Ok(Some(_)) | Err(_) => break,
             Ok(None) => {}
         }
         if Instant::now() >= deadline {
+            timed_out = true;
             stop(&mut child);
             break;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    Some(reader.join().unwrap_or_default())
+    Some(Outcome {
+        stdout: reader.join().unwrap_or_default(),
+        timed_out,
+    })
+}
+
+/// Runs `command` and returns its stdout (partial on timeout), or `None` when it could
+/// not be spawned.
+pub fn stdout(command: &Path, args: &[OsString], bounds: Bounds) -> Option<Vec<u8>> {
+    run(command, args, bounds).map(|outcome| outcome.stdout)
 }
 
 /// Ends the child and everything it started, then reaps it.

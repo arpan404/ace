@@ -43,8 +43,10 @@ pub struct PairingOrigin {
     pub fingerprint: String,
 }
 
-/// A JSON body's largest accepted size: `optionalBody`'s 16 KiB.
-const BODY_LIMIT: usize = 16_384;
+/// `body()`: 4 KiB for JSON routes (`/v1/pair`, `/v1/pairings`, ...).
+const BODY_LIMIT: usize = 4_096;
+/// `optionalBody()`: 16 KiB for `/v1/stop`.
+const OPTIONAL_BODY_LIMIT: usize = 16_384;
 
 /// What the server reads and reports.
 pub struct HttpConfig {
@@ -93,9 +95,27 @@ impl HttpServer {
                         let state = Arc::clone(&state);
                         async move { Ok::<_, Infallible>(answer(state, request).await) }
                     });
-                    let _ = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(TokioIo::new(stream), service)
-                        .await;
+                    let conn = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service);
+                    if let Ok(parts) = conn.without_shutdown().await {
+                        let mut stream = parts.io.into_inner();
+                        let _ = tokio::io::AsyncWriteExt::shutdown(&mut stream).await;
+                        // RFC 7230 §6.6 lingering close: drain unread request bytes briefly so
+                        // closing the socket after an early 413 never sends a TCP RST that
+                        // wipes the 413 response out of the proxy hop's receive buffer.
+                        let _ =
+                            tokio::time::timeout(std::time::Duration::from_millis(200), async {
+                                let mut discard = [0_u8; 4096];
+                                while let Ok(n) =
+                                    tokio::io::AsyncReadExt::read(&mut stream, &mut discard).await
+                                {
+                                    if n == 0 {
+                                        break;
+                                    }
+                                }
+                            })
+                            .await;
+                    }
                 });
             }
         });
@@ -338,7 +358,7 @@ async fn stop_request(state: &HttpState, request: Request<Incoming>) -> Response
         remote_port: port("x-ace-hop-peer-port"),
         local_port: port("x-ace-hop-local-port"),
     };
-    let collected = match read_body(request, BODY_LIMIT).await {
+    let collected = match read_body(request, OPTIONAL_BODY_LIMIT).await {
         Ok(body) => body,
         Err(failure) => return failure,
     };

@@ -196,23 +196,40 @@ fn openers(files: &[PathBuf]) -> Vec<i64> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        // `lsofOpeners`: bounded to 5 s (`home-openers.ts:110`–`:120`). A host without
-        // lsof, or one that times out, reports nobody, so a fresh start never sticks.
-        let mut args: Vec<std::ffi::OsString> = vec!["-t".into(), "--".into()];
-        args.extend(files.iter().map(|file| file.as_os_str().to_owned()));
-        let Some(stdout) = crate::bounded_command::stdout(
-            std::path::Path::new("lsof"),
-            &args,
-            crate::bounded_command::LSOF_OPENERS,
-        ) else {
-            return Vec::new();
+        // On macOS, `lsof` lives in `/usr/sbin/lsof`, which a stripped PATH may omit.
+        let binary = if Path::new("/usr/sbin/lsof").is_file() {
+            Path::new("/usr/sbin/lsof")
+        } else {
+            Path::new("lsof")
         };
-        String::from_utf8_lossy(&stdout)
-            .lines()
-            .filter_map(|line| line.trim().parse::<i64>().ok())
-            .filter(|pid| *pid > 0)
-            .collect()
+        lsof_openers_with(binary, files, crate::bounded_command::LSOF_OPENERS)
     }
+}
+
+/// `lsofOpeners` (`home-openers.ts:110`–`:120`): bounded in time and bytes, returning
+/// nobody when the command cannot spawn or times out so a half-written pid is never read.
+#[cfg(any(not(target_os = "linux"), test))]
+pub(crate) fn lsof_openers_with(
+    command: &Path,
+    files: &[PathBuf],
+    bounds: crate::bounded_command::Bounds,
+) -> Vec<i64> {
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let mut args: Vec<std::ffi::OsString> = vec!["-t".into(), "--".into()];
+    args.extend(files.iter().map(|file| file.as_os_str().to_owned()));
+    let Some(outcome) = crate::bounded_command::run(command, &args, bounds) else {
+        return Vec::new();
+    };
+    if outcome.timed_out {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&outcome.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<i64>().ok())
+        .filter(|pid| *pid > 0)
+        .collect()
 }
 
 fn lock_owner(root: &Path) -> Option<i64> {

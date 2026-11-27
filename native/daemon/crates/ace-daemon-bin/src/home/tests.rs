@@ -429,6 +429,62 @@ fn a_windows_home_carries_its_pointer_release() {
         super::release::carried_version(&backup, &home, super::release::Platform::Windows),
         None
     );
+    // A corrupt pointer file whose multi-byte UTF-8 straddles byte 256 is refused, never a panic.
+    let _ = std::fs::write(
+        backup.join(release).join("release.json"),
+        "{\"version\":\"1.2.3\",\"channel\":\"preview\",\"target\":\"win32-x64\"}",
+    );
+    let _ = std::fs::write(backup.join("current"), format!("{}漢", "a".repeat(254)));
+    assert_eq!(
+        super::release::carried_version(&backup, &home, super::release::Platform::Windows),
+        None
+    );
+    // Restore the valid pointer and carry the full Windows release into `home`.
+    let _ = std::fs::write(backup.join("current"), "releases/1.2.3-win32-x64\r\n");
+    let _ = std::fs::write(backup.join("previous"), "releases/1.2.2-win32-x64\r\n");
+    let _ = std::fs::write(backup.join("old.txt"), "old data");
+    let _ = std::fs::create_dir_all(&home);
+    assert_eq!(
+        super::release::carry_on(&backup, &home, super::release::Platform::Windows),
+        Some("1.2.3".to_owned())
+    );
+    assert!(home.join("releases/1.2.3-win32-x64/release.json").exists());
+    assert!(home.join("bin/ace.cmd").exists());
+    assert!(home.join("current").exists());
+    assert!(home.join("previous").exists());
+    assert!(backup.join("old.txt").exists());
+}
+
+/// `home-openers.ts:110`–`:120`: a hanging `lsof` is stopped at its deadline and reports
+/// no openers, even when it printed a partial pid before hanging.
+#[test]
+#[cfg(unix)]
+fn a_hanging_lsof_times_out_and_reports_no_openers() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let parent = TempDir::new("ace-home-lsof-timeout");
+    let script = parent.path().join("slow-lsof.sh");
+    let _ = std::fs::write(&script, "#!/bin/sh\nprintf '12'\nsleep 30\n");
+    let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700));
+    let target = parent.path().join("state.sqlite");
+    let _ = std::fs::write(&target, "data");
+    let began = std::time::Instant::now();
+    let pids = super::claim::lsof_openers_with(
+        &script,
+        &[target],
+        crate::bounded_command::Bounds {
+            timeout: std::time::Duration::from_millis(200),
+            max_bytes: 1024,
+        },
+    );
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(3),
+        "hanging lsof must be bounded, took {:?}",
+        began.elapsed()
+    );
+    assert!(
+        pids.is_empty(),
+        "timed-out lsof must discard partial stdout, got {pids:?}"
+    );
 }
 
 /// `home-claim.ts`: an older ace (0.x keeps no daemon-lock) that still holds a

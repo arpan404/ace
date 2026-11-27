@@ -98,9 +98,10 @@ async function rounds(
       },
     });
     await daemon.ready;
-    // A second daemon on the same home is refused, whichever wrote it.
+    // The other daemon implementation must never also own this home: refuse cleanly (exit 7).
+    const rivalBackend = backend === "bun" ? "binary" : "bun";
     const rival = startDaemonCli(home, cleanups, undefined, {
-      backend,
+      backend: rivalBackend,
       env: {
         ACE_LISTEN: "lan",
         ACE_REMOTE_PORT: String(port),
@@ -110,7 +111,7 @@ async function rounds(
       },
     });
     await expect(rival.ready).rejects.toThrow("Another daemon owns it");
-    expect(await rival.exited).not.toBe(0);
+    expect(await rival.exited).toBe(7);
 
     const files = await publicFiles(home);
     expect(await accessRequest(files.origin, "/v1/status", { token: files.token })).toMatchObject({
