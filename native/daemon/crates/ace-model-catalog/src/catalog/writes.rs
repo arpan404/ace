@@ -1,0 +1,427 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Writes that come from a session (`catalog.ts` `updateFromSession`,
+//! `updatePermissionModes`), queued in the instance's turn order.
+//!
+//! The actor computes what the write will store when it accepts it, takes the write's
+//! place in the queue, and runs it when its place is front. A dropped caller only drops
+//! its reply; the write still runs on what the write before it left.
+
+use std::sync::Arc;
+
+use ace_models::instance::ModelInstance;
+use serde_json::Value;
+
+use crate::cache::CacheEntry;
+use crate::catalog::actor::{Actor, DeleteWait, SessionWritePlan, StorageWait};
+use crate::catalog::commands::Reply;
+use crate::catalog::storage_lane::{Cancel, Outcome};
+use crate::catalog::writes;
+use crate::catalog::{
+    CatalogError, PendingOp, RegistrationToken, identity_revision, validate_instance,
+};
+
+/// One accepted session write, waiting for its place.
+pub(crate) struct SessionWrite {
+    pub(crate) input: ModelInstance,
+    pub(crate) generation: u64,
+    pub(crate) rows: Vec<ace_protocol::generated::CatalogModel>,
+    pub(crate) permission_modes: Vec<Value>,
+    pub(crate) revision: String,
+    pub(crate) identity: String,
+    pub(crate) refreshed_at: f64,
+    pub(crate) reply: Reply<Result<(), CatalogError>>,
+}
+
+/// One accepted permission-mode write, waiting for its place.
+pub(crate) struct PermissionWrite {
+    pub(crate) instance: String,
+    pub(crate) modes: Vec<Value>,
+    pub(crate) generation: u64,
+    pub(crate) revision: String,
+    /// The queue place this write runs from.
+    pub(crate) place: u64,
+}
+
+/// The entry one session write stores, from the rows the actor kept.
+pub(crate) fn entry(
+    write: &SessionWrite,
+    rows: Vec<ace_protocol::generated::CatalogModel>,
+    previous: Option<&Arc<CacheEntry>>,
+) -> CacheEntry {
+    entry_for(
+        &write.input,
+        &write.revision,
+        &write.identity,
+        write.refreshed_at,
+        write.permission_modes.clone(),
+        rows,
+        previous,
+    )
+}
+
+/// The entry a session's rows become under one revision and time.
+pub(crate) fn entry_for(
+    input: &ModelInstance,
+    revision: &str,
+    identity: &str,
+    refreshed_at: f64,
+    permission_modes: Vec<Value>,
+    rows: Vec<ace_protocol::generated::CatalogModel>,
+    previous: Option<&Arc<CacheEntry>>,
+) -> CacheEntry {
+    let combined = crate::sources::refreshed_sources(
+        crate::cleanup::clean_catalog(&rows)
+            .into_iter()
+            .map(Arc::new)
+            .collect(),
+        None,
+        previous.map(|entry| entry.as_ref()),
+        refreshed_at,
+    );
+    CacheEntry {
+        provider: input.provider,
+        instance: input.id.clone(),
+        login_revision: Some(input.login_revision.clone()),
+        revision: revision.to_owned(),
+        refreshed_at,
+        models: combined.models,
+        sources: Some(combined.sources),
+        permission_modes: Some(permission_modes),
+        identity_revision: Some(identity.to_owned()),
+        connection_revision: None,
+    }
+}
+
+impl Actor {
+    /// Metadata from an already authorized session. No process or inference starts.
+    pub(crate) fn update_session(
+        &mut self,
+        input: ModelInstance,
+        token: RegistrationToken,
+        metadata: &Value,
+        reply: Reply<Result<(), CatalogError>>,
+    ) {
+        if self.inner.closed {
+            let _ = reply.send(Err(CatalogError::Closed));
+            return;
+        }
+        if self.inner.session_writes >= 64 {
+            let _ = reply.send(Err(CatalogError::SessionActivityCapacity));
+            return;
+        }
+        if let Err(error) = validate_instance(&input) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        // The report binds to the registration the session saw, never to whichever
+        // registration happens to share its login and cache revision afterwards.
+        let generation = self.inner.states.get(&input.id).and_then(|state| {
+            (state.generation == token.0
+                && state.config.login_revision == input.login_revision
+                && crate::catalog::cache_revision(&state.config)
+                    == crate::catalog::cache_revision(&input))
+            .then_some(state.generation)
+        });
+        let Some(generation) = generation else {
+            let _ = reply.send(Err(CatalogError::SessionGenerationChanged));
+            return;
+        };
+        let rows = match ace_models::acp::normalize_acp(metadata, &input) {
+            Ok(rows) => rows,
+            Err(_) => {
+                let _ = reply.send(Err(CatalogError::InvalidInstance));
+                return;
+            }
+        };
+        let profile = input
+            .acp_agent_id
+            .as_deref()
+            .and_then(|id| id.strip_prefix("official:"))
+            .map(|agent| agent.to_owned());
+        let permission_modes =
+            crate::modes::acp_permission_modes(metadata, input.provider, profile.as_deref());
+        let revision = self.revision(&input);
+        let identity = identity_revision(&input);
+        let refreshed_at = self.now();
+        // The documented byte budget is checked before the write is queued, so an
+        // oversized session payload never becomes pending work.
+        let previous = self
+            .inner
+            .states
+            .get(&input.id)
+            .and_then(|state| state.entry.clone());
+        let budget = writes::entry_for(
+            &input,
+            &revision,
+            &identity,
+            refreshed_at,
+            permission_modes.clone(),
+            crate::learned::keep_learned_options(
+                rows.clone(),
+                previous.as_ref().map(|entry| entry.models.as_slice()),
+            ),
+            previous.as_ref(),
+        );
+        if crate::cache::entry_over_budget(&budget) {
+            let _ = reply.send(Err(CatalogError::Cache(
+                crate::cache::CacheError::PayloadTooLarge,
+            )));
+            return;
+        }
+        self.inner.session_writes += 1;
+        let write = SessionWrite {
+            input,
+            generation,
+            rows,
+            permission_modes,
+            revision,
+            identity,
+            refreshed_at,
+            reply,
+        };
+        let id = write.input.id.clone();
+        let place = self.next_place();
+        self.inner
+            .turns
+            .entry(id.clone())
+            .or_default()
+            .accept(place, PendingOp::SessionWrite(Box::new(write)));
+        self.pump(&id);
+    }
+
+    /// A session's reported modes survive a restart: written onto the cached entry.
+    pub(crate) fn update_modes(
+        &mut self,
+        instance: &str,
+        token: RegistrationToken,
+        modes: Vec<Value>,
+    ) {
+        if self.inner.closed {
+            return;
+        }
+        // Modes written under a replaced registration belong to the row that saw them.
+        let Some(state) = self.inner.states.get(instance) else {
+            return;
+        };
+        if state.generation != token.0 {
+            return;
+        }
+        let revision = self.revision(&state.config);
+        let needs_write = self.inner.states.get_mut(instance).is_some_and(|state| {
+            state.permission_modes = Some(modes.clone());
+            self.inner.turns.contains_key(instance) || state.entry.is_some()
+        });
+        self.notify_id(instance);
+        if !needs_write {
+            return;
+        }
+        if self.inner.session_writes >= 64 {
+            return;
+        }
+        self.inner.session_writes += 1;
+        let id = instance.to_owned();
+        let place = self.next_place();
+        self.inner
+            .turns
+            .entry(id.clone())
+            .or_default()
+            .accept_when_ready(
+                place,
+                PendingOp::PermissionWrite(Box::new(PermissionWrite {
+                    instance: id.clone(),
+                    modes,
+                    generation: token.0,
+                    revision,
+                    place,
+                })),
+            );
+        // The task's settlement makes this place ready, including if it was dropped.
+        self.spawn(
+            crate::catalog::actor::TaskKind::Permission { id, place },
+            Box::pin(async {}),
+        );
+    }
+
+    fn still_current(&self, input: &ModelInstance, generation: u64) -> bool {
+        self.inner.states.get(&input.id).is_some_and(|state| {
+            state.generation == generation
+                && state.config.login_revision == input.login_revision
+                && crate::catalog::cache_revision(&state.config)
+                    == crate::catalog::cache_revision(input)
+        })
+    }
+
+    /// Accepts one session write into the durable path; `true` means it settled here.
+    pub(crate) fn begin_session_write(&mut self, write: SessionWrite, place: u64) -> bool {
+        if self.inner.closed {
+            self.finish_session(write, Err(CatalogError::Closed));
+            return true;
+        }
+        if !self.still_current(&write.input, write.generation) {
+            self.finish_session(write, Err(CatalogError::SessionGenerationChanged));
+            return true;
+        }
+        // The effective revision is rechecked at the commit boundary: settings may have
+        // changed while this write waited behind a held turn, and the write must not
+        // persist a revision the row no longer has.
+        if self.revision(&write.input) != write.revision {
+            self.finish_session(write, Err(CatalogError::SessionGenerationChanged));
+            return true;
+        }
+        let id = write.input.id.clone();
+        let previous = self
+            .inner
+            .states
+            .get(&id)
+            .and_then(|state| state.entry.clone());
+        let models = crate::learned::keep_learned_options(
+            write.rows.clone(),
+            previous.as_ref().map(|entry| entry.models.as_slice()),
+        );
+        let entry = writes::entry(&write, models, previous.as_ref());
+        let plan = SessionWritePlan {
+            place,
+            write,
+            entry,
+        };
+        if self.inner.deletions.has(&id) {
+            self.await_delete(&id, DeleteWait::Session(Box::new(plan)));
+            return false;
+        }
+        self.dispatch_session_replace(plan);
+        false
+    }
+
+    /// Starts the write against storage; the turn settles only when the lane answers.
+    fn dispatch_session_replace(&mut self, plan: SessionWritePlan) {
+        let entry = plan.entry.clone();
+        let generation = plan.write.generation;
+        self.replace_storage(
+            StorageWait::SessionReplace(Box::new(plan)),
+            entry,
+            generation,
+            Cancel::new(),
+        );
+    }
+
+    pub(crate) fn session_deleted(&mut self, plan: SessionWritePlan, outcome: Outcome) {
+        let id = plan.write.input.id.clone();
+        if matches!(outcome, Outcome::Done)
+            && !self.inner.closed
+            && self.write_current(&id, plan.write.generation, &plan.write.revision)
+        {
+            self.dispatch_session_replace(plan);
+        } else {
+            self.finish_session(plan.write, Err(CatalogError::SessionGenerationChanged));
+            self.settle_place(&id, plan.place);
+        }
+    }
+
+    pub(crate) fn session_replaced(&mut self, plan: SessionWritePlan, outcome: Outcome) {
+        let SessionWritePlan {
+            place,
+            write,
+            entry,
+        } = plan;
+        let id = write.input.id.clone();
+        let result = if !matches!(outcome, Outcome::Done)
+            || !self.write_current(&id, write.generation, &write.revision)
+        {
+            Err(CatalogError::SessionGenerationChanged)
+        } else {
+            let entry = Arc::new(entry);
+            if let Some(state) = self.inner.states.get_mut(&id)
+                && state.generation == write.generation
+            {
+                state.entry = Some(entry);
+                state.dirty = false;
+                state.error = None;
+                state.error_detail = None;
+                state.unconfigured_at = None;
+                state.view = None;
+            }
+            self.notify_id(&id);
+            Ok(())
+        };
+        self.finish_session(write, result);
+        self.settle_place(&id, place);
+    }
+
+    fn finish_session(&mut self, write: SessionWrite, result: Result<(), CatalogError>) {
+        self.inner.session_writes = self.inner.session_writes.saturating_sub(1);
+        let _ = write.reply.send(result);
+    }
+
+    /// Accepts one permission-mode write into the durable path; `true` means it settled.
+    pub(crate) fn begin_permission_write(
+        &mut self,
+        mut write: PermissionWrite,
+        place: u64,
+    ) -> bool {
+        write.place = place;
+        if !self.write_current(&write.instance, write.generation, &write.revision)
+            || self.inner.deletions.has(&write.instance)
+        {
+            self.inner.session_writes -= 1;
+            return true;
+        }
+        let current = self
+            .inner
+            .states
+            .get(&write.instance)
+            .and_then(|state| state.entry.clone());
+        let Some(current) = current else {
+            self.inner.session_writes -= 1;
+            return true;
+        };
+        if current.revision != write.revision
+            || current.permission_modes.as_deref() == Some(write.modes.as_slice())
+        {
+            self.inner.session_writes -= 1;
+            return true;
+        }
+        let entry = permission_entry(&write, &current);
+        let generation = write.generation;
+        self.replace_storage(
+            StorageWait::PermissionReplace(Box::new(write)),
+            entry,
+            generation,
+            Cancel::new(),
+        );
+        false
+    }
+
+    pub(crate) fn permission_replaced(&mut self, write: PermissionWrite, outcome: Outcome) {
+        if matches!(outcome, Outcome::Done)
+            && self.write_current(&write.instance, write.generation, &write.revision)
+            && let Some(current) = self
+                .inner
+                .states
+                .get(&write.instance)
+                .and_then(|state| state.entry.clone())
+        {
+            let next = Arc::new(permission_entry(&write, &current));
+            if let Some(state) = self.inner.states.get_mut(&write.instance)
+                && state
+                    .entry
+                    .as_ref()
+                    .is_some_and(|entry| Arc::ptr_eq(entry, &current))
+            {
+                state.entry = Some(next);
+            }
+        }
+        self.finish_permission(&write);
+    }
+
+    fn finish_permission(&mut self, write: &PermissionWrite) {
+        self.inner.session_writes = self.inner.session_writes.saturating_sub(1);
+        self.settle_place(&write.instance, write.place);
+    }
+}
+
+/// One permission write's stored entry.
+fn permission_entry(write: &PermissionWrite, current: &Arc<CacheEntry>) -> CacheEntry {
+    let mut next = (**current).clone();
+    next.permission_modes = Some(write.modes.clone());
+    next
+}

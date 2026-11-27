@@ -34,7 +34,7 @@ pub(crate) fn text<T: From<String>>(value: &str) -> T {
 }
 
 /// A list of labels as the protocol stores it.
-pub(crate) fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
+pub fn texts<W, T>(values: impl IntoIterator<Item = String>) -> W
 where
     T: From<String>,
     W: From<Vec<T>>,
@@ -43,7 +43,7 @@ where
 }
 
 /// An optional field whose generated newtype wraps another one; serde finds the path.
-pub(crate) fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
+pub fn decoded_text<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
     value.and_then(|text| serde_json::from_value(Value::String(text.to_owned())).ok())
 }
 

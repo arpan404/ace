@@ -263,8 +263,11 @@ pub fn session_selectors(
             let Some(values) = select_values(options) else {
                 continue;
             };
+            // `selectors.ts`'s `!config.category` treats an empty category like an absent
+            // one for the id-named model selector; the mode key below keeps it as it is.
             if model.is_none()
-                && (category.as_deref() == Some("model") || (category.is_none() && id == "model"))
+                && (category.as_deref() == Some("model")
+                    || (category.as_deref().is_none_or(str::is_empty) && id == "model"))
             {
                 model = Some(SelectorSpec {
                     config_id: Some(id.clone()),
