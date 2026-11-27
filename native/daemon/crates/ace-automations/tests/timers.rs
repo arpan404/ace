@@ -601,3 +601,87 @@ fn consecutive_interrupt_failures_back_off_to_the_cap_across_hand_offs_and_looku
     service.timer_fired().expect("timer");
     assert_eq!(interrupts(&service.take_actions()), vec![run_id.clone()]);
 }
+
+#[test]
+fn a_cancelled_run_whose_recovery_finds_no_thread_settles_through_the_completion_path() {
+    let h = Harness::new();
+    let mut service = h.started();
+    service.put(&definition(), None).expect("put");
+    let first = service
+        .trigger("triage", "first", variables("first"), "manual", None)
+        .expect("first");
+    let first_id = run_id(&first);
+    service.take_actions();
+    service.set_enabled("triage", false, None).expect("pause");
+    service.take_actions();
+    service.set_enabled("triage", true, None).expect("resume");
+    // The paused run's cancellation stands while it keeps its single slot: the second run waits.
+    let second = service
+        .trigger("triage", "second", variables("second"), "manual", None)
+        .expect("second");
+    assert_eq!(sv(&second, "status"), Some("queued"));
+    service.take_actions();
+
+    // Recovery finds nothing to follow while the run table is momentarily unavailable.
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs RENAME TO automation_runs_broken")
+        .expect("break");
+    raw.close().expect("close");
+    service.recovery_empty(&first_id).expect("recovery");
+    assert!(
+        service
+            .take_errors()
+            .iter()
+            .any(|error| error.contains("automation_runs")),
+        "the refused terminal write is reported"
+    );
+    assert_eq!(
+        service.armed_delay(),
+        Some(1000),
+        "the run keeps its outcome and a retry"
+    );
+
+    let raw = ace_store::Connection::open(
+        h.path().to_str().expect("utf8"),
+        ace_store::OpenOptions {
+            read_only: false,
+            timeout_ms: 5000,
+        },
+    )
+    .expect("raw");
+    raw.exec("ALTER TABLE automation_runs_broken RENAME TO automation_runs")
+        .expect("restore");
+    raw.close().expect("close");
+    h.clock.0.set(h.clock.0.get() + 1000);
+    let settled = service
+        .timer_fired()
+        .expect("timer")
+        .expect("settled on retry");
+    assert_eq!(sv(&settled, "status"), Some("failed"));
+    assert_eq!(sv(&settled, "result"), Some("Stopped before it started."));
+    assert!(
+        service
+            .take_published()
+            .iter()
+            .any(|run| sv(run, "id") == Some(first_id.as_str())),
+        "the settled run is published once"
+    );
+
+    // The host acts on the finish, then the run that waited behind it starts.
+    service.drain_waiting();
+    let actions = service.take_actions();
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::Execute { .. })
+                && input_prompt(action) == "Triage second"),
+        "{actions:?}"
+    );
+}

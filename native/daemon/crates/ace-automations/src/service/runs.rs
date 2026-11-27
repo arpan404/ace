@@ -298,14 +298,10 @@ impl<'a> Service<'a> {
             return Ok(());
         }
         if self.store.cancellation(run_id)?.is_some() {
-            self.pending.remove(run_id);
-            self.store.finish(
-                run_id,
-                self.now(),
-                "failed",
-                None,
-                Some("Stopped before it started."),
-            )?;
+            // The same completion path an executor's failure takes: a refused terminal write
+            // keeps the run's ownership and this outcome for the timer's retry, and a committed
+            // one publishes the finish and starts what waited behind it.
+            self.complete(run_id, "failed", None, Some("Stopped before it started."))?;
             return Ok(());
         }
         if let Some(input) = self.store.run_input(run_id)? {
