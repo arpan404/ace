@@ -165,7 +165,13 @@ pub fn start_bind_for_agent(
 ) -> Result<Bind, DeviceError> {
     let (thread_id, _) = require_agent_caller(actor)?;
     agent_takeover_allowed(session, actor, now, true)?;
-    begin_bind(session, thread_id, &actor.owner)
+    let bind = begin_bind(session, thread_id, &actor.owner)?;
+    // The claim is not a takeover: no assignment records the bind it started, so
+    // record the epoch here. If the agent is dropped mid-cleanup, its own
+    // invalidation retires exactly this reservation, and only while it is still the
+    // live one.
+    session.claim_bind_epoch = bind.cleanup_epoch();
+    Ok(bind)
 }
 
 /// A person's `controller` with a thread: the takeover it reserved and the bind
@@ -449,6 +455,29 @@ fn retire_unowned_bind(session: &mut Session, requester: &Actor) {
     retire_bind_at_epoch(session, session.binding_epoch);
 }
 
+/// Retire the bind reservation this owner's claim started, and only that one.
+///
+/// An agent's claim has no assignment: nothing but [`start_bind_for_agent`] records
+/// the epoch its bind began under. The agent's own drop still invalidates it, or the
+/// reservation would gate every ordinary operation — the person's included — on a
+/// completion nobody will deliver, or let a late completion reach an assignment for
+/// an owner that is gone. A newer bind holds a newer epoch, whoever started it, and
+/// keeps its guard and its recording.
+fn retire_claim_bind(session: &mut Session, owner: &str) -> bool {
+    if session.binding_owner.as_deref() != Some(owner) {
+        return false;
+    }
+    let Some(epoch) = session.claim_bind_epoch else {
+        return false;
+    };
+    if !holds_reservation(session, epoch) {
+        return false;
+    }
+    session.claim_bind_epoch = None;
+    retire_bind_at_epoch(session, epoch);
+    true
+}
+
 /// `disconnect` / owner drop: invalidate only this owner's pending takeover
 /// (`service.ts:1199`), and the bind that takeover left in flight.
 pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
@@ -456,6 +485,13 @@ pub fn invalidate_pending_owner(session: &mut Session, owner: &str) {
         session.control_revision = session.control_revision.saturating_add(1);
         retire_owner_bind(session, owner);
         clear_pending(session);
+        return;
+    }
+    // No assignment of this owner's is pending, so the only bind it can have left in
+    // flight is the one its claim began. Its continuation is now stale: the revision
+    // moves too, so a late success answers `controlChanged` and assigns nothing.
+    if retire_claim_bind(session, owner) {
+        session.control_revision = session.control_revision.saturating_add(1);
     }
 }
 

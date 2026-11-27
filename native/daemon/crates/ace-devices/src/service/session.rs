@@ -73,6 +73,9 @@ pub struct Session {
     /// The epoch of the cleanup bind that takeover began. A later bind for the same
     /// owner holds a newer epoch and is not the one the assignment left in flight.
     pub pending_bind_epoch: Option<u64>,
+    /// The epoch of the cleanup bind an agent's claim began, which no takeover
+    /// records. Its owner's drop retires exactly this one, never a newer bind.
+    pub claim_bind_epoch: Option<u64>,
     pub pending: PendingInput,
     pub generation: u64,
     pub binding_epoch: u64,
@@ -108,6 +111,7 @@ impl Session {
             pending_controller: None,
             pending_controller_kind: None,
             pending_bind_epoch: None,
+            claim_bind_epoch: None,
             pending: PendingInput::new(),
             generation: 0,
             binding_epoch: 0,

@@ -169,6 +169,113 @@ fn an_owner_drop_leaves_a_bind_that_owner_started_later_alone() {
 }
 
 #[test]
+fn an_agent_drop_mid_cleanup_frees_the_guard_and_a_fresh_claim_holds() {
+    let mut session = Session::new("ios:AAAA");
+    session.thread_id = Some(String::from("t-old"));
+    session.completed = Some(String::from("old-recording"));
+    session.recording_artifact = Some(String::from("old-artifact"));
+    let _stalled_bind =
+        start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    assert!(session.changing_binding);
+
+    // The agent is dropped while its cleanup is still out; no continuation will
+    // ever land for that bind.
+    invalidate_pending_owner(&mut session, "agent-1");
+    assert!(
+        !session.changing_binding,
+        "the drop retires the agent's bind"
+    );
+    assert_eq!(
+        session.completed, None,
+        "the retired bind clears the recording it never got to clear"
+    );
+    assert_eq!(session.recording_artifact, None);
+
+    // Every ordinary operation is free again, the person's included.
+    authorize(&session, &person(), true, false).expect("no bind blocks ordinary operations");
+
+    // A fresh claim by another agent reaches a holder.
+    let other = Actor::agent("agent-2", "t2", "a2");
+    assert_eq!(claim_for_agent(&mut session, &other, NOW), Ok(Claim::Take));
+    let bind = start_bind_for_agent(&mut session, &other, NOW).expect("the other agent binds");
+    let assignment = resume_claim_for_agent(&mut session, &other, bind, false, true, NOW)
+        .expect("the other agent resumes")
+        .expect("an assignment");
+    finish_assign(&mut session, assignment, Some(&other), NOW).expect("the other agent holds it");
+    assert_eq!(session.thread_id.as_deref(), Some("t2"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Agent);
+}
+
+#[test]
+fn a_late_successful_completion_after_the_agents_drop_is_refused_and_changes_nothing() {
+    let mut session = Session::new("ios:AAAA");
+    let bind = start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    invalidate_pending_owner(&mut session, "agent-1");
+    // The device belongs to nobody now; the dropped agent's cleanup returns success
+    // and its continuation is delivered anyway.
+    session.completed = Some(String::from("newer-recording"));
+    session.recording_artifact = Some(String::from("newer-artifact"));
+
+    let refused = resume_claim_for_agent(&mut session, &agent(), bind, false, true, NOW)
+        .expect_err("the owner drop passed the bind");
+    assert_eq!(refused, words::refusal("controlChanged"));
+    assert_eq!(
+        session.thread_id, None,
+        "the refused completion binds nothing"
+    );
+    assert_eq!(session.lease.status(NOW).controller, Controller::None);
+    assert!(!session.changing_binding);
+    assert_eq!(
+        session.completed.as_deref(),
+        Some("newer-recording"),
+        "the refused completion clears nothing published since"
+    );
+    assert_eq!(
+        session.recording_artifact.as_deref(),
+        Some("newer-artifact")
+    );
+}
+
+#[test]
+fn an_agents_drop_leaves_a_newer_bind_by_someone_else_alone() {
+    let mut session = Session::new("ios:AAAA");
+    start_bind_for_agent(&mut session, &agent(), NOW).expect("the agent's bind");
+    // The person's threaded takeover supersedes the agent's bind and starts its own.
+    let takeover = start_human_controller_with_thread(&mut session, &person(), "t-view", NOW)
+        .expect("the person's takeover");
+    assert!(session.changing_binding, "the person's bind is cleaning up");
+    session.completed = Some(String::from("person-recording"));
+    session.recording_artifact = Some(String::from("person-artifact"));
+
+    invalidate_pending_owner(&mut session, "agent-1");
+
+    assert!(
+        session.changing_binding,
+        "the person's bind keeps its guard and epoch"
+    );
+    assert_eq!(session.binding_owner.as_deref(), Some("person"));
+    assert_eq!(session.completed.as_deref(), Some("person-recording"));
+    assert_eq!(
+        session.recording_artifact.as_deref(),
+        Some("person-artifact")
+    );
+
+    // The person's bind still finishes onto their thread.
+    resume_human_controller_with_thread(
+        &mut session,
+        takeover,
+        "t-view",
+        Some(&person()),
+        false,
+        true,
+        NOW,
+    )
+    .expect("the person's bind finishes");
+    assert_eq!(session.thread_id.as_deref(), Some("t-view"));
+    assert_eq!(session.lease.status(NOW).controller, Controller::Human);
+}
+
+#[test]
 fn a_threadless_takeover_during_a_disable_finds_no_recording_from_the_old_thread() {
     let mut session = Session::new("ios:AAAA");
     // The prior thread left a recording that ended on its own, waiting for its
