@@ -455,6 +455,10 @@ pub async fn merge_message(port: &dyn CommandPort, root: &str) -> Result<String,
 }
 
 #[cfg(test)]
+#[path = "merge_p1_tests.rs"]
+mod p1_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::credentials::test_support::Fixture;

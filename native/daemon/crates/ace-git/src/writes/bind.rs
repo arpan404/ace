@@ -382,11 +382,11 @@ pub(crate) mod test_support {
     use super::*;
     use crate::reads::test_support::ProcessCommands;
 
-    /// Runs a closure just before the command whose own arguments name `word`, so an
-    /// intervening edit lands between a write's check and the Git step that acts on it.
+    /// Runs a closure just before the first command whose own arguments name any word in `words`,
+    /// so an intervening edit lands between a write's check and the Git step that acts on it.
     pub struct InterceptingCommands<'a> {
         pub inner: ProcessCommands<'a>,
-        pub word: &'a str,
+        pub words: Vec<&'a str>,
         pub hook: Box<dyn Fn() + Send + Sync>,
         fired: std::sync::atomic::AtomicBool,
     }
@@ -397,9 +397,17 @@ pub(crate) mod test_support {
             word: &'a str,
             hook: impl Fn() + Send + Sync + 'static,
         ) -> Self {
+            Self::before_any(inner, &[word], hook)
+        }
+
+        pub fn before_any(
+            inner: ProcessCommands<'a>,
+            words: &[&'a str],
+            hook: impl Fn() + Send + Sync + 'static,
+        ) -> Self {
             Self {
                 inner,
-                word,
+                words: words.to_vec(),
                 hook: Box::new(hook),
                 fired: std::sync::atomic::AtomicBool::new(false),
             }
@@ -426,7 +434,10 @@ pub(crate) mod test_support {
         ) -> crate::core::spawn::BoxFuture<'_, Result<crate::reads::CommandOutput, GitError>>
         {
             if !self.fired.load(std::sync::atomic::Ordering::SeqCst)
-                && command.args.iter().any(|arg| arg == self.word)
+                && command
+                    .args
+                    .iter()
+                    .any(|arg| self.words.iter().any(|word| arg == word))
             {
                 self.fired.store(true, std::sync::atomic::Ordering::SeqCst);
                 (self.hook)();
