@@ -210,6 +210,8 @@ export const extra = [
   "arrow-bend-up-right",
   "arrow-square-out",
   "arrows-in-line-vertical",
+  // The live pill's context readout and its Compact, as the web's work card draws them.
+  "arrows-in-simple",
   "chat-teardrop-text",
   // The approved iPhone mockup: the ace tab, More's Devices and Providers rows.
   "chat-teardrop",
