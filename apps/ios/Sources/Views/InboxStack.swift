@@ -354,8 +354,9 @@ private struct ListTitle: ViewModifier {
     }
 }
 
-private extension View {
-    /// One button's slot in the header capsule: a tap tall, `barButton` wide, all of it tappable.
+extension View {
+    /// One button's slot in a home list's header capsule: a tap tall, `barButton` wide, all of it
+    /// tappable.
     func barButton() -> some View {
         frame(width: AceDesign.Size.barButton, height: AceDesign.Size.tap).contentShape(Rectangle())
     }

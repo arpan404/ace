@@ -10,6 +10,9 @@ struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
+    /// The account button Projects, Chats and Search carry at the bar's leading edge, so the
+    /// title sits under a full bar at the same height as theirs.
+    let account: AccountToolbarItem
     /// Bumped by `ace://spade/talk`: the main Spade opens with its recorder recording.
     var talks = 0
     @State private var talkWaiting = false
@@ -41,6 +44,28 @@ struct SpadeTab: View {
         inbox.spadeRoster.first { $0.bot.main }?.machine ?? hosts.first?.hostId ?? machines.first?.hostId
     }
 
+    /// Drawn as the home lists' bar (`InboxStack`): bar glyphs, one tight capsule.
+    @ToolbarContentBuilder private var trailingBar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: AceTheme.Spacing.none) {
+                Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: {
+                    Image(bar: .gear).barButton()
+                }
+                .accessibilityLabel("Spade settings")
+                .accessibilityIdentifier("spade.openSettings")
+                Menu {
+                    Button(action: newBot) { Label("New bot", ace: .robot) }
+                        .accessibilityIdentifier("spade.newBot")
+                    Button { grouping = true } label: { Label("New club", ace: .users) }
+                        .accessibilityIdentifier("spade.newGroup")
+                } label: { Image(bar: .notePencil).barButton() }
+                    .accessibilityLabel("New")
+                    .accessibilityIdentifier("spade.new")
+                    .disabled(hosts.isEmpty)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             Group {
@@ -48,24 +73,11 @@ struct SpadeTab: View {
                 if machines.isEmpty { SkeletonRows(count: 3, label: "Connecting to Spade").frame(maxHeight: .infinity, alignment: .top) }
                 else { SpadeList(inbox: inbox) }
             }
+            .background(AceTheme.Colours.background)
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {
-                if !machines.isEmpty {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: { AceIcon(.gear) }
-                            .accessibilityLabel("Spade settings")
-                            .accessibilityIdentifier("spade.openSettings")
-                        Menu {
-                            Button(action: newBot) { Label("New bot", ace: .robot) }
-                                .accessibilityIdentifier("spade.newBot")
-                            Button { grouping = true } label: { Label("New club", ace: .users) }
-                                .accessibilityIdentifier("spade.newGroup")
-                        } label: { AceIcon(.notePencil) }
-                            .accessibilityLabel("New")
-                            .accessibilityIdentifier("spade.new")
-                            .disabled(hosts.isEmpty)
-                    }
-                }
+                account
+                if !machines.isEmpty { trailingBar }
             }
             .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = inbox.client(route.machine) {
@@ -180,11 +192,12 @@ private struct SpadeList: View {
     private var machines: [MachineSession] { inbox.spadeSessions }
 
     var body: some View {
-        List { rows }
+        List { rows.listRowBackground(Color.clear) }
             .alert(pinProblem ?? "", isPresented: Binding(get: { pinProblem != nil }, set: { if !$0 { pinProblem = nil } })) {
                 Button("Close", role: .cancel) { pinProblem = nil }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollsToTop(on: .spade, first: SpadeRoster.listRows(SpadePins.split(entries).rows).first.map { AnyHashable($0.id) })
             .refreshable { for machine in machines { machine.client.spadeRefresh() } }
             .accessibilityIdentifier("spade.list")
@@ -208,13 +221,16 @@ private struct SpadeList: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
             }
-            ForEach(SpadeRoster.listRows(pins.rows)) { row in
+            let listRows = SpadeRoster.listRows(pins.rows)
+            // The list starts right under the title, with no rule above its first row.
+            let top = pins.strip.isEmpty ? listRows.first?.id : nil
+            ForEach(listRows) { row in
                 let entry = row.entry
                 NavigationLink(value: route(entry)) {
                     SpadeBotRow(bot: entry.bot, machine: machineName(entry.machine))
                         .padding(.leading, row.indented ? SpadeBotFace.size + AceDesign.Space.row : 0)
                 }
-                .listRowSeparator(row.indented ? .hidden : .automatic, edges: .top)
+                .listRowSeparator(row.indented || row.id == top ? .hidden : .automatic, edges: .top)
                 .listRowSeparator(row.joinsNext ? .hidden : .automatic, edges: .bottom)
                 .contextMenu { pinButton(entry) }
                 .swipeActions(edge: .leading) { pinButton(entry).tint(AceDesign.Ink.action) }
