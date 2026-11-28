@@ -572,7 +572,7 @@ export function createDaemonNotifications(
       ? createActivityDelivery({
           store,
           gateway: { sendActivity: activitySender.sendActivity.bind(activitySender) },
-          targets: () => registrar.targets(),
+          targets: () => registrar.sendTargets(),
           guard: () => (target) => registrar.eligible(target),
           drop: (target) => registrar.drop(target),
           requestSignal: () => deliveryLifetime.signal,

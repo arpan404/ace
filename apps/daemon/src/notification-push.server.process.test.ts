@@ -350,6 +350,8 @@ async function activityDaemon(options: { capabilities?: boolean; schedule?: bool
     return fetch(url, init);
   };
   const errors: unknown[] = [];
+  /** Holds one of the gateway's own settings reads until the test lets it go. */
+  let hold: { skip: number; reached: () => void; release: Promise<void> } | undefined;
   let settings!: SettingsService;
   let notifications!: DaemonNotifications;
   const f = await fixture({}, (store, home) => {
@@ -359,8 +361,17 @@ async function activityDaemon(options: { capabilities?: boolean; schedule?: bool
       enabled: (await pushTarget(settings)).enabled,
       origin: "http://127.0.0.1:1",
     });
+    const gatewayTarget = async () => {
+      if (hold && hold.skip-- === 0) {
+        const { reached, release } = hold;
+        hold = undefined;
+        reached();
+        await release;
+      }
+      return target();
+    };
     const push = createPushGatewayTransport(
-      { privateKey: daemonKey(), hostId: "test-host", target },
+      { privateKey: daemonKey(), hostId: "test-host", target: gatewayTarget },
       now,
       forward,
     );
@@ -406,6 +417,14 @@ async function activityDaemon(options: { capabilities?: boolean; schedule?: bool
     now,
     advance: (ms: number) => {
       time += ms;
+    },
+    /** Lets `skip` gateway settings reads through, then holds the next until `release`. */
+    holdGatewayRead(skip: number) {
+      let release!: () => void;
+      let reached!: () => void;
+      const at = new Promise<void>((resolve) => (reached = resolve));
+      hold = { skip, reached, release: new Promise<void>((resolve) => (release = resolve)) };
+      return { reached: at, release: () => release() };
     },
   };
 }
@@ -886,5 +905,45 @@ it("pushes the latest machine state and ends only after its remote child and qui
   await notifications.tick();
   expect(activityCalls()).toHaveLength(count + 1);
   expect(await notifications.service.liveActivityTargets()).toEqual([]);
+  expect(daemon.errors).toEqual([]);
+});
+
+it("a token whose removal was acknowledged mid-send gets nothing posted", async () => {
+  const daemon = await activityDaemon({ schedule: true });
+  const { f, notifications, apns, now, advance } = daemon;
+  const client = await f.connect();
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  await registerPhone(
+    client,
+    "activity",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf, activityOf),
+  );
+  const activityCalls = () =>
+    apns.calls.filter((call) => call.headers["apns-push-type"] === "liveactivity");
+  const status = (value: import("@ace/protocol").ThreadStatus) =>
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: value }], now());
+  status({ state: "working", agents: 1 });
+  await notifications.tick();
+  await poll(async () => activityCalls()[0], 2500);
+
+  // The handle is cached now. The next send reads the settings twice, then pauses at the last
+  // read before its POST.
+  const held = daemon.holdGatewayRead(2);
+  advance(1000);
+  status({ state: "needs_you", interactions: 1 });
+  const sending = notifications.tick();
+  await held.reached;
+  // The activity ended on the phone: it syncs without its update token and hears back.
+  await registerPhone(
+    client,
+    "ended",
+    { channel: "websocket", platform: "phone" },
+    liveActivityOf(startOf),
+  );
+  held.release();
+  await sending;
+  await sleep(200);
+  expect(activityCalls()).toHaveLength(1);
   expect(daemon.errors).toEqual([]);
 });

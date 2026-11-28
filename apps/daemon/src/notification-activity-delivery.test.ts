@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import type { ActivityPush, LiveActivityTarget } from "@ace/notify";
+import type { ActivityPush } from "@ace/notify";
 import {
   AgentId,
   BackgroundTaskId,
@@ -12,6 +12,7 @@ import {
 } from "@ace/protocol";
 import { createDevThread } from "./commands.ts";
 import { createActivityDelivery } from "./notification-activity-delivery.ts";
+import type { LiveActivitySendTarget } from "./notification-live-activity.ts";
 import { Store } from "./store.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -19,13 +20,14 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-const target: LiveActivityTarget = {
+const target: LiveActivitySendTarget = {
   token: "b2".repeat(32),
   environment: "sandbox",
   kind: "liveactivity",
   frequentUpdates: true,
   slot: 0,
   devices: [DeviceId.parse("phone")],
+  binding: 1,
 };
 
 /** One phone's activity on a temp store. Reads happen only when the test calls `read`. */

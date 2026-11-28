@@ -3,12 +3,12 @@ import {
   secondOf,
   type ActivitySchedule,
   type ActivitySender,
-  type LiveActivityTarget,
 } from "@ace/notify";
 import { isQuiet } from "@ace/notify/policy";
 import type { DeviceId, NotificationPreferences, ThreadId } from "@ace/protocol";
 import { activityJournal } from "./notification-activity-journal.ts";
 import { activityState, type ActivitySnapshot } from "./notification-activity-state.ts";
+import type { LiveActivitySendTarget } from "./notification-live-activity.ts";
 import { failureDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
 
@@ -16,15 +16,15 @@ type Last = NonNullable<ActivitySchedule["last"]>;
 type Decision = Extract<ReturnType<typeof activityDecision>, { event: string }>;
 const unavailableMs = 60 * 60_000;
 const rereadMs = 1000;
-const keyOf = (target: LiveActivityTarget) => `${target.environment}\n${target.token}`;
+const keyOf = (target: LiveActivitySendTarget) => `${target.environment}\n${target.token}`;
 
 interface Options {
   store: Store;
   gateway: ActivitySender;
-  targets(): Promise<LiveActivityTarget[]>;
-  guard(): (target: LiveActivityTarget) => boolean;
-  drop(target: LiveActivityTarget): Promise<void>;
-  requestSignal(target: LiveActivityTarget): AbortSignal;
+  targets(): Promise<LiveActivitySendTarget[]>;
+  guard(): (target: LiveActivitySendTarget) => boolean;
+  drop(target: LiveActivitySendTarget): Promise<void>;
+  requestSignal(target: LiveActivitySendTarget): AbortSignal;
   preferences(device: DeviceId): Promise<NotificationPreferences>;
   /** Wall time: quiet hours, snoozes and what goes on the wire. */
   now: () => number;
@@ -37,7 +37,7 @@ interface Options {
 
 /** Every time in a stream is on the elapsed clock. */
 interface Stream {
-  target: LiveActivityTarget;
+  target: LiveActivitySendTarget;
   doneAtJoin: number;
   ended: boolean;
   last?: Last;
@@ -179,7 +179,7 @@ export function createActivityDelivery(options: Options) {
 
   async function deliver(
     stream: Stream,
-    eligible: (target: LiveActivityTarget) => boolean,
+    eligible: (target: LiveActivitySendTarget) => boolean,
   ): Promise<void> {
     const target = stream.target;
     if (!journal || !eligible(target)) return;
