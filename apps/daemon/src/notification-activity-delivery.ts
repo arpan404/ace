@@ -329,7 +329,13 @@ export function createActivityDelivery(options: Options) {
         const eligible = options.guard();
         try {
           await loadTargets();
-          if (closed || loaded !== generation) return;
+          if (closed) return;
+          // The tokens changed while they were read: read them again, so no wake that came
+          // meanwhile is dropped.
+          if (loaded !== generation) {
+            again = true;
+            continue;
+          }
           persistCompletions();
           const active = [...streams.values()];
           for (let index = 0; index < active.length; index += 4)

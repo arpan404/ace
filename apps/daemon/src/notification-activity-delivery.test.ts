@@ -72,6 +72,8 @@ function lane() {
       return typeof value === "function" ? value.bind(base) : value;
     },
   });
+  /** While set, reading the stored tokens waits for it, as a busy notification worker does. */
+  let targetsHeld: Promise<void> | undefined;
   /** While set, a send says it arrived and waits before it prepares its body, as a slow lookup does. */
   let paused: { arrived: () => void; until: Promise<void> } | undefined;
   const delivery = createActivityDelivery({
@@ -89,7 +91,10 @@ function lane() {
         return { status: "sent" };
       },
     },
-    targets: async () => [target],
+    targets: async () => {
+      if (targetsHeld) await targetsHeld;
+      return [target];
+    },
     guard: () => () => true,
     drop: async () => {},
     requestSignal: () => lifetime.signal,
@@ -149,6 +154,19 @@ function lane() {
       };
     },
     fired: () => fired,
+    /** Lets work already under way finish, starting none. */
+    async idle() {
+      for (let turn = 0; turn < 500; turn++) await new Promise((resolve) => setImmediate(resolve));
+    },
+    /** The next reads of the stored tokens wait until the returned release. */
+    holdTargets() {
+      const gate = Promise.withResolvers<void>();
+      targetsHeld = gate.promise;
+      return () => {
+        targetsHeld = undefined;
+        gate.resolve();
+      };
+    },
     /**
      * Time passes `ms`: each timer the lane armed fires when it comes due, and the run it starts
      * finishes before the next. Nothing else starts a run.
@@ -322,5 +340,27 @@ it("a delegation that lands while the end waits on the gateway holds it", async 
   await activity.tick(119_000);
   expect(activity.events()).not.toContain("end");
   await activity.tick(2000);
+  expect(activity.events().at(-1)).toBe("end");
+});
+
+it("a token refresh that lands during a slow token read leaves a held end awake", async () => {
+  const activity = lane();
+  await settled(activity);
+  activity.remoteChild("remote-a", { settled: true, settledAt: activity.wall() });
+  await activity.tick(121_000);
+  expect(activity.events()).not.toContain("end");
+  // A phone syncs its tokens while the worker is slow to read them back...
+  const release = activity.holdTargets();
+  activity.delivery.refresh();
+  await activity.tick(0);
+  // ...and syncs again, whose wake fires while the first read still waits.
+  activity.delivery.refresh();
+  await activity.tick(0);
+  release();
+  await activity.tick(0);
+  // The remote child is let go of; nothing else happens on this machine.
+  activity.remoteChild("remote-a", { settled: true });
+  await activity.tick(3000);
+  await activity.idle();
   expect(activity.events().at(-1)).toBe("end");
 });
