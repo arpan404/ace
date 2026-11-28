@@ -115,22 +115,29 @@ test("a resumed list takes the kept rows' read cursors the daemon sends with it"
   await f.client.close();
 });
 
+/** Whether the list says it is the daemon's own current one, as the inbox reads it. */
+const current = (store: { syncing: boolean; unconfirmed: boolean; error?: unknown }) =>
+  !store.syncing && !store.unconfirmed && store.error === undefined;
+
 test("a list subscribe the daemon turns down after a reconnect is asked again, and confirms on that socket", async () => {
   const { f, collection, store, snapshot } = await sidebar();
   snapshot(listOf([placed("a", "p", "inbox", 3)], 7));
   await f.reconnect(12);
   const refused = f.wire("threads").subscriptionId;
   f.deliver({ type: "error", subscriptionId: refused, code: "unavailable", message: "Busy" });
-  // Refused is never current: the list claims nothing while it waits to ask again.
   await expect.poll(() => store.error?.code).toBe("daemon");
+  // Refused is never current: the rows held are a copy the daemon hasn't confirmed.
+  expect(store.unconfirmed).toBe(true);
+  expect(store.syncing).toBe(true);
   // As a held thread's refusal is, the list's is asked again on the same socket.
   f.elapse(500);
   await expect.poll(() => f.wire("threads").subscriptionId).not.toBe(refused);
   expect(f.client.state).toBe("ready");
+  // Asked again is not answered: still nothing current until the snapshot lands.
+  expect(current(store)).toBe(false);
+  expect(store.unconfirmed).toBe(true);
   snapshot(listOf([placed("a", "p", "settled", 3)], 9));
-  expect(store.error).toBeUndefined();
-  expect(store.syncing).toBe(false);
-  expect(store.unconfirmed).toBe(false);
+  expect(current(store)).toBe(true);
   expect(store.thread("a")?.place?.tab).toBe("settled");
   collection.close();
   await f.client.close();
@@ -152,6 +159,31 @@ const at = (
   archived: boolean,
   view: { seq: number },
 ) => f.deliver({ type: "snapshot", subscriptionId: windowWire(f, archived), seq: 10, view });
+
+test("with the archive open, its snapshot never confirms a Home list the daemon turned down", async () => {
+  const { f, collection, store } = await sidebar();
+  await collection.threadsWindow({ archived: true });
+  at(f, false, listOf([placed("a", "p", "inbox", 3)], 7));
+  at(f, true, listOf([placed("old", "p", "settled", 1)], 7));
+  expect(current(store)).toBe(true);
+  await f.reconnect(12);
+  f.deliver({
+    type: "error",
+    subscriptionId: windowWire(f, false),
+    code: "unavailable",
+    message: "Busy",
+  });
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  // The archive's own answer says nothing of Home's rows.
+  at(f, true, listOf([placed("old", "p", "settled", 1)], 9));
+  expect(store.error?.code).toBe("daemon");
+  expect(current(store)).toBe(false);
+  f.elapse(500);
+  at(f, false, listOf([placed("a", "p", "settled", 3)], 9));
+  expect(current(store)).toBe(true);
+  collection.close();
+  await f.client.close();
+});
 
 test("asking Home again leaves the archive's subscription alone, and Home keeps its own backoff", async () => {
   const { f, collection, store } = await sidebar();
