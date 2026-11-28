@@ -26,4 +26,7 @@ typealias RouteScheduler = @MainActor (_ delay: Double, _ work: @escaping @MainA
         }
         return { task.cancel() }
     }
+    /// Milliseconds on a clock that never moves back when the wall clock is set and keeps
+    /// counting while the phone sleeps, as `sleeping` waits. For deadlines, never timestamps.
+    static let monotonic: @Sendable () -> Double = { Double(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000 }
 }

@@ -71,6 +71,9 @@ const tooLargeRow = (request: TooLargeRequest) => ({
   truncated: true,
   unanswerable: true,
 });
+/** Said when an answer's request couldn't be read for the connection; the controls come back. */
+const unreachableWords =
+  "Couldn't reach your computer to send that. Try again once it's connected.";
 /** The agent's last words, as one muted paragraph in the run. */
 const wordsLimit = 600;
 const itemsRead = 24;
@@ -364,6 +367,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
 
   const answer = async (action: Extract<NeedsAction, { type: "needs.answer" }>) => {
     let built: ReturnType<NeedsWhole["resolution"]>;
+    let unreachable = false;
     try {
       const { requests: pending } = await interactions(action.threadId);
       // A request too large to send is never answered here: it has nothing to answer with.
@@ -376,16 +380,20 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
         action.version,
       );
     } catch {
+      // The request couldn't be read again: the connection is down or refusing, which the
+      // header's grace (ADR 0224) can hide for a few seconds. Nothing was decided.
       built = undefined;
+      unreachable = true;
     }
     if (!built) {
       // Answered elsewhere, or no longer offered: give the controls back without words, and
-      // read the thread again so the row shows what waits now.
+      // read the thread again so the row shows what waits now. A read that failed says so
+      // instead, so a tap that did nothing is never silent, and the controls are there to retry.
       pump.put(`admission:${action.requestId}`, () => ({
         type: "admission",
         id: action.requestId,
         ok: false,
-        message: "",
+        message: unreachable ? unreachableWords : "",
       }));
       read.delete(action.threadId);
       check(action.threadId);

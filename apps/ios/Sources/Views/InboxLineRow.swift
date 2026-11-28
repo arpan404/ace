@@ -4,7 +4,9 @@ import SwiftUI
 /// `lead: "provider"`): the provider's mark, the title, then at the right edge one thing. A
 /// chat ends with its status mark (`.status`); a snoozed or settled thread ends with its work,
 /// the pull request and lines changed (`.work`), unless it needs the person or failed, when its
-/// status mark stands there instead, or its work moved, when where it went does. Every line is the same height, so the list stays combed.
+/// status mark stands there instead, or its work moved, when where it went does. A row still
+/// syncing says Syncing there instead of any of these. Every line is the same height, so the
+/// list stays combed.
 struct InboxLineRow: View {
     enum End { case status, work }
     let row: ThreadRow
@@ -17,7 +19,7 @@ struct InboxLineRow: View {
     var wake: String? = nil
 
     var body: some View {
-        let look = row.look
+        let look = InboxThreadRow.look(of: row)
         HStack(spacing: AceDesign.Space.row) {
             // One width with or without the account's bubble, so every title starts in line.
             ProviderMark(provider: row.provider, size: AceDesign.Size.rowMark, account: row.account, quiet: dimmed)
@@ -27,7 +29,7 @@ struct InboxLineRow: View {
             Text(row.title)
                 .aceFont(InboxRowType.title, relativeTo: .callout)
                 // Attention is brightness alone, never weight: what needs the person reads in full ink.
-                .foregroundStyle(dimmed && look?.level != "needs-you" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
+                .foregroundStyle(dimmed && look.level != "needs-you" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)
             trailing(look).fixedSize()
@@ -37,27 +39,45 @@ struct InboxLineRow: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder private func trailing(_ look: RowLook?) -> some View {
-        let urgent = look?.level == "needs-you" || look?.level == "failed"
-        if end == .work && !urgent, let look, look.moved != nil {
+    /// The one thing at the row's right edge.
+    enum Trailing: Equatable { case syncing, moved, work, wake(String), mark(String), nothing }
+    /// A row still syncing says so before anything else: its work, its wake time and where it
+    /// moved all come from the copy it hasn't confirmed yet.
+    static func trailing(_ look: RowLook, row: ThreadRow, end: End, wake: String?, dimmed: Bool) -> Trailing {
+        if look.level == "syncing" { return .syncing }
+        let urgent = look.level == "needs-you" || look.level == "failed"
+        if end == .work && !urgent {
             // Its work went to another machine: where it went stands here, never its work or wake.
+            if look.moved != nil { return .moved }
+            if row.pr != nil || row.work != nil { return .work }
+            return wake.map(Trailing.wake) ?? .nothing
+        }
+        if let icon = look.icon, icon != "none", marks(look, dimmed: dimmed) { return .mark(icon) }
+        return .nothing
+    }
+
+    @ViewBuilder private func trailing(_ look: RowLook) -> some View {
+        switch Self.trailing(look, row: row, end: end, wake: wake, dimmed: dimmed) {
+        case .syncing:
+            InboxRowAge(row: row, look: look)
+        case .moved:
             HStack(spacing: AceDesign.Space.tight) {
                 InboxRowMark(look: look, size: AceDesign.Size.rowStatus)
                 InboxRowAge(row: row, look: look)
             }
-        } else if end == .work && !urgent {
-            if row.pr != nil || row.work != nil {
-                InboxLineWork(row: row)
-            } else if let wake {
-                HStack(spacing: AceDesign.Space.tight) {
-                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
-                    Text(wake).lineLimit(1)
-                }
-                .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+        case .work:
+            InboxLineWork(row: row)
+        case .wake(let wake):
+            HStack(spacing: AceDesign.Space.tight) {
+                AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
+                Text(wake).lineLimit(1)
             }
-        } else if let look, let icon = look.icon, icon != "none", Self.marks(look, dimmed: dimmed) {
+            .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+        case .mark(let icon):
             RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count)
+        case .nothing:
+            EmptyView()
         }
     }
 

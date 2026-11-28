@@ -60,13 +60,25 @@ extension ClientModel {
     func answerNeed(_ request: ApprovalRow, in threadId: String, answer: [String: Any]) {
         guard canOperate, request.state == "pending", approvalSubmissions[request.id] == nil else { return }
         let id = admissions.nextId()
-        approvalSubmissions[request.id] = ApprovalSubmission(requestId: id, phase: .saving)
+        approvalSubmissions[request.id] = ApprovalSubmission(requestId: id, phase: .saving, fromNeeds: true)
         approvalRequests[id] = request.id
         // A yes to a summarized request names the version the card showed (`ApprovalRow.seen`).
         if !action(request.seen(["type": "needs.answer", "threadId": threadId, "interactionId": request.id, "answer": answer, "requestId": id])) {
+            // No runtime to take it (cached rows restored while a route is replaced): the controls
+            // come back with the words the bridge gives for an answer it couldn't send.
             approvalSubmissions[request.id] = nil
             approvalRequests[id] = nil
+            error = Self.needAnswerUnsent
         }
+    }
+    /// The bridge's words for an answer that never left this phone (`inbox-needs.ts`).
+    static let needAnswerUnsent = "Couldn't reach your computer to send that. Try again once it's connected."
+    /// The bridge saved an answer on this phone (or the machine already took it): it now waits
+    /// for the machine's close. Counted once, and only for an answer sent from the inbox or run.
+    func admitAnswer(_ interactionId: String) {
+        guard let submission = approvalSubmissions[interactionId], submission.phase == .saving else { return }
+        approvalSubmissions[interactionId]?.phase = .waiting
+        if submission.fromNeeds { admittedNeedAnswers &+= 1 }
     }
     /// Read a summarized request in full (`needs.read`), or retry a failed read, as the open
     /// thread's `readRequest` does.

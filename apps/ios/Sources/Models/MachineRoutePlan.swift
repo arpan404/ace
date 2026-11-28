@@ -14,9 +14,25 @@ import Foundation
 /// run under the account's device id: they go over the relay, whose hello proves the pairing and
 /// links the two ids on the daemon, before any goes direct under the paired id (ADR 0115).
 /// Until the relay has been ready once, the plan stays on it.
+///
+/// Off Wi-Fi the plan never tries direct: it starts on the relay, never probes the direct
+/// address, and leaves direct for the relay when the phone leaves Wi-Fi. On Wi-Fi a working
+/// relay is kept until the direct address has answered a probe (a socket that opens only for
+/// the daemon's pinned key); the probe runs beside the relay and never closes it. A path with
+/// no network says nothing about Wi-Fi: a machine opened during it starts on its relay, but one
+/// already on a route isn't moved, no probe runs, and the offline hold decides what the
+/// runtimes hear.
 struct MachineRoutePlan: Equatable, Sendable {
     enum Route: String, Sendable { case direct, relay }
     enum Purpose: Equatable { case foreground, background }
+    /// What the phone's network path is: Wi-Fi or wired Ethernet, another interface (cellular),
+    /// or unknown while the path has no network.
+    enum Interface: Equatable, Sendable {
+        case wifi, other, unknown
+        init(satisfied: Bool, wifiOrWired: Bool) {
+            self = !satisfied ? .unknown : wifiOrWired ? .wifi : .other
+        }
+    }
     enum Step: Equatable, Sendable {
         case stay
         /// Reconnect the machine's runtime on this route.
@@ -45,15 +61,36 @@ struct MachineRoutePlan: Equatable, Sendable {
     private(set) var heldUntil: Double = 0
     /// Back on direct after the relay, and not yet ready there.
     private var trying = false
+    /// The relay this try left was ready, so a hello refused on direct goes back to it.
+    private var leftReadyRelay = false
     private var nextCooldown = Self.cooldown
     private let purpose: Purpose
     /// Waiting for the relay to be ready once, so the daemon links the two device ids.
     private(set) var linking: Bool
+    /// The phone's path. Only on Wi-Fi (or wired) is direct tried while the relay works, and
+    /// only off it, confirmed, is a working direct route left.
+    private(set) var path: Interface
 
-    init(direct: Bool, relay: Bool, linking: Bool = false, purpose: Purpose = .foreground) {
+    init(direct: Bool, relay: Bool, linking: Bool = false, purpose: Purpose = .foreground, interface: Interface = .wifi) {
         hasDirect = direct; hasRelay = relay; self.linking = linking
         self.purpose = purpose
-        current = relay && (!direct || linking || purpose == .background) ? .relay : .direct
+        path = interface
+        current = relay && (!direct || linking || purpose == .background || interface != .wifi) ? .relay : .direct
+    }
+
+    /// The phone's path changed. Joining Wi-Fi looks for the direct address beside the relay;
+    /// leaving it for another interface moves a machine on direct to its relay. A path with no
+    /// network moves nothing.
+    mutating func interface(_ interface: Interface, at now: Double) -> Step {
+        path = interface
+        switch interface {
+        case .wifi: return probe(at: now)
+        case .unknown: return .stay
+        case .other:
+            guard current == .direct, hasRelay else { return .stay }
+            trying = false
+            return use(.relay, at: now)
+        }
     }
 
     /// Sends that may have run under the account's id arrived, with the routes the machine has
@@ -69,15 +106,16 @@ struct MachineRoutePlan: Equatable, Sendable {
     mutating func routes(direct: Bool, relay: Bool, at now: Double) -> Step {
         hasDirect = direct; hasRelay = relay
         switch current {
-        case .direct where relay && (!direct || linking || state == "reconnecting"): return use(.relay, at: now)
+        case .direct where relay && (!direct || linking || path == .other || state == "reconnecting"): return use(.relay, at: now)
         case .relay where !relay && direct: return use(.direct, at: now)
         default: return .stay
         }
     }
     /// The runtime on the current route changed state. `reconnecting` (it couldn't reach the
     /// machine) moves it, and so does a relay that stopped (a machine code to enter, an account
-    /// refusal) while a direct route may work: offline means the phone has no network, and every
-    /// other state is the route working or a problem a route change doesn't fix.
+    /// refusal) while a direct route may work, and so does direct refusing the hello on a try
+    /// that left a ready relay: offline means the phone has no network, and every other state is
+    /// the route working or a problem a route change doesn't fix.
     mutating func connection(_ state: String, at now: Double) -> Step {
         self.state = state
         if current == .direct, state == "ready", trying {
@@ -92,15 +130,16 @@ struct MachineRoutePlan: Equatable, Sendable {
         // The relay stopped for something only the person can fix there (its machine code, the
         // account): a direct route that answers opens with this phone's own pairing instead.
         if current == .relay, state == "fatal" { return probe(at: now) }
+        // The daemon answered the probe but refused this phone's hello on direct: the relay it
+        // left worked. Without one to go back to, the refusal stands.
+        if current == .direct, state == "fatal", trying, leftReadyRelay, hasRelay {
+            endTry(at: now)
+            return use(.relay, at: now)
+        }
         guard state == "reconnecting" else { return .stay }
         switch current {
         case .direct where hasRelay:
-            if trying {
-                // The direct address answered but the connection didn't hold: wait longer next time.
-                trying = false
-                heldUntil = now + nextCooldown
-                nextCooldown = min(nextCooldown * 2, Self.longestCooldown)
-            }
+            if trying { endTry(at: now) }
             return use(.relay, at: now)
         case .relay: return probe(at: now)
         default: return .stay
@@ -113,9 +152,17 @@ struct MachineRoutePlan: Equatable, Sendable {
     mutating func probed(answered: Bool, at now: Double) -> Step {
         guard probing else { return .stay }
         probing = false
-        guard answered, current == .relay, hasDirect, !linking, now >= heldUntil else { return .stay }
+        guard answered, path == .wifi, current == .relay, hasDirect, !linking, now >= heldUntil else { return .stay }
         trying = true
+        leftReadyRelay = state == "ready"
         return use(.direct, at: now)
+    }
+
+    /// The direct address answered but the connection didn't hold: wait longer next time.
+    private mutating func endTry(at now: Double) {
+        trying = false
+        heldUntil = now + nextCooldown
+        nextCooldown = min(nextCooldown * 2, Self.longestCooldown)
     }
 
     private mutating func use(_ route: Route, at now: Double) -> Step {
@@ -126,7 +173,7 @@ struct MachineRoutePlan: Equatable, Sendable {
         return .open(route)
     }
     private mutating func probe(at now: Double) -> Step {
-        guard current == .relay, hasDirect, !linking, !probing else { return .stay }
+        guard current == .relay, hasDirect, path == .wifi, !linking, !probing else { return .stay }
         // Dropping the request would leave the machine on the relay until the next event.
         guard now >= heldUntil else { return .reconsider(at: heldUntil) }
         probing = true

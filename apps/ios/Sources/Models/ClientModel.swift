@@ -75,8 +75,19 @@ import QuartzCore
     private(set) var usageChoices: [UsageChoice] = []
     var pending: [String: PendingRow] = [:]
     var connection = "connecting" {
-        didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }
+        didSet {
+            if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 }
+            if oldValue != connection { showConnection() }
+        }
     }
+    /// The connection as the screens' words and dots show it: a reconnect stays out of sight for
+    /// a few seconds (`ConnectionGrace`). Only for display; anything that acts reads `connection`.
+    private(set) var shownConnection = "connecting"
+    @ObservationIgnored private var grace = ConnectionGrace()
+    @ObservationIgnored private var graceCheck: (@MainActor () -> Void)?
+    @ObservationIgnored private let schedule: RouteScheduler
+    /// The grace's clock (ms): monotonic, unlike `now`, which stamps what the screens show.
+    @ObservationIgnored private let monotonic: () -> Double
     /// The daemon socket while ready, as the bridge names it. It changes with every reconnect,
     /// even one whose drop and recovery reached the phone as a single "ready".
     @ObservationIgnored private var socket: Int? {
@@ -176,6 +187,9 @@ import QuartzCore
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// Answers from the inbox or the needs-you run the bridge has durably admitted: the approve
+    /// haptic's trigger, so a refused answer never feels like a success (`admitAnswer`).
+    var admittedNeedAnswers = 0
     /// What each needs-you inbox row waits on, by thread id, and the agent's last words for the
     /// needs-you run (`ClientModel+Needs.swift`).
     var needs: [String: InboxNeeds] = [:]
@@ -306,9 +320,29 @@ import QuartzCore
     @ObservationIgnored var streamedUpdates = 0
 
     init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live,
-         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background, makeRuntime: @escaping ClientSessionFactory = {
+         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background,
+         schedule: @escaping RouteScheduler = RouteRetries.sleeping, monotonic: @escaping () -> Double = RouteRetries.monotonic,
+         makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.frameTiming = frameTiming; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.schedule = schedule; self.monotonic = monotonic; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    /// The real state moved: the shown one follows, or holds for the grace and looks again then.
+    private func showConnection() {
+        graceCheck?()
+        graceCheck = nil
+        lookAgain(grace.changed(connection, at: monotonic()))
+    }
+    /// Shows the grace's state, and while it still hides a reconnect, looks again at `at`. A
+    /// timer that wakes before `at` finds it still hidden and is set again.
+    private func lookAgain(_ at: Double?) {
+        if let at {
+            graceCheck = schedule(at - monotonic()) { [weak self] in
+                guard let self else { return }
+                graceCheck = nil
+                lookAgain(grace.elapsed(at: monotonic()))
+            }
+        }
+        if shownConnection != grace.shown { shownConnection = grace.shown }
+    }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         runtimeEpoch += 1
         connectionEpoch &+= 1
@@ -390,6 +424,8 @@ import QuartzCore
         resumeUsagePins()
         restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
+        // The offline hold ran out before this runtime existed: it starts knowing the phone is offline.
+        if !networkOnline { action(["type": "network", "online": false]) }
         spadeResume()
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
         // visited on this runtime. Not the person opening it: its notifications stay delivered.
@@ -760,7 +796,7 @@ import QuartzCore
                 if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
             case .receipt(let id, let ok, let message, _):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
-                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    if ok { admitAnswer(interactionId) }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refused Stop leaves the tree working: offer Stop again.
@@ -769,7 +805,7 @@ import QuartzCore
                 if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
-                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    if ok { admitAnswer(interactionId) }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refusal with no words (a move waiting on its question) says nothing here.
@@ -1112,7 +1148,13 @@ import QuartzCore
         let id = admissions.nextId()
         return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
     }
-    func network(_ online: Bool) { action(["type": "network", "online": online]) }
+    /// What the runtimes were last told about the phone's network (`OfflineHold`), kept here so a
+    /// runtime still opening, or opened later, hears an offline that expired before it existed.
+    @ObservationIgnored private(set) var networkOnline = true
+    func network(_ online: Bool) {
+        networkOnline = online
+        action(["type": "network", "online": online])
+    }
     /// Whether the network and power allow reading likely threads ahead (`bridge/read-ahead.ts`).
     /// Sent again to every runtime this model starts.
     var readAheadAllowed = false {

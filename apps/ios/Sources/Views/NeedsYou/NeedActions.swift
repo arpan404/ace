@@ -14,7 +14,7 @@ import SwiftUI
     let request: ApprovalRow
     let model: ClientModel
     let threadId: String
-    /// A decision was sent: the haptic's trigger.
+    /// A decision was sent: the run moves on. Its haptic waits for admission (`admittedNeedAnswers`).
     let decided: () -> Void
 
     /// What is happening to an answer on its way: saved on the phone, then with the machine

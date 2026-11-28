@@ -1,5 +1,5 @@
 import "./test-host.ts";
-import { ClientCore } from "@ace/client";
+import { ClientCore, type Transport, type TransportEvents } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport, type FakeDaemonOptions } from "@ace/fake-daemon";
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
@@ -32,6 +32,31 @@ const approval = (interaction: string, command: string) => ({
   },
 });
 
+/**
+ * The fixture daemon's transport with a socket that can be lost: after `sever`, the open socket
+ * closes and no new one opens, as a phone stays while a reconnect is still under way.
+ */
+function severable(daemon: FakeDaemon) {
+  let events: TransportEvents | undefined;
+  let lost = false;
+  const inner = fakeTransport(daemon);
+  const transport = (): Transport => ({
+    open(next) {
+      if (lost) return;
+      events = next;
+      inner.open(next);
+    },
+    send: (text) => inner.send(text),
+    close: () => inner.close(),
+  });
+  const sever = () => {
+    lost = true;
+    inner.close();
+    events?.close(1006);
+  };
+  return { transport, sever };
+}
+
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
 async function phone(
   setup: {
@@ -61,10 +86,11 @@ async function phone(
   ]);
   daemon.apply(resting, [facts.rootAgent("claude")]);
   setup.history?.(daemon, options);
+  const link = severable(daemon);
   let sequence = 0;
   const client = new ClientCore({
     deviceId: DeviceId.parse("phone"),
-    transport: () => fakeTransport(daemon),
+    transport: () => link.transport(),
     storage: { load: async () => null, save: async () => {} },
     credential: async () => daemon.token,
     scheduler: { set: schedule },
@@ -98,7 +124,7 @@ async function phone(
     const view = daemon.snapshot({ kind: "thread", threadId: asking });
     return view?.kind === "thread" ? view.interactions[id] : undefined;
   };
-  return { daemon, latest, of, act, interaction, shown };
+  return { daemon, latest, of, act, interaction, shown, client, sever: link.sever };
 }
 
 it("a row that needs the person carries its pending approval and command, read without opening the thread", async () => {
@@ -172,6 +198,33 @@ it("an answer to a request no longer pending sends nothing and gives the control
       message: "",
     }),
   );
+  expect(of("receipt")).toHaveLength(0);
+  expect(interaction(id)?.state).toBe("pending");
+});
+
+it("an answer while the machine can't be reached says so and gives the controls back to try again", async () => {
+  const { client, latest, of, act, interaction, shown, sever } = await phone();
+  await vi.waitFor(() => expect(latest(asking)).toMatchObject({ total: 1 }));
+  const id = shown();
+  // The connection is lost, but the phone's header still shows it ready for a few seconds.
+  sever();
+  await vi.waitFor(() => expect(client.state).not.toBe("ready"));
+  act({
+    type: "needs.answer",
+    threadId: asking,
+    interactionId: id,
+    answer: { kind: "approval", optionId: "first:allow" },
+    requestId: "away-1",
+  });
+  await vi.waitFor(() =>
+    expect(of("admission").find((patch) => patch.id === "away-1")).toEqual({
+      type: "admission",
+      id: "away-1",
+      ok: false,
+      message: "Couldn't reach your computer to send that. Try again once it's connected.",
+    }),
+  );
+  // Nothing was sent, and no receipt will follow.
   expect(of("receipt")).toHaveLength(0);
   expect(interaction(id)?.state).toBe("pending");
 });

@@ -193,6 +193,9 @@ struct InboxList: View {
                     actions.open(key)
                 }
             }
+            // An answer from a row or the run feels done once the phone has saved it, never on
+            // the tap: a refusal shows its words instead.
+            .sensoryFeedback(AceDesign.Haptic.approve, trigger: inbox.all.reduce(0) { $0 + $1.client.admittedNeedAnswers })
         }
     }
     private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] { inbox.needs(in: shown) }
@@ -261,7 +264,7 @@ struct InboxList: View {
                     }
                 }
                 .padding(.top, AceDesign.Space.section * 2)
-            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
+            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.shownConnection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
@@ -333,8 +336,6 @@ private struct InboxThreadCell: View {
     /// Row swipes taken, for their haptic.
     @State private var swipes = 0
     private func swiped() { swipes += 1 }
-    /// Answers sent from the row, for the approve haptic.
-    @State private var decided = 0
     /// Why Open on a moved row's machine couldn't show the thread yet.
     @State private var movedNote: MovedNote?
 
@@ -363,7 +364,7 @@ private struct InboxThreadCell: View {
         // An approval answers from the row by swipe, long press or VoiceOver; nothing in the row
         // itself takes the tap, which opens the thread.
         let answers = model.flatMap { model in
-            asks.first.map { NeedActions(request: $0, model: model, threadId: row.id, decided: { decided += 1 }).answers }
+            asks.first.map { NeedActions(request: $0, model: model, threadId: row.id, decided: {}).answers }
         } ?? []
         let allow = answers.first { $0.id == "allow_once" }
         let deny = answers.first { $0.id == "deny" }
@@ -412,7 +413,6 @@ private struct InboxThreadCell: View {
             if canOperate && !selecting { pinButton(row, pinned).tint(Color(uiColor: .systemGray)) }
         }
         .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
-        .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
         .alert(movedNote?.title ?? "", isPresented: Binding(get: { movedNote != nil }, set: { if !$0 { movedNote = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(movedNote?.words ?? "") }
