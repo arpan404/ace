@@ -1,6 +1,6 @@
 # 0223: One Live Activity per machine, started, updated and ended by its daemon
 
-Status: Accepted. Date: 2026-11-24. The owner approved one Live Activity per paired machine,
+Status: Accepted, amended 2026-11-28 (amendment 1). Date: 2026-11-24. The owner approved one Live Activity per paired machine,
 driven by its daemon.
 Amends [ADR 0145](0145-live-activity-push-counts-only.md): replaces decisions 2 (slots merged
 on the phone), 3 (daemons never end the activity) and 4 (one handle kind), and refines 5.
@@ -91,3 +91,48 @@ Both problems come from several writers sharing one activity.
   seconds of it; `seq` and timestamp increase across a restart; one push per second at most.
 - Swift: `ContentState` decodes the gateway's fixture; a local update with a lower `seq` is
   refused.
+
+## Amendment 1: no end while a remote child is watched
+
+Accepted 2026-11-28 by the owner on #2778. It refines decision 3 (the daemon ends the activity)
+for children delegated to other machines. Nothing else above changes.
+
+A child on another paired machine counts as work on its parent's machine (spec rule 5). The
+parent learns about it only by polling it with the ordinary `status` call (ADR 0078, ADR 0099),
+and a poll only samples the child: the person there can start it again between two polls, and
+the parent can't prove it stayed quiet.
+
+1. **No `end` while this machine's ledger watches any remote child.** That is a child still
+   working there (one whose pairing was lost included), or a settled child whose 24-hour
+   re-check window is still open. A stop never confirmed counts while its window lasts.
+   Once none is watched and the machine has been quiet for 120 seconds, the `end` goes.
+2. **The check is bounded (ADR 0170).** Two `LIMIT 1` reads: the `machine_children_unsettled`
+   partial index, and the `settled_at` range of `machine_children_settled`. Neither reads the
+   settled history. They read the ledger directly, so the rule holds before the machines
+   service starts.
+3. **A held `end` is looked at again on the delivery lane's own timer**, one second later, with
+   no other loop.
+4. **A status answer counts only for the children it holds a view of.** A child left out of a
+   successful reply learns nothing from it, so a reply can't advance or close a child's watch
+   without saying anything about that child. A missing-thread refusal of a read of that child
+   alone is still its answer.
+
+**The cost, accepted.** A remote restart can't be missed, because no `end` goes while one could
+happen unseen. In exchange, an activity whose work involved another machine stays up, reading
+settled, until that child's re-check window closes: up to a day. It goes stale after 15 minutes
+without a push (spec rule 10) and reads "as of" a time, never done. A stop never confirmed whose
+window has ended is not waited on: it is shown as stopped, its cancel keeps going out (ADR 0052),
+and finding it would need a side table filled in idle batches.
+
+**Future work.** Ending sooner needs proof that every watched remote child stayed quiet: an `end`
+that waits for a fresh read of each one, sent after the `end` came due, through the current
+pairing, and not across an outage. A first version of that gate is on the `la-remote-fresh-read`
+branch. Its reviews found faults in the remote-children subsystem that it relies on, which need
+fixing first.
+
+Tests: `apps/daemon/src/notification-activity-delivery.test.ts` (`end` waits while a remote
+child is working and while a settled one is in its window, then goes once the window has closed
+and 120 seconds have passed; a held `end` is looked at about once a second),
+`apps/daemon/src/machines/child-ledger-watching.test.ts` (the check, and its plans against 50,000
+retired rows), and `child-schedule.test.ts` and `children-recheck.process.test.ts` (an answer that
+leaves a child out is no answer for it).
