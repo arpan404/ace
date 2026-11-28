@@ -30,12 +30,23 @@ struct AccountWay: Decodable, Identifiable, Equatable {
         return value
     }
 }
+/// One way to add an account with a pasted API key (`keyWays`).
+struct KeyWay: Decodable, Identifiable, Equatable {
+    let id: String
+    let label: String
+    /// The service the key is for, when the provider routes to several.
+    let upstream: String?
+    let next: String
+}
 struct AccountsScreenData: Decodable, Equatable {
     let name: String
     let accounts: [AccountRowData]
     let ways: [AccountWay]
     let reauth: [AccountWay]
-    /// "Add an API key in ace on studio." Keys are never taken on the phone (ADR 0002).
+    /// Key ways the daemon reports. A key goes to the CLI only over the relay's encrypted
+    /// `provider_auth` channel (ADR 0002), so these are empty on a direct link.
+    let keyWays: [KeyWay]
+    /// Why keys can't be added from this phone, for a provider that takes them.
     let apiKey: String?
 }
 private struct AccountsAnswer: ManageAnswer {
@@ -103,7 +114,7 @@ struct ProviderAccountsView: View {
             NavigationStack { AccountBadgeEditor(model: model, provider: provider, account: account) { Task { await read() } } }
         }
         .sheet(isPresented: $adding, onDismiss: { Task { await read() } }) {
-            NavigationStack { AddAccountView(model: model, provider: provider, name: screen?.name ?? name, ways: screen?.ways ?? []) }
+            NavigationStack { AddAccountView(model: model, provider: provider, name: screen?.name ?? name, ways: screen?.ways ?? [], keyWays: screen?.keyWays ?? []) }
         }
         .sheet(item: $signingIn, onDismiss: { Task { await read() } }) { target in
             NavigationStack { AccountSignInSheet(model: model, provider: provider, name: name, target: target) }

@@ -2,6 +2,7 @@ import {
   ProviderLoginRequest,
   ProviderAccountsRequest,
   type DeviceId,
+  type ProviderLoginProgress,
   type ProviderLoginResult,
 } from "@ace/protocol";
 import type { HostChannel } from "@ace/relay";
@@ -10,6 +11,9 @@ import type { AccountManagement } from "../account-management.ts";
 import { providerAccounts } from "../provider-accounts.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { unavailableLogin, type LoginWarn } from "./login-refusal.ts";
+
+const ended = (state: ProviderLoginProgress["state"]) =>
+  state === "succeeded" || state === "failed" || state === "cancelled";
 
 /**
  * The relay authenticates the device before constructing this endpoint; all frames are encrypted.
@@ -28,6 +32,29 @@ export function providerAuthRelay(options: {
   let closed = false;
   let listening: ProviderLoginSessions | undefined;
   let stop: (() => void) | undefined;
+  /**
+   * Key sign-ins this channel started and that haven't ended. A paired device hands a key over
+   * only on this channel, so once it closes none can reach them: they are cancelled, which also
+   * drops an account staged for them, rather than left for their expiry. This covers a channel
+   * lost before its client learned the session's id.
+   */
+  const keySessions = new Set<string>();
+  const cancel = (session: string) => {
+    void options
+      .login()
+      ?.handle(device, {
+        type: "provider.login.cancel",
+        requestId: "provider-auth-closed",
+        session,
+      })
+      .catch(() => {});
+  };
+  const started = (progress: ProviderLoginProgress | undefined) => {
+    if (!progress || progress.method !== "api_key" || progress.action !== "login") return;
+    if (ended(progress.state)) return;
+    if (closed) cancel(progress.session);
+    else keySessions.add(progress.session);
+  };
   // Progress pushes follow the login service this channel last saw.
   const login = () => {
     const service = options.login();
@@ -35,6 +62,7 @@ export function providerAuthRelay(options: {
       stop?.();
       listening = service;
       stop = service.listen((owner, progress) => {
+        if (owner === device && ended(progress.state)) keySessions.delete(progress.session);
         if (!closed && owner === device && authorize("operate"))
           void channel
             .send({ type: "provider.login.progress", progress })
@@ -66,6 +94,7 @@ export function providerAuthRelay(options: {
         }
         try {
           const result = await providerAccounts(accounts, sessions, device, request);
+          if (result.result.ok) started(result.result.progress);
           if (!closed && authorize(scope)) await channel.send(result);
         } catch (cause) {
           warn?.(
@@ -108,6 +137,7 @@ export function providerAuthRelay(options: {
         } catch (cause) {
           result = unavailableLogin(request, "error", { ...refusal, cause });
         }
+        if (result.result.ok) started(result.result.progress);
         if (!closed && authorize("operate")) await channel.send(result);
       } finally {
         if (request.type === "provider.login.apiKey") request.apiKey = "";
@@ -119,6 +149,8 @@ export function providerAuthRelay(options: {
     },
     close() {
       closed = true;
+      for (const session of keySessions) cancel(session);
+      keySessions.clear();
       stop?.();
     },
   };
