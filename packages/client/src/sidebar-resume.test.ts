@@ -135,3 +135,61 @@ test("a list subscribe the daemon turns down after a reconnect is asked again, a
   collection.close();
   await f.client.close();
 });
+
+/** The latest subscribe of the Home list (`archived` false) or the Archive's. */
+function windowWire(f: Awaited<ReturnType<typeof sidebar>>["f"], archived: boolean) {
+  const wire = f.sent.findLast(
+    (message) =>
+      message.type === "subscribe" &&
+      message.scope.kind === "threads" &&
+      (message.scope.window?.archived === true) === archived,
+  );
+  if (!wire || wire.type !== "subscribe") throw new Error("No subscription");
+  return wire.subscriptionId;
+}
+const at = (
+  f: Awaited<ReturnType<typeof sidebar>>["f"],
+  archived: boolean,
+  view: { seq: number },
+) => f.deliver({ type: "snapshot", subscriptionId: windowWire(f, archived), seq: 10, view });
+
+test("asking Home again leaves the archive's subscription alone, and Home keeps its own backoff", async () => {
+  const { f, collection, store } = await sidebar();
+  await collection.threadsWindow({ archived: true });
+  at(f, false, listOf([placed("a", "p", "inbox", 3)], 7));
+  at(f, true, listOf([placed("old", "p", "settled", 1)], 7));
+  const archive = windowWire(f, true);
+  const refuse = () =>
+    f.deliver({
+      type: "error",
+      subscriptionId: windowWire(f, false),
+      code: "unavailable",
+      message: "Busy",
+    });
+  const homes = () =>
+    f.sent.filter(
+      (message) =>
+        message.type === "subscribe" &&
+        message.scope.kind === "threads" &&
+        message.scope.window?.archived !== true,
+    ).length;
+  refuse();
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  const before = homes();
+  f.elapse(500);
+  await expect.poll(homes).toBe(before + 1);
+  // Only Home went again: the archive keeps its wire and the pages it loaded.
+  expect(windowWire(f, true)).toBe(archive);
+  expect(
+    f.sent.some((message) => message.type === "unsubscribe" && message.subscriptionId === archive),
+  ).toBe(false);
+  // Refused again, Home waits longer; nothing the archive does resets that.
+  refuse();
+  f.elapse(500);
+  expect(homes()).toBe(before + 1);
+  f.elapse(1_000);
+  await expect.poll(homes).toBe(before + 2);
+  expect(windowWire(f, true)).toBe(archive);
+  collection.close();
+  await f.client.close();
+});
