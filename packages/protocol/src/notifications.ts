@@ -146,10 +146,26 @@ export const NotificationConfigResult = z.object({
     .nullable(),
   preferences: NotificationPreferences,
 });
+/**
+ * The phone's Live Activity tokens for one machine (ADR 0223): the app's push-to-start token and
+ * the update token of this machine's own activity, each hex like an APNs token, with the APNs
+ * environment that issued them, whether iOS allows frequent updates, and the phone-chosen slot
+ * (0 to 15) the widget maps to the machine's name. Absent from a registration: no tokens.
+ */
+export const PhoneLiveActivity = z.object({
+  startToken: PushNotificationAddress.shape.token.optional(),
+  activityToken: PushNotificationAddress.shape.token.optional(),
+  environment: PushNotificationAddress.shape.environment,
+  frequentUpdates: z.boolean(),
+  slot: z.number().int().min(0).max(15),
+});
+export type PhoneLiveActivity = z.infer<typeof PhoneLiveActivity>;
 export const NotificationRegister = z.object({
   type: z.literal("notification.register"),
   requestId: boundedId.optional(),
   device: NotificationAddress,
+  /** A phone's Live Activity tokens for this machine; older daemons ignore it. */
+  liveActivity: PhoneLiveActivity.optional(),
 });
 export const NotificationRegisterResult = z.object({
   type: z.literal("notification.register.result"),

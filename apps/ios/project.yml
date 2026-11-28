@@ -80,6 +80,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSupportsLiveActivities: true
+        # Each machine's daemon pushes Live Activity updates (ADR 0223); the person can still
+        # turn frequent updates off in iOS Settings, and the sync reports it.
+        NSSupportsLiveActivitiesFrequentUpdates: true
         UILaunchScreen:
           UIColorName: LaunchBackground
         CADisableMinimumFrameDurationOnPhone: true
@@ -233,6 +236,9 @@ targets:
         buildPhase: resources
       # The space rules' table, as @ace/client's own test reads it (ADR 0206 §1.5).
       - path: ../../packages/client/src/ace-spaces-cases.json
+        buildPhase: resources
+      # The Live Activity content the push gateway sends, as its own test reads it.
+      - path: ../../fixtures/live-activity-content-state.json
         buildPhase: resources
       # Which URLs are the machine's loopback, for the WebKit rule patterns.
       - path: ../../packages/ui-core/src/machine-loopback-urls.json

@@ -219,7 +219,9 @@ and later. `end` adds `"dismissal-date"`.
 
 `notifications.sync` gains an optional `liveActivity` object: `{ startToken?, activityToken?,
 environment, frequentUpdates, slot }`. Older daemons ignore it. Removing the object removes
-both tokens.
+both tokens. On the wire the bridge sends it as `notification.register`'s optional
+`liveActivity` (`PhoneLiveActivity` in `@ace/protocol`), registering again whenever it changes,
+so a machine holds the tokens only while the phone is registered with it.
 
 ### Daemon
 

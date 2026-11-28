@@ -31,6 +31,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
         static let muted = "ace.notifications.mutedMachines"
         static let liveActivity = "ace.lockScreen.liveActivity"
+        static let slots = "ace.lockScreen.slots"
         static let bridgePosted = "ace.notifications.bridgePosted"
         static let pushHosts = "ace.notifications.pushHosts"
     }
@@ -76,7 +77,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var transientHolds = 0
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
-    /// The one Live Activity and the widgets' snapshot, across every attached machine.
+    /// Each machine's Live Activity and the widgets' snapshots, across every attached machine.
     @ObservationIgnored let lockScreen: LockScreenHub
     /// Approvals the daemon alerted about, by host and thread, for the Live Activity's
     /// Allow/Deny; and which alert raised each, so a retraction drops it.
@@ -84,6 +85,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var approvalAlerts: [String: String] = [:]
     /// Settings › Notifications › Live Activity.
     private(set) var liveActivity: Bool
+    /// Each machine's Live Activity slot (`MachineSlots`), by host; kept across launches.
+    @ObservationIgnored private(set) var slots: [String: Int]
+    /// Every paired machine's host id, from the machines directory; nil while it isn't known
+    /// (a background launch), which keeps every slot reserved.
+    @ObservationIgnored var pairedMachines: @MainActor () -> Set<String>? = { nil }
     /// Each machine's sign-ins waiting for approval when it last said, by host.
     @ObservationIgnored var accessSeen: [String: Set<String>] = [:]
     /// Usage-limit and automation-run notifications posted for each machine, oldest first,
@@ -117,9 +123,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
         liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
         bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
         pushHosts = defaults.dictionary(forKey: Keys.pushHosts) as? [String: String] ?? [:]
+        slots = defaults.dictionary(forKey: Keys.slots) as? [String: Int] ?? [:]
         self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
         self.lockScreen.allowed = liveActivity
         self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        self.lockScreen.activityChanged = { [weak self] in self?.sync() }
         desk.pushHost = { [weak self] host in self?.pushHosts[host] }
         LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
@@ -143,9 +151,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
         machines.removeAll { $0.hostId == machine.hostId || $0.model === model }
         machines.append((machine.hostId, model, ledger))
         let hostId = machine.hostId
+        assignSlot(hostId)
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
         model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
-        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show(hostId: hostId) }
         // Opening a thread here is reading it: its notification goes.
         model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
         model.outside.onAccessState = { [weak self] access in self?.accessState(access, hostId: hostId) }
@@ -160,6 +169,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     private func detach(_ model: ClientModel, removingMachine: Bool) {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
+        let hostId = machines[index].hostId
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
@@ -169,7 +179,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
         model.outside.onAccessState = nil
-        if removingMachine { lockScreen.changed() }
+        if removingMachine {
+            releaseSlot(hostId)
+            lockScreen.changed()
+        }
     }
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
     /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
@@ -181,6 +194,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         approvals = approvals.filter { $0.value.hostId != hostId }
         approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
         if pendingLink?.hostId == hostId { pendingLink = nil }
+        if let slot = slots[hostId] { lockScreen.forget(slot: slot) }
         lockScreen.forgetHeld()
         lockScreen.rebuild()
     }
@@ -284,7 +298,32 @@ struct SystemAuthorizer: NotificationAuthorizer {
         action["phone"] = phone.json
         // Only to a machine allowed to alert this phone; one turned off here learns no token.
         if let push, delivering(hostId) { action["push"] = push.json }
+        // Live Activities off in ace or in iOS: the key goes, and the machine drops both tokens.
+        if let live = lockScreen.tokens.sync(on: liveActivity && lockScreen.activitiesAllowed, slot: slots[hostId],
+                                             environment: .current, frequentUpdates: lockScreen.frequentUpdates) {
+            action["liveActivity"] = live
+        }
         model.notificationAction(action)
+    }
+    /// A newly attached machine's Live Activity slot, kept for it from then on. A slot taken
+    /// from a machine gone from the directory loses that machine's activity and token first.
+    private func assignSlot(_ hostId: String) {
+        let next = MachineSlots.assign(hostId, kept: slots, attached: Set(machines.map(\.hostId)), paired: pairedMachines())
+        if let retired = next.retired { lockScreen.forget(slot: retired) }
+        saveSlots(next.slots)
+    }
+    /// A machine detached for good and gone from the directory: its activity, token and slot go.
+    private func releaseSlot(_ hostId: String) {
+        guard let paired = pairedMachines(), !paired.contains(hostId), let slot = slots[hostId] else { return }
+        lockScreen.forget(slot: slot)
+        var next = slots
+        next.removeValue(forKey: hostId)
+        saveSlots(next)
+    }
+    private func saveSlots(_ next: [String: Int]) {
+        guard next != slots else { return }
+        slots = next
+        defaults.set(next, forKey: Keys.slots)
     }
     func scene(active: Bool) {
         guard foreground != active else { return }
@@ -354,6 +393,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         defaults.set(on, forKey: Keys.liveActivity)
         lockScreen.allowed = on
         lockScreen.rebuild()
+        sync()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {
