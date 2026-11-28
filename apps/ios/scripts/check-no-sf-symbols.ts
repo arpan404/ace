@@ -31,6 +31,16 @@ export const allowed: readonly { file: string; use: string; why: string }[] = [
     use: 'systemImageName: "tray"',
     why: "AppShortcut takes only a symbol name: Shortcuts and Spotlight draw it, not the app.",
   },
+  {
+    file: "apps/ios/Sources/Intents/StartThreadIntent.swift",
+    use: 'systemImageName: "bubble.left"',
+    why: "AppShortcut takes only a symbol name: Shortcuts and Spotlight draw it, not the app.",
+  },
+  {
+    file: "apps/ios/Sources/Intents/StartThreadIntent.swift",
+    use: 'systemImageName: "mic"',
+    why: "AppShortcut takes only a symbol name: Shortcuts and Spotlight draw it, not the app.",
+  },
 ];
 
 const symbolCall = /\b(?:systemName|systemImage|systemImageName)\s*:\s*(?:"[^"]*"|[^,)\n]*)/g;
