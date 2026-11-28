@@ -52,6 +52,8 @@ struct ThreadView: View {
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
     @State private var goalSheet: GoalPresentation?
+    /// The context's sheet, by the navigation generation it was opened on, as the goal's.
+    @State private var contextSheet: GoalPresentation?
     /// The person reads away from the live end: Scroll to end floats over the composer's foot.
     @State private var behind = false
     /// Each Scroll to end the person taps.
@@ -258,6 +260,11 @@ struct ThreadView: View {
                     GoalSheet(goal: goal, canOperate: model.canOperate) { change in await model.changeGoal(change, epoch: opened.epoch) }
                 }
             }
+            .sheet(item: $contextSheet) { opened in
+                if let context = screen.context {
+                    ContextSheet(context: context, canOperate: model.canOperate) { await model.compactContext(epoch: opened.epoch) }
+                }
+            }
             .sheet(isPresented: $showQueue) {
                 if let queue = screen.queue {
                     QueueSheet(queue: queue, canAct: model.canOperate,
@@ -281,6 +288,12 @@ struct ThreadView: View {
             }
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
+            .onChange(of: screen.context == nil) { _, gone in if gone { contextSheet = nil } }
+            // A sheet opened under an earlier generation would only send refused changes: close it.
+            .onChange(of: thread.epoch) { _, epoch in
+                if goalSheet?.epoch != epoch { goalSheet = nil }
+                if contextSheet?.epoch != epoch { contextSheet = nil }
+            }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
             // The agent may open its browser after the thread was opened: ask again as it works.
             .onChange(of: metadata?.state) { model.probeBrowser() }
@@ -532,6 +545,7 @@ struct ThreadView: View {
         case "agents": open(.agents)
         case "queue": showQueue = true
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
+        case "context": contextSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
     }
@@ -636,7 +650,7 @@ struct ThreadView: View {
     }
 }
 
-/// The goal's sheet as presented: the navigation generation it belongs to.
+/// The goal's (or the context's) sheet as presented: the navigation generation it belongs to.
 private struct GoalPresentation: Identifiable {
     let epoch: Int
     var id: Int { epoch }

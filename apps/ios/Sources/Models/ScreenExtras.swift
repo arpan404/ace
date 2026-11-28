@@ -67,10 +67,11 @@ extension ThreadScreenModel {
             if quotes != items { quotes = items }
             if quotesFull != full { quotesFull = full }
             if keptQuotes != kept { keptQuotes = kept }
-        case .pill(let row, let goal, let left):
+        case .pill(let row, let goal, let left, let context):
             if pill != row { pill = row }
             if leftRunning != left { leftRunning = left }
             if self.goal != goal { self.goal = goal }
+            if self.context != context { self.context = context }
         case .continued(let id): continued = id
         case .switchAsk(let ask): switchAsk = ask
         case .transitions(let row): if transitions != row { transitions = row }

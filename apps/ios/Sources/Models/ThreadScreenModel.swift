@@ -56,6 +56,8 @@ import Observation
     var leftRunning: LeftRunningRow?
     /// The thread's goal, for its sheet; nil without one.
     var goal: GoalRow?
+    /// How full the root's context is, for its sheet with Compact; nil until a sample arrives.
+    var context: ContextRow?
     /// Effort and speed for the next message.
     var tune: TuneRow?
     /// The thread's access and the modes it can change to (`thread.access`).
@@ -109,6 +111,7 @@ import Observation
         pill = shown.pill
         leftRunning = shown.leftRunning
         goal = shown.goal
+        context = shown.context
         tune = shown.tune
         access = shown.access
         attachments = shown.attachments
@@ -146,6 +149,7 @@ import Observation
         pill = incoming.pill
         leftRunning = incoming.leftRunning
         goal = incoming.goal
+        context = incoming.context
         tune = incoming.tune
         access = incoming.access
         attachments = incoming.attachments
@@ -169,6 +173,7 @@ import Observation
         queue = nil
         pill = nil
         goal = nil
+        context = nil
         steps = [:]
         tune = nil
         access = nil

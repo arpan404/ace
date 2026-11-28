@@ -215,7 +215,7 @@ test("the details card carries checkout details and refreshes them after a commi
   expect(input.textContent).toBe("Keep this draft");
 });
 
-test("the composer carries no context or usage meter, whatever the provider reports", async () => {
+test("the context shows once, as the strip's readout, never as a meter in the composer", async () => {
   const { app } = await open("busy");
   app.daemon.apply("thread-replay-cursor", [
     {
@@ -228,7 +228,8 @@ test("the composer carries no context or usage meter, whatever the provider repo
   ]);
   await screen.findByRole("button", { name: /^Model: / });
   expect(screen.queryByRole("meter")).toBeNull();
-  expect(screen.queryByText(/tokens in context|% used|\d+%$/)).toBeNull();
+  expect(await screen.findAllByText("84%")).toHaveLength(1);
+  expect(screen.queryByText(/% used/)).toBeNull();
 });
 
 test("access and predefined effort keep their readable modes on a phone", async () => {
