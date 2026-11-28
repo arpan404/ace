@@ -213,6 +213,15 @@ extension ClientModel {
             action(threadMessage(["type": "goal", "change": change, "requestId": id], epoch: epoch))
         }
     }
+    /// Ask the provider to compact the thread's context with its own compactor, from the context's
+    /// sheet opened under `epoch`. Resolves once the daemon took it (nil) or refused it (its words).
+    func compactContext(epoch: Int) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            action(threadMessage(["type": "compact", "requestId": id], epoch: epoch))
+        }
+    }
     /// Whether the reader sits at the live end of the thread open under `epoch` (`ReaderAtEnd`).
     func readerAtEnd(_ atEnd: Bool, epoch: Int) {
         action(threadMessage(["type": "atEnd", "atEnd": atEnd], epoch: epoch))

@@ -21,10 +21,11 @@ struct ComposerFloaters: View {
 
 /// The thread's live state as quiet pills just above the capsule, in one row that scrolls
 /// sideways, starting at the field's left edge: the status first ("Working · 4m 12s", "Waiting on
-/// 2"), then what else is live ("2 subagents", "1 command", "2 queued", "Pursuing goal"). Each is
+/// 2"), then what else is live ("2 subagents", "1 command", "2 queued", "Pursuing goal"), and last
+/// how full the context is ("62% context"), which stays at rest too. Each is
 /// a glass capsule floating over the transcript; colour only on its still icon. A pill that opens
-/// something (the agent tree, the queue, the goal) is a button. Nothing when idle: the bridge
-/// sends no pill then. Words, timer origins and what each opens are the bridge's (`PillRow`).
+/// something (the agent tree, the queue, the goal, the context) is a button. Nothing when idle
+/// with no context known: the bridge sends no pill then. Words, timer origins and what each opens are the bridge's (`PillRow`).
 struct ComposerLivePills: View {
     let pill: PillRow
     let open: (String) -> Void
@@ -83,6 +84,7 @@ struct ComposerLivePills: View {
         case "agents": "Opens the agent tree"
         case "queue": "Opens the queued messages"
         case "goal": "Opens the goal"
+        case "context": "Opens the context, where it can be compacted"
         default: ""
         }
     }
@@ -126,6 +128,10 @@ private struct LivePillLabel: View {
             case "queue": StatusGlyph(.queued, tone: .waiting, size: AceDesign.Size.chipGlyph)
             case "goal":
                 AceIcon(.target, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityHidden(true)
+            case "context":
+                AceIcon(.arrowsInSimple, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .accessibilityHidden(true)
             default: EmptyView()

@@ -5,18 +5,29 @@ import { FORMAT } from "./format.ts";
 export const deliverableJobs =
   "SELECT jobs.due FROM jobs JOIN devices ON devices.id=jobs.device WHERE devices.revoked=0 AND devices.expired=0 ORDER BY jobs.due LIMIT 1";
 /**
- * Work that a stopped worker would miss: queued alerts or jobs, or a device that can take an
- * alert while no client is connected (push, or a phone's catch-up inbox). Live-socket desktop
- * and web devices alone need nothing until one connects.
+ * Work that a stopped worker would miss: queued alerts or jobs, a device that can take an alert
+ * while no client is connected (push, or a phone's catch-up inbox), or a phone's Live Activity
+ * tokens, which its daemon pushes with from startup. Live-socket desktop and web devices alone
+ * need nothing until one connects.
  */
 export function retainsWork(statement: (sql: string) => Pick<StatementSync, "get">): boolean {
-  return (
+  if (
     statement("SELECT 1 FROM pending LIMIT 1").get() !== undefined ||
     statement(deliverableJobs).get() !== undefined ||
     statement(
       "SELECT 1 FROM devices WHERE revoked=0 AND expired=0 AND NOT (json_extract(body,'$.address.channel')='websocket' AND json_extract(body,'$.address.platform') IN ('desktop','web')) LIMIT 1",
     ).get() !== undefined
-  );
+  )
+    return true;
+  // A store from before Live Activities has no table and keeps nothing: it stays sleepy. Any
+  // other failure is the store's own, and must still wake the worker that reports it.
+  try {
+    return statement("SELECT 1 FROM live_activity LIMIT 1").get() !== undefined;
+  } catch (error) {
+    if (statement("SELECT 1 FROM sqlite_master WHERE type='table' AND name='live_activity'").get())
+      throw error;
+    return false;
+  }
 }
 /**
  * Read-only check, without opening a worker, of whether the store at `path` retains work. A

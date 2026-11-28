@@ -21042,6 +21042,30 @@ Example:
 }
 ```
 
+## LiveActivitySync
+
+[JSON Schema](schema/LiveActivitySync.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| startToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
+| activityToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
+| environment | yes | ["sandbox","production"] |  |
+| frequentUpdates | yes | boolean |  |
+| slot | yes | integer | {"minimum":0,"maximum":15} |
+
+Example:
+
+```json
+{
+  "activityToken": "2D40B9F3Cd8540F6b5808Ad3ec36d6e3a4444B0dF1fD5d5eEfAcDFAcD0e268f47d4cF2940C47AD7C2FEea27C9Ca0D6DF28d7aECaB967f883876EA50e8c57B8c0f6552a8b62F9bfb0E88c54062C1aC023C6182af6c135DdB0903493Ff0C0e6fD7AA68c409E5b50C804bAEe01eeAD3f05B86b6be13AaaE958169b5040bAc342deD5EacC4Fbc83f3BF95f31AB19313DD5a4dF6480c51aaE9b7b9beEB7E3DDF8Ce2c615cCf0f0F4FFae0fa3dF0D5199e1C20A3EbAa21a0B3FD3Be94b3efEF13B3dDe3d48",
+  "environment": "sandbox",
+  "frequentUpdates": false,
+  "slot": 7,
+  "startToken": "bcAca2a89c8866dc7BceE51F8639BE2ACe7E52eF65d46db77C4B83afBa4FE5C4ab126ffbbbFdd19f584ABB41A5F397b8C3fcBFEefc1C68fFFe5343ded75f62eDE98AF75be29fA1f86A8B9afa2FC00220b4e3F65a97cbF60EdA3ba33C5A7Fddf1668b0e568BB7bD7c3e965A693A53dca0c9Db660F2c6f89bEDb80A2128c1c0dcA97EE0a2Db44f34cbd5fDF406e21D836EBebd99eAeea0D3dAAf90E68b0C88B732614bCCbe062F20DBeBFdcB1AAf3DCCfd82BA"
+}
+```
+
 ## LiveVideoStatus
 
 [JSON Schema](schema/LiveVideoStatus.json), input validation.
@@ -30547,7 +30571,7 @@ Example:
 | type | yes | `"notification.register"` |  |
 | requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
-| liveActivity | no | [PhoneLiveActivity.json](schema/PhoneLiveActivity.json) |  |
+| liveActivity | no | [LiveActivitySync.json](schema/LiveActivitySync.json) |  |
 
 Example:
 
@@ -32397,28 +32421,6 @@ Example:
   "effective": null,
   "override": "read-only",
   "pending": false
-}
-```
-
-## PhoneLiveActivity
-
-[JSON Schema](schema/PhoneLiveActivity.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| startToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
-| activityToken | no | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
-| environment | yes | ["sandbox","production"] |  |
-| frequentUpdates | yes | boolean |  |
-| slot | yes | integer | {"minimum":0,"maximum":15} |
-
-Example:
-
-```json
-{
-  "environment": "sandbox",
-  "frequentUpdates": false,
-  "slot": 7
 }
 ```
 

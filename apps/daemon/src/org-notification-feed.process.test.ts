@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { NotificationWorker, attachNotifications, createNotificationRouter } from "@ace/notify";
-import { type DeviceId, type Notification } from "@ace/protocol";
+import { DeviceId, Notification } from "@ace/protocol";
 import { expect, it } from "vitest";
 import { deviceKey, useAccountBackend } from "./machine-standing-test-support.ts";
 import { helloWith, orgTeamHost, provesMember } from "./org-host-test-support.ts";
@@ -33,6 +33,22 @@ it("an organization member's feed reads and receipts stay identical while anothe
     (await provesMember(admitted.client, team.home.host, admitted.nonce, grant.token, key)).ok,
   ).toBe(true);
   const member = admitted.client;
+  // A member's phone may not register anything, activity tokens included: pushes are not
+  // filtered per member (ADR 0221), so the unplaced tree.read is refused before the service.
+  member.send({
+    type: "notification.register",
+    requestId: "member-phone",
+    device: { channel: "websocket", platform: "phone" },
+    liveActivity: {
+      startToken: "a1".repeat(32),
+      activityToken: "b2".repeat(32),
+      environment: "sandbox",
+      frequentUpdates: true,
+      slot: 0,
+    },
+  } as never);
+  expect(await member.next()).toMatchObject({ type: "error" });
+  expect(await service.liveActivityTargets()).toEqual([]);
   const feed = async (message: Record<string, unknown>) => {
     member.send({ type: "notification.feed", requestId: "feed", ...message } as never);
     const reply = await member.next();
@@ -78,6 +94,46 @@ it("an organization member's feed reads and receipts stay identical while anothe
     retracted: [],
   });
   await attached.close();
+  await team.home.f.close();
+  await service.close();
+  rmSync(dir, { recursive: true, force: true });
+}, 60_000);
+
+it("enrolling the machine as an organization's host clears a personal phone's activity tokens", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ace-org-enroll-activity-"));
+  const service = new NotificationWorker({
+    path: join(dir, "notify.sqlite"),
+    windowMs: 0,
+    transport: { send: async () => "failed" },
+  });
+  const phone = DeviceId.parse("personal-phone");
+  await service.register(phone, {
+    channel: "push",
+    platform: "phone",
+    token: "ab".repeat(32),
+    environment: "sandbox",
+    p256dh: "a".repeat(87),
+    auth: "b".repeat(22),
+  });
+  await service.syncLiveActivity(phone, [], {
+    startToken: "a1".repeat(32),
+    activityToken: "b2".repeat(32),
+    environment: "sandbox",
+    frequentUpdates: true,
+    slot: 0,
+  });
+  expect(await service.liveActivityTargets()).toHaveLength(2);
+
+  // The machine becomes the organization's host: an account-only phone has no pairing to
+  // revoke, so its tokens are cleared with the enrollment instead of counting the org's work.
+  const team = await orgTeamHost(backend, { server: { notifications: service } });
+  const until = Date.now() + 5000;
+  while ((await service.liveActivityTargets()).length > 0) {
+    if (Date.now() >= until) throw new Error("Personal activity tokens survived enrollment");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  expect(await service.liveActivityTargets()).toEqual([]);
+
   await team.home.f.close();
   await service.close();
   rmSync(dir, { recursive: true, force: true });

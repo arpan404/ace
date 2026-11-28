@@ -26,8 +26,17 @@ export {
   pushPlaintext,
   pushPlaintextBudget,
 } from "./push-gateway.ts";
-export type { AccessPushTransport, PushGatewayOptions, PushGatewayTarget } from "./push-gateway.ts";
+export type {
+  AccessPushTransport,
+  ActivityAddress,
+  ActivityRegistration,
+  PushGatewayOptions,
+  PushGatewayTarget,
+  PushGatewayTransport,
+} from "./push-gateway.ts";
 export { createApnsTransport } from "./apns.ts";
 export type { ApnsTransport } from "./apns.ts";
 export { PresenceIndex } from "./presence.ts";
+export { LiveActivityKind, LiveActivityTarget, liveActivityLimit } from "./live-activity.ts";
+export type { LiveActivityEnvironment } from "./live-activity.ts";
 export { NotificationWorker } from "./worker.ts";

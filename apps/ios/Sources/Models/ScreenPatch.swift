@@ -116,7 +116,7 @@ struct QuoteChip: Codable, Sendable, Equatable, Identifiable {
 }
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
-/// opens (`agents`, `queue`, `goal`; empty opens nothing).
+/// opens (`agents`, `queue`, `goal`, `context`; empty opens nothing).
 /// What leads a composer strip's sentence: the asking agent's provider mark, or a status icon
 /// and its colour (`StripLead` in `@ace/ui-core/mobile`).
 struct StripLeadRow: Codable, Sendable, Equatable {
@@ -185,6 +185,16 @@ struct GoalRow: Codable, Sendable, Equatable {
     let canResume: Bool
     let canClear: Bool
 }
+/// The context's sheet, opened from the pill's readout: how full the root's context is, and the
+/// provider's own Compact (`contextRow` in `bridge/thread-pill.ts`).
+struct ContextRow: Codable, Sendable, Equatable {
+    /// "124,000 of 200,000 tokens in context"; empty while compacting before any sample.
+    let long: String
+    /// The provider compacts its own context: the sheet offers Compact.
+    let supported: Bool
+    /// Why Compact can't run now ("Wait for this turn to finish"); empty when it can.
+    let reason: String
+}
 /// A finished turn's steps read from the daemon, page by page.
 struct StepsHeader: Codable, Sendable, Equatable {
     let ordinal: Int
@@ -227,7 +237,7 @@ enum ScreenPatch: Sendable {
     case laneBlockPosition(lane: String, id: String, index: Int?)
     /// What the open lane's subagent is: its prompt, branch state, requests and controls.
     case laneInfo(lane: String, info: SubagentInfo?)
-    case pill(PillRow?, GoalRow?, LeftRunningRow?)
+    case pill(PillRow?, GoalRow?, LeftRunningRow?, ContextRow?)
     /// The next message started a new thread carrying this one's context: open it.
     case continued(String)
     /// A move sent without the question it needs (the rows were older than the thread): ask it.
@@ -244,7 +254,7 @@ enum ScreenPatch: Sendable {
     case codeSent([String])
 
     static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.quotes", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft", "thread.codeSent"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, leftRunning, opened, draft, items, info, full, kept, ids }
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, leftRunning, context, opened, draft, items, info, full, kept, ids }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -258,7 +268,8 @@ enum ScreenPatch: Sendable {
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal),
-                                         try? box.decodeIfPresent(LeftRunningRow.self, forKey: .leftRunning))
+                                         try? box.decodeIfPresent(LeftRunningRow.self, forKey: .leftRunning),
+                                         try? box.decodeIfPresent(ContextRow.self, forKey: .context))
         case "thread.attachments":
             self = .attachments(try box.decode([AttachmentFile].self, forKey: .files), locked: try box.decodeIfPresent(String.self, forKey: .locked))
         case "thread.transitions": self = .transitions(try TransitionsRow(from: decoder))

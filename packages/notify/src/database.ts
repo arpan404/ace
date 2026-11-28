@@ -7,6 +7,7 @@ import {
   NotificationDevice,
   NotificationPreferences,
   NotificationAddress,
+  type LiveActivitySync,
 } from "@ace/protocol/notifications";
 import { DeviceId, ThreadId } from "@ace/protocol/ids";
 import { CompactThread, Pending, advance, content } from "./model.ts";
@@ -14,6 +15,7 @@ import type { MetadataEvent } from "./metadata.ts";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
 import { NotificationInbox, inboxTables } from "./inbox.ts";
+import { LiveActivityStore, liveActivityTables, type LiveActivityTarget } from "./live-activity.ts";
 import { SleepWindows, sleepTables, slept, type Boundary } from "./sleep-boundary.ts";
 import { CatchUpLedger, catchUpNotice, catchUpTables } from "./catch-up.ts";
 import { deliverableJobs, retainsWork } from "./retained.ts";
@@ -66,6 +68,7 @@ export class NotificationDatabase {
   private ledger: CatchUpLedger;
   private tracking: InteractionTracking;
   readonly inbox: NotificationInbox;
+  private liveActivity: LiveActivityStore;
   /**
    * Events after the sleep boundary and before `alertsFrom` update state but raise no alerts
    * (see `deliverableFor`). `sleptAfter` records a boundary this start adds: the daemon ran
@@ -84,6 +87,7 @@ export class NotificationDatabase {
     this.ledger = new CatchUpLedger((sql) => this.statement(sql));
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.inbox = new NotificationInbox((sql) => this.statement(sql));
+    this.liveActivity = new LiveActivityStore((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec(
@@ -109,6 +113,7 @@ export class NotificationDatabase {
     this.db.exec(inboxTables);
     this.db.exec(sleepTables);
     this.db.exec(catchUpTables);
+    this.db.exec(liveActivityTables);
     if (wake.sleptAfter) this.sleep.mark(wake.sleptAfter);
   }
   private statement(sql: string): StatementSync {
@@ -284,6 +289,7 @@ export class NotificationDatabase {
       this.statement("DELETE FROM devices WHERE id=?").run(String(stale.id));
       this.inbox.remove(DeviceId.parse(stale.id));
       this.ledger.forgetDevice(DeviceId.parse(stale.id));
+      this.liveActivity.forget(DeviceId.parse(stale.id));
     }
     const device = NotificationDevice.parse({
       id,
@@ -318,6 +324,38 @@ export class NotificationDatabase {
     }
     return found;
   }
+  /**
+   * The phone's Live Activity tokens for this machine (ADR 0223), from the ids the daemon proved
+   * are one install (ADR 0115). The newest sync replaces what any of them registered, so a token
+   * that arrives over both routes is kept once. A missing token clears its kind, a missing
+   * object both; a revoked id is a tombstone no route can restore.
+   */
+  syncLiveActivity(
+    id: DeviceId,
+    linked: readonly DeviceId[],
+    input: LiveActivitySync | undefined,
+  ): void {
+    const devices = [id, ...linked.filter((other) => other !== id)];
+    for (const device of devices) {
+      if (this.statement("SELECT revoked FROM devices WHERE id=?").get(device)?.revoked)
+        throw new Error("Device revoked");
+    }
+    if (!this.statement("SELECT id FROM devices WHERE id=?").get(id))
+      throw new Error("Device unavailable");
+    this.transaction(() => this.liveActivity.replace(devices, input));
+  }
+  /** Every token this machine may push an activity with, at most two per registered device. */
+  liveActivityTargets(): LiveActivityTarget[] {
+    return this.liveActivity.targets();
+  }
+  /** Live Activities or remote push were turned off: no token stays. */
+  clearLiveActivity(): void {
+    this.liveActivity.clear();
+  }
+  /** A gateway said this token is gone. A token rotated since is another row and stays. */
+  dropLiveActivityToken(address: Pick<LiveActivityTarget, "token" | "environment" | "kind">): void {
+    this.liveActivity.drop(address);
+  }
   preferences(id: DeviceId, input: unknown): void {
     const device = this.device(id);
     if (!device) throw new Error("Device unavailable");
@@ -346,6 +384,7 @@ export class NotificationDatabase {
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
       this.inbox.remove(id);
       this.ledger.forgetDevice(id);
+      this.liveActivity.forget(id);
     });
   }
   /**
@@ -356,6 +395,7 @@ export class NotificationDatabase {
     this.transaction(() => {
       this.statement("UPDATE devices SET expired=1 WHERE id=? AND revoked=0").run(id);
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
+      this.liveActivity.forget(id);
     });
   }
   expireAddress(id: DeviceId, address: NotificationDevice["address"]): boolean {

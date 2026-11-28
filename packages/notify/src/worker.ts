@@ -10,6 +10,7 @@ import {
   type Notification,
   type DeviceId,
   type Event,
+  type LiveActivitySync,
   type PresenceUpdate,
   type ThreadId,
 } from "@ace/protocol";
@@ -23,11 +24,12 @@ import {
   type ToWorker,
   type WorkerValue,
 } from "./worker-wire.ts";
-const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }));
-const PushDevices = z.array(NotificationDevice);
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
 import { InboxFeed } from "./inbox.ts";
+import type { LiveActivityTarget } from "./live-activity.ts";
+const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }));
+const PushDevices = z.array(NotificationDevice);
 
 /** A message that claims to be a worker reply: an object with a string `type`. */
 function isWireFrame(input: unknown): boolean {
@@ -474,6 +476,39 @@ export class NotificationWorker {
   }
   async disconnect(session: string): Promise<void> {
     await this.checked({ method: "disconnect", session });
+  }
+  /**
+   * The phone's Live Activity tokens for this machine, from the ids the daemon proved are one
+   * install. Authoritative: a missing token clears its kind, a missing object both.
+   */
+  async syncLiveActivity(
+    device: DeviceId,
+    linked: readonly DeviceId[],
+    liveActivity?: LiveActivitySync,
+  ): Promise<void> {
+    await this.checked({
+      method: "syncLiveActivity",
+      device,
+      linked: linked.filter((other) => other !== device).slice(0, linkedLimit),
+      ...(liveActivity === undefined ? {} : { liveActivity }),
+    });
+  }
+  /** One token of each kind per device, at most twice the device capacity. */
+  async liveActivityTargets(): Promise<LiveActivityTarget[]> {
+    const targets = await this.checked({ method: "liveActivityTargets" });
+    // The worker is this build (its shape is checked when it starts) and the reply is the store's
+    // own rows: typed, not validated again (ADR 0125).
+    return Array.isArray(targets) ? (targets as LiveActivityTarget[]) : [];
+  }
+  async clearLiveActivity(): Promise<void> {
+    await this.checked({ method: "clearLiveActivity" });
+  }
+  /** A gateway said this token is gone; a token rotated since is another row and stays. */
+  async dropLiveActivityToken(
+    address: Pick<LiveActivityTarget, "token" | "environment" | "kind">,
+  ): Promise<void> {
+    const { token, environment, kind } = address;
+    await this.checked({ method: "dropLiveActivityToken", token, environment, kind });
   }
   /** Threads a paired machine delegated here, at most 256 per call (`markRemote`). */
   async markRemote(threads: readonly ThreadId[], signal?: AbortSignal): Promise<void> {
