@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentId, MachineMessage, MachineThreadView, ProviderKind, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { RECHECK_WINDOW_MS } from "./child-recheck.ts";
 
 export const ChildRow = z.object({
   id: ThreadId,
@@ -476,6 +477,36 @@ export class ChildLedger {
       );
       for (const row of rows) end.run(row.id, row.settledAt);
     });
+  }
+  /**
+   * Whether any child on another machine is still watched at wall time `now`, so a machine's
+   * Live Activity holds its end (ADR 0223, amendment 1):
+   * - one working there, lost ones included;
+   * - an ordinary settled child until the re-check retires it (its `settled_at` cleared once its
+   *   final check is answered), whatever the clock says;
+   * - a stop never confirmed (`stopped_unconfirmed` set) for 24 hours from when it was given
+   *   up on. Its machine may never answer, so the clock ends that one; its cancel goes on.
+   * Three LIMIT 1 reads by bounded indexes, never the settled history.
+   */
+  watchingRemote(now: number): boolean {
+    return this.store.atomic(
+      (db) =>
+        db
+          .prepare(
+            "SELECT 1 FROM machine_children INDEXED BY machine_children_unsettled WHERE settled=0 LIMIT 1",
+          )
+          .get() !== undefined ||
+        db
+          .prepare(
+            "SELECT 1 FROM machine_children INDEXED BY machine_children_settled WHERE settled=1 AND settled_at IS NOT NULL AND stopped_unconfirmed=0 LIMIT 1",
+          )
+          .get() !== undefined ||
+        db
+          .prepare(
+            "SELECT 1 FROM machine_children INDEXED BY machine_children_settled WHERE settled=1 AND settled_at>? AND stopped_unconfirmed<>0 LIMIT 1",
+          )
+          .get(now - RECHECK_WINDOW_MS) !== undefined,
+    );
   }
   /** Machines with a child to read: working there, or settled and still tracked. */
   watchedMachines(): string[] {

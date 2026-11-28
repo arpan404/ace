@@ -246,6 +246,10 @@ export const MachineThreadView = WatchedThread.extend({
     .optional(),
 });
 export type MachineThreadView = z.infer<typeof MachineThreadView>;
+/**
+ * One view per thread asked about that the machine holds. A thread left out is unanswered: the
+ * caller learns nothing of it from this reply, and asks again.
+ */
 export const MachineStatusResult = z.object({ threads: z.array(MachineThreadView).max(16) });
 export const MachineDelegateResult = z.object({
   threadId: ThreadId,

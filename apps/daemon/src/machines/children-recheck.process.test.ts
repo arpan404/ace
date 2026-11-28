@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { RECHECK_POLLS, RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
+import { ChildLedger } from "./child-ledger.ts";
 import { HOUR, POLL_MS, done, machine, working } from "./children-test-support.ts";
 
 /*
@@ -134,4 +135,67 @@ it("a child read after its 24 h mark leaves tracking for good, even across a res
   const restarted = machine(first.home, { startAt: settledAt + 2 * RECHECK_WINDOW_MS });
   expect(restarted.timers).toEqual([]);
   expect(restarted.asked).toEqual([]);
+});
+
+it("an answer that leaves a settled child out never counts as its last check", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 1);
+  // Past its 24-hour mark, Studio answers without it: nothing is known of the child.
+  h.omit(id);
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 2 * POLL_MS * RECHECK_SLOWEST_POLLS);
+  const asked = h.asked.filter((call) => call.includes(id)).length;
+  // It is still tracked, read again, and leaves only on an answer that holds it.
+  await runUntil(h, h.clock.now + 10 * POLL_MS * RECHECK_POLLS);
+  expect(h.asked.filter((call) => call.includes(id)).length).toBeGreaterThan(asked);
+  h.report(id, done("Done."));
+  await runUntil(h, h.clock.now + 2 * POLL_MS * RECHECK_SLOWEST_POLLS);
+  const final = h.asked.length;
+  await runUntil(h, h.clock.now + HOUR);
+  expect(h.asked.length).toBe(final);
+});
+
+it("a child that starts again just before its 24-hour mark, its machine unreachable, holds a Live Activity's end past the mark", async () => {
+  const h = machine(undefined, { pollMs: 1000 });
+  const ledger = new ChildLedger(h.store);
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 60_000);
+  // At 23 h 59 min it starts again there, and its machine can't be reached for hours.
+  h.report(id, working);
+  h.reads.error = new Error("Studio is unreachable");
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 3 * HOUR);
+  // Its final check has not been answered: it is still watched, so no end may go.
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+  delete h.reads.error;
+  await runUntil(h, h.clock.now + 60_000);
+  expect(h.state(id)).toBe("working");
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+});
+
+it("a stop its machine never confirms stops holding a Live Activity's end after 24 hours, while its cancel goes on", async () => {
+  const h = machine(undefined, { pollMs: 1000, stopPlan: [{ action: "cancel", waitMs: 2_000 }] });
+  const ledger = new ChildLedger(h.store);
+  const id = h.add("child");
+  h.report(id, working);
+  await runUntil(h, h.clock.now + 2_000);
+  // Stopped here; its Mac stays paired but never answers again.
+  h.reads.error = new Error("Studio is unreachable");
+  h.children.stop(id);
+  await runUntil(h, h.clock.now + 10_000);
+  expect(h.children.watched(id)?.view.contact).toBe("unconfirmed");
+  const stoppedAt = h.clock.now;
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+  await runUntil(h, stoppedAt + RECHECK_WINDOW_MS - 60_000);
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+  const cancels = h.cancels.length;
+  await runUntil(h, stoppedAt + RECHECK_WINDOW_MS + HOUR);
+  // A day on it no longer holds the end; its cancel still goes out.
+  expect(ledger.watchingRemote(h.clock.now)).toBe(false);
+  expect(h.cancels.length).toBeGreaterThan(cancels);
 });

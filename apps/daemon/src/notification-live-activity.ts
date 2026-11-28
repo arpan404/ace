@@ -46,6 +46,12 @@ export interface LiveActivityOptions {
   /** A clear or drop the worker did not confirm: the caller's retry lane replays it via resume. */
   cleanupFailed?: () => void;
 }
+/**
+ * A token as one read of the store found it, for a push. `binding` names that read's
+ * registration of the token: a sync that removes or replaces it, a drop, a device fence or a
+ * clear retires the binding, so a send that obtained the target earlier fails `eligible`.
+ */
+export type LiveActivitySendTarget = LiveActivityTarget & { readonly binding: number };
 export interface LiveActivityRegistrar {
   /** Persists first; the gateway registration runs detached and may fail without failing this. */
   sync(
@@ -57,12 +63,19 @@ export interface LiveActivityRegistrar {
   resume(): Promise<void>;
   /** The tokens #2760 may push with; empty while push is off or a cleanup is unconfirmed. */
   targets(): Promise<LiveActivityTarget[]>;
+  /** The same tokens, each bound to its current registration for `eligible`. */
+  sendTargets(): Promise<LiveActivitySendTarget[]>;
   /** Push turned off: forget every handle and drop every stored token. */
   clear(): Promise<void>;
   /** A gateway said this token is gone (410). */
   drop(address: Pick<LiveActivityTarget, "token" | "environment" | "kind">): Promise<void>;
   /** After unregister or revoke: forget handles whose tokens the store no longer holds. */
   forgetMissing(): Promise<void>;
+  /**
+   * Whether a token may be pushed with right now: still the registration it was read under,
+   * unfenced and still authorized. Checked again just before the POST.
+   */
+  eligible(target: LiveActivitySendTarget): boolean;
   /** A device's cleanup started: no token it synced is used or registered until it is acked. */
   fenceDevice(device: DeviceId): void;
   /** The worker confirmed that device's cleanup: its remaining tokens may be used again. */
@@ -84,6 +97,18 @@ const pickAddress = (
   environment: address.environment,
   kind: address.kind,
 });
+const syncedAddresses = (
+  input: LiveActivitySync | undefined,
+): Pick<LiveActivityTarget, "token" | "environment" | "kind">[] => {
+  if (!input) return [];
+  const { environment } = input;
+  return [
+    ...(input.startToken ? [{ token: input.startToken, environment, kind: "start" as const }] : []),
+    ...(input.activityToken
+      ? [{ token: input.activityToken, environment, kind: "liveactivity" as const }]
+      : []),
+  ];
+};
 /** A registration that keeps failing is retried at most this often, then waits for a sync. */
 const maxAttempts = 8;
 /** A handle is renewed a day before it expires, as alerts' handles are (ADR 0106). */
@@ -134,6 +159,14 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
   let generation = 0;
   /** The store's own revision: a sync or cleanup makes an earlier targets snapshot stale. */
   let revision = 0;
+  /** Each stored token's current binding, and the ids that synced it. */
+  const bindings = new Map<string, { binding: number; devices: readonly DeviceId[] }>();
+  let lastBinding = 0;
+  /** No send that read these ids' tokens before now may post with them any more. */
+  const unbindDevices = (devices: readonly DeviceId[]) => {
+    for (const [key, entry] of bindings)
+      if (entry.devices.some((device) => devices.includes(device))) bindings.delete(key);
+  };
   let stopped = false;
 
   const serial = <T>(run: () => Promise<T>): Promise<T> => {
@@ -210,6 +243,7 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
   const clear = async (): Promise<void> => {
     generation++;
     revision++;
+    bindings.clear();
     for (const key of current.keys()) remove(key);
     clearPending = true;
     await flushCleanup();
@@ -220,6 +254,7 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
   ): Promise<void> => {
     const key = addressKey(address);
     remove(key);
+    bindings.delete(key);
     dropPending.set(key, pickAddress(address));
     revision++;
     await flushCleanup();
@@ -370,6 +405,22 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
     if (stopped) return;
     const present = new Set(targets.map(addressKey));
     for (const key of current.keys()) if (!present.has(key)) remove(key);
+    for (const key of bindings.keys()) if (!present.has(key)) bindings.delete(key);
+  };
+
+  const readTargets = async (): Promise<LiveActivityTarget[]> => {
+    if (stopped || clearPending) return [];
+    if (!(await usable())) return [];
+    const snapshot = revision;
+    const stored = await tokens.targets();
+    // A clear or sync that finished while this read waited makes the answer stale.
+    if (stopped || clearPending || snapshot !== revision) return [];
+    return stored.filter(
+      (entry) =>
+        !dropPending.has(addressKey(entry)) &&
+        !hidden(entry.devices) &&
+        (!authorize || authorize(entry.devices)),
+    );
   };
 
   const resume = async (): Promise<void> => {
@@ -394,6 +445,12 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
       await serial(async () => {
         if (stopped || startedAt !== generation) return;
         if (!(await usable())) return;
+        // Retired before the write: once it lands, a send holding a removed or replaced token
+        // of this install must not post, and a targets read already under way is stale. A
+        // token the sync carries moves to these ids even from an install they share none with.
+        unbindDevices([device, ...linked]);
+        for (const address of syncedAddresses(input)) bindings.delete(addressKey(address));
+        revision++;
         await tokens.sync(device, linked, input);
         // The newest sync replaces what any earlier snapshot read, including a same-token one
         // whose device association changed.
@@ -410,27 +467,41 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
       void registerStored().catch(report);
     },
     resume,
-    async targets() {
-      if (stopped || clearPending) return [];
-      if (!(await usable())) return [];
+    targets: readTargets,
+    async sendTargets() {
       const snapshot = revision;
-      const stored = await tokens.targets();
-      // A clear or sync that finished while this read waited makes the answer stale.
-      if (stopped || clearPending || snapshot !== revision) return [];
-      return stored.filter(
-        (entry) =>
-          !dropPending.has(addressKey(entry)) &&
-          !hidden(entry.devices) &&
-          (!authorize || authorize(entry.devices)),
-      );
+      const stored = await readTargets();
+      if (stopped || snapshot !== revision) return [];
+      return stored.map((entry) => {
+        const key = addressKey(entry);
+        let bound = bindings.get(key);
+        if (!bound) {
+          bound = { binding: ++lastBinding, devices: entry.devices };
+          bindings.set(key, bound);
+        } else {
+          bound.devices = entry.devices;
+        }
+        return Object.assign(entry, { binding: bound.binding });
+      });
     },
     clear,
     drop,
     forgetMissing,
+    eligible(address) {
+      return (
+        !stopped &&
+        !clearPending &&
+        bindings.get(addressKey(address))?.binding === address.binding &&
+        !dropPending.has(addressKey(address)) &&
+        !hidden(address.devices) &&
+        (!authorize || authorize(address.devices))
+      );
+    },
     fenceDevice(device) {
       // A snapshot that began before the fence, or while it was set, must not survive its
       // removal: the revision makes that pass stale rather than recreating a deleted target.
       revision++;
+      unbindDevices([device]);
       fencedDevices.add(device);
       for (const [key, record] of current) if (record.devices.includes(device)) remove(key);
     },
@@ -442,6 +513,7 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
       stopped = true;
       generation++;
       for (const key of current.keys()) remove(key);
+      bindings.clear();
       fencedDevices.clear();
       lifetime.abort();
     },

@@ -259,6 +259,8 @@ export function machine(
     });
     return threadId;
   };
+  /** The machine leaves the child out of its answers, as one that no longer lists it might. */
+  const omit = (id: string) => views.delete(id);
   const report = (id: string, next: Partial<MachineThreadView>) =>
     views.set(id, {
       threadId: ThreadId.parse(id),
@@ -286,9 +288,12 @@ export function machine(
   const state = (id: string) => children.watched(ThreadId.parse(id))?.view.state;
   return {
     home,
+    /** The store itself, for what reads the ledger beside the poll (a Live Activity's end). */
+    store: real,
     children,
     add,
     report,
+    omit,
     fire,
     step,
     state,

@@ -690,7 +690,8 @@ export class MachineChildren implements RemoteChildren {
         first.parent_thread,
         ids.map((id) => ThreadId.parse(id)),
       );
-      outcome = { kind: "answered" };
+      // Only a child the answer holds a view of was answered.
+      outcome = { kind: "answered", reported: new Set(views.map((view) => String(view.threadId))) };
       this.machineReachable(machine, startedAt);
     } catch (error) {
       // The machine saying it holds no record of a child is its answer for that child; any

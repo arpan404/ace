@@ -268,7 +268,11 @@ export function nextDue(
 
 /** What came back for one call. */
 export type CallOutcome =
-  | { kind: "answered" }
+  /**
+   * The machine answered. `reported` holds the children its answer had a view of: one it left
+   * out learned nothing from it, so it is neither checked nor let go of.
+   */
+  | { kind: "answered"; reported?: ReadonlySet<string> }
   /** The machine refused the call: it holds no record of a child in it from this machine. */
   | { kind: "not_found" }
   /**
@@ -324,8 +328,13 @@ export function foldCall(
   };
   for (const id of ids) {
     const rec: ChildRecord = { ...(records.get(id) ?? blank()), inFlight: false };
-    // Nothing learned: due again as before this call, a working child on the next turn.
-    if (outcome.kind === "unapplied") next.set(id, rec);
+    // Nothing learned: due again as before this call, a working child on the next turn. An
+    // answer that left this child out is no answer for it.
+    if (
+      outcome.kind === "unapplied" ||
+      (outcome.kind === "answered" && outcome.reported !== undefined && !outcome.reported.has(id))
+    )
+      next.set(id, rec);
     else if (outcome.kind === "answered") {
       const { retryAt: _retryAt, ...rest } = rec;
       // Answered alone: it may share calls again once its time alone is over.

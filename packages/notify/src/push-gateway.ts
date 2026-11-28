@@ -8,6 +8,7 @@ import {
   type PushAlertPayload,
 } from "@ace/protocol";
 import type { LiveActivityTarget } from "./live-activity.ts";
+import type { ActivityPush } from "./live-activity-schedule.ts";
 import { encryptWebPush, p256SigningKey, vapidAuthorization } from "./webpush-crypto.ts";
 import type { DeliveryResult, NotificationTransport } from "./service.ts";
 
@@ -43,7 +44,20 @@ export type ActivityRegistration =
   | { status: "registered"; handle: string; expiresAt: number }
   | { status: "unsupported" | "disabled" | "gone" | "failed" }
   | { status: "retry"; retryAfterMs?: number };
-export interface PushGatewayTransport extends NotificationTransport, AccessPushTransport {
+export type ActivityDelivery =
+  | { status: "sent" | "skipped" | "refresh" | "unsupported" | "disabled" | "gone" | "failed" }
+  | { status: "retry"; retryAfterMs?: number };
+
+export interface ActivitySender {
+  /** Reads the current state just before POST, after any gateway settings and registration I/O. */
+  sendActivity(
+    address: ActivityAddress,
+    prepare: () => ActivityPush | undefined,
+    signal: AbortSignal,
+  ): Promise<ActivityDelivery>;
+}
+export interface PushGatewayTransport
+  extends NotificationTransport, AccessPushTransport, ActivitySender {
   registerActivity(address: ActivityAddress, signal: AbortSignal): Promise<ActivityRegistration>;
   /** Drop the cached handle for a token that was removed or whose handle the gateway refused. */
   forgetActivity(address: ActivityAddress): void;
@@ -341,46 +355,104 @@ export function createPushGatewayTransport(
       return "retry";
     }
   };
-  const registerActivity = async (
+  const registrationFor = async (
+    target: PushGatewayTarget,
     address: ActivityAddress,
     signal: AbortSignal,
   ): Promise<ActivityRegistration> => {
+    if (!target.enabled) return { status: "disabled" };
+    const supported = await capabilitiesFor(target.origin);
+    // A slow probe can outlive a settings change: never register a token with the old gateway.
+    const active = await options.target();
+    if (signal.aborted) return { status: "retry" };
+    if (!active.enabled) return { status: "disabled" };
+    if (active.origin !== target.origin) return { status: "retry" };
+    if (!supported.ok)
+      return supported.retryAfterMs === undefined
+        ? { status: "retry" }
+        : { status: "retry", retryAfterMs: supported.retryAfterMs };
+    if (!supported.kinds.has(address.kind)) return { status: "unsupported" };
+    const found = await handleFor(target.origin, address, address.kind, signal);
+    if (!found.ok) {
+      if (found.status === "gone") {
+        // A delayed 410 belongs to the gateway that was active when the request started.
+        const current = await options.target();
+        if (signal.aborted || !current.enabled || current.origin !== target.origin)
+          return { status: "retry" };
+        return { status: "gone" };
+      }
+      if (found.status === "failed") return { status: "failed" };
+      return found.retryAfterMs === undefined
+        ? { status: "retry" }
+        : { status: "retry", retryAfterMs: found.retryAfterMs };
+    }
+    return {
+      status: "registered",
+      handle: found.handle.handle,
+      expiresAt: found.handle.expiresAt,
+    };
+  };
+  const registerActivity: PushGatewayTransport["registerActivity"] = async (address, signal) => {
     if (signal.aborted) return { status: "retry" };
     try {
-      const target = await options.target();
-      // Push is off on this machine: no handle is registered for a push that won't happen.
-      if (!target.enabled) return { status: "disabled" };
-      const supported = await capabilitiesFor(target.origin);
-      // A slow probe can outlive a settings change: never register a token with the old gateway.
+      return await registrationFor(
+        await options.target(),
+        address,
+        AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+      );
+    } catch {
+      return { status: "retry" };
+    }
+  };
+  const sendActivity: ActivitySender["sendActivity"] = async (address, prepare, signal) => {
+    if (signal.aborted) return { status: "skipped" };
+    if (address.kind !== "liveactivity") return { status: "failed" };
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+    let target: PushGatewayTarget;
+    let handle: string;
+    try {
+      target = await options.target();
+      const registration = await registrationFor(target, address, requestSignal);
+      if (registration.status !== "registered") return registration;
+      handle = registration.handle;
       const active = await options.target();
-      if (signal.aborted) return { status: "retry" };
       if (!active.enabled) return { status: "disabled" };
       if (active.origin !== target.origin) return { status: "retry" };
-      if (!supported.ok)
-        return supported.retryAfterMs === undefined
-          ? { status: "retry" }
-          : { status: "retry", retryAfterMs: supported.retryAfterMs };
-      if (!supported.kinds.has(address.kind)) return { status: "unsupported" };
-      const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-      const found = await handleFor(target.origin, address, address.kind, requestSignal);
-      if (!found.ok) {
-        if (found.status === "gone") {
-          // A delayed 410 belongs to the gateway that was active when the request started.
-          const current = await options.target();
-          if (signal.aborted || !current.enabled || current.origin !== target.origin)
-            return { status: "retry" };
-          return { status: "gone" };
-        }
-        if (found.status === "failed") return { status: "failed" };
-        return found.retryAfterMs === undefined
-          ? { status: "retry" }
-          : { status: "retry", retryAfterMs: found.retryAfterMs };
+    } catch {
+      return { status: "retry" };
+    }
+    if (requestSignal.aborted) return { status: "skipped" };
+    // Preparing can fail on a local persistence error. Let the caller report and retry it.
+    const body = prepare();
+    if (!body) return { status: "skipped" };
+    try {
+      const response = await request(new URL(`/v1/activity/${handle}`, target.origin), {
+        method: "POST",
+        redirect: "error",
+        signal: requestSignal,
+        headers: {
+          "content-type": "application/json",
+          authorization: authorization(target.origin),
+        },
+        body: JSON.stringify(body),
+      });
+      const delay = retryAfterMs(response);
+      await response.body?.cancel();
+      if (response.status === 201) return { status: "sent" };
+      if (response.status === 404) {
+        const id = handleKey(target.origin, address, address.kind);
+        if (handles.get(id)?.handle === handle) handles.delete(id);
+        return { status: "refresh" };
       }
-      return {
-        status: "registered",
-        handle: found.handle.handle,
-        expiresAt: found.handle.expiresAt,
-      };
+      if (response.status === 410) {
+        const active = await options.target();
+        return !signal.aborted && active.enabled && active.origin === target.origin
+          ? { status: "gone" }
+          : { status: "retry" };
+      }
+      if (response.status === 429 || response.status >= 500)
+        return delay === undefined ? { status: "retry" } : { status: "retry", retryAfterMs: delay };
+      return { status: "failed" };
     } catch {
       return { status: "retry" };
     }
@@ -423,6 +495,7 @@ export function createPushGatewayTransport(
       );
     },
     registerActivity,
+    sendActivity,
     forgetActivity,
     forget() {
       forgetEpoch++;
