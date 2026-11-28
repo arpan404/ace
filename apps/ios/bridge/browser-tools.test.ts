@@ -73,8 +73,18 @@ describe("The phone's browser tools", () => {
   });
 
   test("a thread without a browser opens one for its first address, in the blank tab", async () => {
-    const { daemon, sink, view } = await opened({ browser: false });
-    await until(() => sink.read("browser:view")?.error != null, "no browser yet");
+    const { daemon, sink, view, requested } = await opened({ browser: false });
+    await until(
+      () =>
+        requested.some(
+          (each) =>
+            typeof each === "object" &&
+            each !== null &&
+            "type" in each &&
+            each.type === "browser.subscribe",
+        ),
+      "no browser yet",
+    );
     view.action({ kind: "go", text: "example.com" });
     await until(() => state(sink)?.address === "example.com", "opened and navigated");
     expect(state(sink)?.tabs).toHaveLength(1);

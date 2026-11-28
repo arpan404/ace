@@ -226,14 +226,25 @@ describe("Live browser view", () => {
     expect(paneReports(off.requested).at(-1)).not.toHaveProperty("viewport.audio");
   });
 
-  test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {
-    const { daemon, sink, view, scheduled } = await live({ browser: false });
+  test("a thread whose browser isn't open shows no page, not a failure, and is asked again", async () => {
+    const { daemon, sink, view, scheduled, requested, releaseSubscribes } = await live({
+      browser: false,
+      holdSubscribes: true,
+    });
     view.action({ kind: "open", threadId: "web", viewport });
-    await until(() => sink.read("browser:view")?.error != null, "refused subscribe");
+    await until(() => paneReports(requested).length === 1, "subscribe sent");
+    const before = sink.putsOf.get("browser:view") ?? 0;
+    releaseSubscribes();
+    await until(() => (sink.putsOf.get("browser:view") ?? 0) > before, "refused subscribe");
+    // The phone offers "Open a page" here; an error would say the machine can't be reached.
+    expect(sink.read("browser:view")).toMatchObject({ error: null, state: null });
     expect(scheduled.length).toBe(1);
     daemon.browser.drive("web", { url: "https://shop.test/" });
     scheduled.shift()?.();
-    await until(() => state(sink)?.url === "https://shop.test/", "subscribed later");
+    await until(() => {
+      releaseSubscribes();
+      return state(sink)?.url === "https://shop.test/";
+    }, "subscribed later");
     expect(sink.read("browser:view")?.error).toBeNull();
     view.close();
     expect(sink.read("browser:view")).toBeUndefined();

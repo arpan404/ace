@@ -1,6 +1,7 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
 import {
+  isBrowserNotOpen,
   MediaSubscriptions,
   mediaSubscribeDeadlineMs,
   SubscribeRetry,
@@ -633,7 +634,11 @@ export class BrowserLive {
             // falls back as the shared client says, and is asked again on its ladder.
             failed(new Error(reply.error ?? ""));
             if (refused) return;
-            watch.error = reply.error ?? "browser_failed";
+            // A thread whose browser isn't running has no page to show, which the phone offers
+            // to open; only other refusals mean the view couldn't be shown.
+            watch.error = isBrowserNotOpen(reply.error)
+              ? undefined
+              : (reply.error ?? "browser_failed");
             this.#putView(watch);
             return;
           }
