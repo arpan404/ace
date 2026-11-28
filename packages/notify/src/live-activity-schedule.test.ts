@@ -79,6 +79,13 @@ it("coalesces the latest counts and spaces out another push in the same second",
   ).toEqual({ event: "update", priority: 5 });
 });
 
+it("spaces two pushes a full second apart on the elapsed clock", () => {
+  const input = { ...initial, last: { counts: working, at: 10_500 }, now: 11_000 };
+  expect(activityDecision({ ...input, counts: { ...working, needsYou: 1 } })).toEqual({
+    at: 11_500,
+  });
+});
+
 it.each([
   [true, 40_000, 610_000],
   [false, 70_000, 1_210_000],

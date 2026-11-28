@@ -100,6 +100,7 @@ function countKey(row: ActivityRow): (typeof counted)[BusyRow] | undefined {
 
 export interface ActivitySnapshot {
   counts: ActivityCounts;
+  /** On the elapsed clock: a clock someone sets must not shorten the quiet grace. */
   settledSince: number | undefined;
   /** Urgent transitions use the snooze of the threads that contributed to them. */
   needsYouSnoozed: boolean;
@@ -111,7 +112,12 @@ export interface ActivitySnapshot {
  * Reads the same whole-thread status and live hints as the inbox. Advance the indexed row
  * revisions in short batches so a cold home with long history never blocks startup or a send.
  */
-export function activityState(store: Store, now: () => number, finished: (seq: number) => void) {
+export function activityState(
+  store: Store,
+  clocks: { now: () => number; elapsed: () => number },
+  finished: (seq: number) => void,
+) {
+  const { now, elapsed } = clocks;
   const rows = new Map<ThreadId, Row>();
   let revision = 0;
   let removed = 0;
@@ -251,7 +257,7 @@ export function activityState(store: Store, now: () => number, finished: (seq: n
       settledSince = undefined;
       recentWork = working;
     } else if (settledSince === undefined) {
-      settledSince = at;
+      settledSince = elapsed();
       quietWork = recentWork;
       recentWork = new Set();
     }

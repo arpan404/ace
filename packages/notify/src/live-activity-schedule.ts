@@ -26,6 +26,11 @@ export interface ActivityCounts {
   background: number;
   done: number;
 }
+/**
+ * Every time here is on the daemon's elapsed (monotonic) clock, never wall time, so a clock
+ * someone sets can neither cut the quiet grace short nor hold a push back. Wall time is used
+ * only for what goes on the wire (`activityOrder`, `aps.timestamp`).
+ */
 export interface ActivitySchedule {
   now: number;
   counts: ActivityCounts;
@@ -82,15 +87,13 @@ export const sameActivityCounts = (a: ActivityCounts, b: ActivityCounts): boolea
   a.background === b.background &&
   a.done === b.done;
 
-/** The next event or the first clock time at which the current input should be checked again. */
+/** The next event, or the first elapsed time at which the current input should be checked again. */
 export function activityDecision(input: ActivitySchedule): Decision | undefined {
   const { now, counts, settledSince, last, quiet, attemptedAt = last?.at, retryAt } = input;
   const busy = activityBusy(counts);
   const endAt = busy || settledSince === undefined ? Infinity : settledSince + 120_000;
-  const availableAt = Math.max(
-    retryAt ?? 0,
-    attemptedAt === undefined ? 0 : (secondOf(attemptedAt) + 1) * 1000,
-  );
+  // One push per second (`aps.timestamp` has one-second resolution), measured as elapsed time.
+  const availableAt = Math.max(retryAt ?? 0, attemptedAt === undefined ? 0 : attemptedAt + 1000);
   if (now >= endAt) {
     return availableAt > now ? { at: availableAt } : { event: "end", priority: quiet ? 5 : 10 };
   }

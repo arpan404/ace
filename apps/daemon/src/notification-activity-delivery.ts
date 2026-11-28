@@ -26,12 +26,16 @@ interface Options {
   drop(target: LiveActivityTarget): Promise<void>;
   requestSignal(target: LiveActivityTarget): AbortSignal;
   preferences(device: DeviceId): Promise<NotificationPreferences>;
+  /** Wall time: quiet hours, snoozes and what goes on the wire. */
   now: () => number;
+  /** Elapsed time for every interval: the quiet grace, spacing, throttles and retries. */
+  monotonic: () => number;
   delay: (run: () => void, milliseconds: number) => () => void;
   report(error: unknown): void;
   signal: AbortSignal;
 }
 
+/** Every time in a stream is on the elapsed clock. */
 interface Stream {
   target: LiveActivityTarget;
   doneAtJoin: number;
@@ -64,9 +68,10 @@ function snoozed(state: ActivitySnapshot, stream: Stream) {
 /** One delivery lane and deadline per machine. Transport delays never queue an old payload. */
 export function createActivityDelivery(options: Options) {
   const { store, now, report, signal } = options;
+  const elapsed = options.monotonic;
   const streams = new Map<string, Stream>();
   const completions: number[] = [];
-  const facts = activityState(store, now, (seq) => completions.push(seq));
+  const facts = activityState(store, { now, elapsed }, (seq) => completions.push(seq));
   let journal: ReturnType<typeof activityJournal> | undefined;
   let generation = 0;
   let loaded = -1;
@@ -76,6 +81,8 @@ export function createActivityDelivery(options: Options) {
   let deadline = Infinity;
   let closed = false;
   let completionCount = 0;
+  /** Before the first push of this run: one second after the last push a past run recorded. */
+  let firstPushAt = 0;
 
   const arm = (at: number) => {
     if (closed || signal.aborted || at >= deadline) return;
@@ -87,18 +94,18 @@ export function createActivityDelivery(options: Options) {
         cancelTimer = undefined;
         void run().catch(report);
       },
-      Math.max(0, at - now()),
+      Math.max(0, at - elapsed()),
     );
   };
   const refresh = () => {
     generation++;
-    arm(now());
+    arm(elapsed());
   };
   const stopEvents = store.subscribe((events) => {
-    if (streams.size > 0 && facts.changed(events)) arm(now());
+    if (streams.size > 0 && facts.changed(events)) arm(elapsed());
   });
   const stopReads = store.onThreadRead(() => {
-    if (streams.size > 0) arm(now());
+    if (streams.size > 0) arm(elapsed());
   });
 
   function persistCompletions() {
@@ -113,7 +120,13 @@ export function createActivityDelivery(options: Options) {
     const targets = (await options.targets()).filter((target) => target.kind === "liveactivity");
     if (closed || asked !== generation) return;
     loaded = asked;
-    if (targets.length > 0) journal ??= activityJournal(store);
+    if (targets.length > 0 && !journal) {
+      journal = activityJournal(store);
+      // The past run's last push is in wall time. A clock set back since then waits one second.
+      const wall = now();
+      const nextSecond = (secondOf(Math.min(journal.bootAttemptedAt, wall)) + 1) * 1000;
+      firstPushAt = elapsed() + Math.min(1000, Math.max(0, nextSecond - wall));
+    }
     persistCompletions();
     const present = new Set(targets.map(keyOf));
     for (const key of streams.keys()) if (!present.has(key)) streams.delete(key);
@@ -133,7 +146,7 @@ export function createActivityDelivery(options: Options) {
   function snapshot(stream: Stream): ActivitySnapshot | undefined {
     const state = facts.read(stream.target.devices);
     if (!state) {
-      arm(now() + 10);
+      arm(elapsed() + 10);
       return undefined;
     }
     state.counts.done = Math.min(999, Math.max(0, completionCount - stream.doneAtJoin));
@@ -142,23 +155,20 @@ export function createActivityDelivery(options: Options) {
 
   function decide(stream: Stream, state: ActivitySnapshot, at: number): Decision | undefined {
     if (state.settledSince !== undefined && stream.rejectedEnd === state.settledSince) return;
-    const attemptedAt = stream.attemptedAt ?? journal?.bootAttemptedAt;
+    const wall = now();
+    const retryAt = Math.max(
+      stream.retryAt ?? 0,
+      stream.attemptedAt === undefined ? firstPushAt : 0,
+    );
     const next = activityDecision({
       ...state,
       now: at,
       frequentUpdates: stream.target.frequentUpdates,
-      quiet: snoozed(state, stream) || (stream.prefs?.some((prefs) => isQuiet(prefs, at)) ?? false),
+      quiet:
+        snoozed(state, stream) || (stream.prefs?.some((prefs) => isQuiet(prefs, wall)) ?? false),
       ...(stream.last ? { last: stream.last } : {}),
-      // If the clock was set back while stopped, leave one second before the restart push.
-      ...(attemptedAt === undefined
-        ? {}
-        : {
-            attemptedAt:
-              Math.min(attemptedAt, bootAt) === bootAt && stream.attemptedAt === undefined
-                ? bootAt
-                : attemptedAt,
-          }),
-      ...(stream.retryAt === undefined ? {} : { retryAt: stream.retryAt }),
+      ...(stream.attemptedAt === undefined ? {} : { attemptedAt: stream.attemptedAt }),
+      ...(retryAt > 0 ? { retryAt } : {}),
     });
     if (next && "at" in next) {
       arm(next.at);
@@ -174,7 +184,7 @@ export function createActivityDelivery(options: Options) {
     const target = stream.target;
     if (!journal || !eligible(target)) return;
     if (stream.ended) {
-      if (stream.retryAt !== undefined && stream.retryAt > now()) {
+      if (stream.retryAt !== undefined && stream.retryAt > elapsed()) {
         arm(stream.retryAt);
         return;
       }
@@ -186,7 +196,7 @@ export function createActivityDelivery(options: Options) {
     if (closed || !eligible(target)) return;
     const state = snapshot(stream);
     if (!state) return;
-    const at = now();
+    const at = elapsed();
     const decision = decide(stream, state, at);
     if (!decision) return;
     // Reserve order and recompute from committed state in the same synchronous turn as POST.
@@ -199,10 +209,11 @@ export function createActivityDelivery(options: Options) {
         persistCompletions();
         const latest = snapshot(stream);
         if (!latest) return;
-        const clock = now();
+        const clock = elapsed();
         const next = decide(stream, latest, clock);
         if (!next || !journal) return;
-        const { seq, timestamp } = journal.reserve(clock);
+        const wall = now();
+        const { seq, timestamp } = journal.reserve(wall);
         stream.attemptedAt = clock;
         attempted = { state: latest, decision: next, at: clock };
         const common = {
@@ -213,7 +224,7 @@ export function createActivityDelivery(options: Options) {
           state: {
             ...latest.counts,
             seq,
-            at: secondOf(clock),
+            at: secondOf(wall),
             phase: next.event === "end" ? ("settled" as const) : ("busy" as const),
           },
         };
@@ -264,7 +275,7 @@ export function createActivityDelivery(options: Options) {
       case "unsupported":
         stream.failures++;
         stream.retryAt =
-          now() +
+          elapsed() +
           (result.status === "retry" && result.retryAfterMs !== undefined
             ? Math.max(rereadMs, result.retryAfterMs)
             : result.status === "unsupported"
@@ -275,7 +286,6 @@ export function createActivityDelivery(options: Options) {
   }
 
   const open = () => !closed && !signal.aborted;
-  const bootAt = now();
   function run(): Promise<void> {
     if (closed || signal.aborted) return Promise.resolve();
     if (running) {
@@ -299,7 +309,7 @@ export function createActivityDelivery(options: Options) {
                 } catch (error) {
                   report(error);
                   stream.failures++;
-                  stream.retryAt = now() + failureDelay(stream.failures);
+                  stream.retryAt = elapsed() + failureDelay(stream.failures);
                   arm(stream.retryAt);
                 }
               }),
@@ -307,7 +317,7 @@ export function createActivityDelivery(options: Options) {
         } catch (error) {
           report(error);
           loaded = -1;
-          arm(now() + rereadMs);
+          arm(elapsed() + rereadMs);
           return;
         }
       } while (again && open());
@@ -321,7 +331,7 @@ export function createActivityDelivery(options: Options) {
     run,
     refresh,
     snooze(_thread: ThreadId) {
-      if (streams.size > 0) arm(now());
+      if (streams.size > 0) arm(elapsed());
     },
     stop() {
       closed = true;

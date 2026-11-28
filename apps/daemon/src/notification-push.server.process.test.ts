@@ -371,7 +371,7 @@ async function activityDaemon(options: { capabilities?: boolean; schedule?: bool
       { push },
       0,
       {
-        ...(options.schedule ? { now } : {}),
+        ...(options.schedule ? { now, monotonic: now } : {}),
         liveActivity: { gateway: push, target, allowed: () => true },
       },
     );

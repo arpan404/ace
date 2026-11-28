@@ -73,6 +73,8 @@ interface Runtime {
   signal?: AbortSignal;
   spawn?: ConstructorParameters<typeof NotificationWorker>[0]["spawn"];
   now?: () => number;
+  /** Elapsed time, for intervals a clock someone sets must not stretch or cut short. */
+  monotonic?: () => number;
   delay?: (run: () => void, milliseconds: number) => () => void;
   /** How long an idle worker stays up before it stops. */
   quietMs?: number;
@@ -134,6 +136,7 @@ export function createDaemonNotifications(
     ? AbortSignal.any([runtime.signal, deliveryLifetime.signal])
     : deliveryLifetime.signal;
   const now = runtime.now ?? Date.now;
+  const monotonic = runtime.monotonic ?? (() => performance.now());
   const delay = runtime.delay ?? unrefDelay;
   const quietMs = runtime.quietMs ?? 60_000;
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
@@ -575,6 +578,7 @@ export function createDaemonNotifications(
           requestSignal: () => deliveryLifetime.signal,
           preferences: (device) => use((worker) => worker.getPreferences(device)),
           now,
+          monotonic,
           delay,
           report,
           signal,
