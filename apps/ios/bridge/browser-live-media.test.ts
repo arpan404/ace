@@ -347,3 +347,29 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
   await until(() => subscribes(browser.requested).length === asked + 1, "after the cooldown");
   expect(subscribes(browser.requested).at(-1)?.media).toBeUndefined();
 });
+
+test("a browser that opens after the view waited out the not-open retries still gets video on the media connection", async () => {
+  const media = connection();
+  media.bind("mc_aaaaaaaa");
+  const browser = await live({ browser: false, media: "binds" });
+  const deliveries: DeliveryState[] = [];
+  browser.view.useMedia(media.route, (_view, state) => deliveries.push(state));
+  browser.view.action({ kind: "open", threadId: "web", viewport });
+  await until(() => subscribes(browser.requested).length === 1, "the first subscribe");
+  // No browser yet: each refused try waits the ladder's next step, then the cooldown.
+  for (const wait of [...mediaRetryDelaysMs, mediaRetryCooldownMs]) {
+    const before = subscribes(browser.requested).length;
+    await until(() => {
+      browser.elapse(wait);
+      return subscribes(browser.requested).length > before;
+    }, `the try after ${wait}ms`);
+  }
+  // An agent opens the browser; the view's next try finds it.
+  browser.daemon.browser.drive("web", { url: "https://shop.test/" });
+  await until(() => {
+    browser.elapse(mediaRetryCooldownMs);
+    return browser.sink.read("browser:view")?.state != null;
+  }, "browser state");
+  expect(subscribes(browser.requested).at(-1)?.media).toEqual({ connection: "mc_aaaaaaaa" });
+  expect(deliveries.at(-1)).toMatchObject({ path: "mc_aaaaaaaa" });
+});

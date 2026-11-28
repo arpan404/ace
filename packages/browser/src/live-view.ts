@@ -20,6 +20,7 @@ export {
   type Settled,
   type Stamped,
 } from "./media-route.ts";
+export { browserNotOpen, isBrowserNotOpen } from "./not-open.ts";
 export { SubscribeRetry, type RetryLadder, type RetrySchedule } from "./subscribe-retry.ts";
 export {
   candidateLimits,

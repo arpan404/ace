@@ -1,11 +1,15 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
 import {
+  isBrowserNotOpen,
   MediaSubscriptions,
+  mediaRetryDelaysMs,
   mediaSubscribeDeadlineMs,
   SubscribeRetry,
   type DeliveryState,
   type MediaRoute,
+  type RetryLadder,
+  type RetrySchedule,
 } from "@ace/browser/live-view";
 import {
   BrowserCaptureViewport,
@@ -167,12 +171,36 @@ interface Watch {
    * on its own ladder, which never gives up: its source may become available at any time.
    */
   unserved: SubscribeRetry;
+  /** A subscribe refused because the thread's browser isn't running asks again on this one. */
+  notOpen: { retry: SubscribeRetry; reset(): void };
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
   error: string | undefined;
   pages: Map<string, BrowserPageState>;
   retry: (() => void) | undefined;
+}
+
+/**
+ * Waits between tries while the thread's browser isn't running: the shared steps, then the
+ * cooldown each time. The media connection did nothing wrong, so it is never given up.
+ */
+function notOpenRetry(source: string, schedule: RetrySchedule) {
+  let attempt = 0;
+  const ladder: RetryLadder = {
+    retryDelay: () => {
+      const delay = mediaRetryDelaysMs[attempt];
+      if (delay !== undefined) attempt++;
+      return delay;
+    },
+    giveUp: () => {},
+  };
+  return {
+    retry: new SubscribeRetry(ladder, source, schedule),
+    reset: () => {
+      attempt = 0;
+    },
+  };
 }
 
 export class BrowserLive {
@@ -243,6 +271,8 @@ export class BrowserLive {
         if (watch.subscribed) return;
         watch.retry?.();
         watch.retry = undefined;
+        // The person opened it: no wait for a browser that wasn't running.
+        watch.notOpen.retry.stop();
         this.#subscribe(watch);
       },
     });
@@ -443,6 +473,7 @@ export class BrowserLive {
           action.threadId,
           (run, ms) => this.#schedule(ms, run),
         ),
+        notOpen: notOpenRetry(action.threadId, (run, ms) => this.#schedule(ms, run)),
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
@@ -545,6 +576,7 @@ export class BrowserLive {
     watch.retry?.();
     watch.ladder.stop();
     watch.unserved.stop();
+    watch.notOpen.retry.stop();
     this.#media.forget(watch.threadId);
     this.#endFollowing();
     this.#annotate.close();
@@ -577,6 +609,8 @@ export class BrowserLive {
     if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
     // An unserved view waits on its own ladder; an event may cut one step of it short.
     if (watch.unserved.waiting && (cause === "poll" || !watch.unserved.event())) return;
+    // So does a view whose thread has no browser running.
+    if (watch.notOpen.retry.waiting && (cause === "poll" || !watch.notOpen.retry.event())) return;
     watch.retry?.();
     watch.retry = this.#schedule(retryMs, () => {
       watch.retry = undefined;
@@ -594,6 +628,8 @@ export class BrowserLive {
     let refused = false;
     /** The request failed while it was still the view's latest, however its delivery settled. */
     let lost = false;
+    /** The daemon has no browser running for the thread. */
+    let notOpen = false;
     const failed = (error: unknown) => {
       const next = this.#media.failed(watch.threadId, begun.generation, error);
       if (next === "resubscribe") refused = true;
@@ -633,12 +669,23 @@ export class BrowserLive {
             // falls back as the shared client says, and is asked again on its ladder.
             failed(new Error(reply.error ?? ""));
             if (refused) return;
-            watch.error = reply.error ?? "browser_failed";
+            // A thread whose browser isn't running has no page to show, which the phone offers
+            // to open; only other refusals mean the view couldn't be shown.
+            if (isBrowserNotOpen(reply.error)) {
+              notOpen = true;
+              watch.error = undefined;
+              // A daemon that restarted without it: the tabs from before are gone with it.
+              watch.state = undefined;
+              watch.pages.clear();
+              this.#putPage(watch);
+            } else watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
           }
           watch.error = undefined;
           watch.subscribed = true;
+          watch.notOpen.retry.stop();
+          watch.notOpen.reset();
           // Delivery by the media connection only when the daemon's answer says so; otherwise
           // none, and why.
           this.#media.subscribed(watch.threadId, begun.generation, reply.media, reply.undelivered);
@@ -672,6 +719,11 @@ export class BrowserLive {
         if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
+        } else if (this.#watch === watch && notOpen) {
+          // Asked again on its own ladder: the shared one would give up the media connection.
+          watch.retry?.();
+          watch.retry = undefined;
+          watch.notOpen.retry.failed(() => this.#subscribe(watch, "poll"));
         } else if (this.#watch === watch && lost) {
           // Asked again on the shared ladder; the view's own poll waits with it.
           watch.retry?.();
