@@ -9,6 +9,7 @@ import Testing
     static let frame = "4143455301010029000000070000002d00000000404500000000000040934a0000000000000001860000034c00087468726561642d3100057461622d32ffd8ffd9"
     static let keyframe = "414345530102004d00000008000000530000000040220000000000004058c00000000000000001860000034c049209e4010b617663312e34324530333300110142e033ffe100046742e03301000268ce00087468726561642d3100057461622d32000000026588"
     static let delta = "4143455301020037000000090000003d0000000040240000000000004060800000000000000001860000034c049209e4000b617663312e343245303333000000087468726561642d31000000000002419a"
+    static let audio = "414345530103002b0000000b0000002e00000000402800000000000040934a00000000000000bb8002046f70757300087468726561642d3100057461622d32fcfffe"
     static let download = "414345530108001e0000000a00000021000000000000000000000000400800000000000000087468726561642d3100026431010203"
 
     @Test func jpegFramesAreSkippedUnreadSinceTheLiveViewIsVideoOnly() throws {
@@ -106,6 +107,17 @@ import Testing
         var oversized = Self.pieces(kind: 2, id: 1, meta: try keyframeMeta(), payload: Data(count: 10))[0]
         oversized.append(Data(count: StreamWire.pieceBytes))
         #expect(router.route(oversized) == .broken)
+    }
+
+    @Test func thePagesSoundIsReadAsOneOpusPacketWithItsTimestampAndTab() throws {
+        var router = BinaryRouter()
+        guard case .audio(let chunk) = router.route(try bytes(Self.audio)) else { Issue.record("no audio"); return }
+        #expect(chunk == BrowserAudioChunk(threadId: "thread-1", sequence: 12, timestamp: 1234.5, sampleRate: 48_000,
+                                           channels: 2, codec: "opus", tabId: "tab-2", bytes: Data([0xfc, 0xff, 0xfe])))
+        // A sample rate outside the protocol's bounds breaks the connection, as a bad video header does.
+        var slow = try bytes(Self.audio)
+        slow[20 + 16] = 0; slow[20 + 17] = 0; slow[20 + 18] = 0; slow[20 + 19] = 1
+        #expect(router.route(slow) == .broken)
     }
 
     @Test func aDecoderDescriptionWithoutParameterSetsIsRefused() {

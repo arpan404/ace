@@ -75,11 +75,11 @@ private final class DictationAudio: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let request = SFSpeechAudioBufferRecognitionRequest()
     private var task: SFSpeechRecognitionTask?
+    private var session: AppAudioSession.Claim?
 
     func start(recognizer: SFSpeechRecognizer, update: @escaping @Sendable (String, Bool) -> Void) throws {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // Recording outranks page sound and voice playback, so neither cuts it off.
+        session = try AppAudioSession.shared.claim(.dictation)
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
         if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
@@ -102,6 +102,7 @@ private final class DictationAudio: @unchecked Sendable {
         request.endAudio()
         task?.cancel()
         task = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AppAudioSession.shared.release(session)
+        session = nil
     }
 }

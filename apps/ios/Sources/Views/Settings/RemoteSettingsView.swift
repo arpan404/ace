@@ -39,8 +39,31 @@ struct RemoteSettingsView: View {
     var body: some View {
         if category.page == RemoteSettingsCategory.simulators.page {
             SimulatorsSettingsView(model: model)
+        } else if category.page == RemoteSettingsCategory.browser.page {
+            SettingsPageView(model: model, page: category.page, title: category.title) {
+                BrowserPhoneSection(model: model)
+            }
         } else {
             SettingsPageView(model: model, page: category.page, title: category.title)
         }
+    }
+}
+
+/// Settings › Browser's own choices on this iPhone, under the machine's: picture-in-picture.
+private struct BrowserPhoneSection: View {
+    let model: ClientModel
+    @AppStorage(BrowserPipRule.settingKey) private var pip = true
+    var body: some View {
+        Section {
+            InsetRow(icon: nil, title: "Picture in picture") {
+                Toggle("Picture in picture", isOn: $pip).labelsHidden()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.browser.pip")
+        } header: { InsetHeader("This iPhone") } footer: {
+            Text("When you leave the Browser while an agent browses or the page plays sound, the page keeps showing in a floating window.")
+        }
+        .insetRowBackground()
+        .onChange(of: pip) { model.browser.updatePip() }
     }
 }
