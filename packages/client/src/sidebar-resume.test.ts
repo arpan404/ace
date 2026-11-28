@@ -257,3 +257,38 @@ test("asking the archive again never tells a watcher the list is current before 
   collection.close();
   await f.client.close();
 });
+
+test("another project's Home list starts its own backoff, never the rest of the last project's wait", async () => {
+  const { f, collection, store } = await sidebar();
+  at(f, false, listOf([placed("a", "p", "inbox", 3)], 7));
+  const refuse = () =>
+    f.deliver({
+      type: "error",
+      subscriptionId: windowWire(f, false),
+      code: "unavailable",
+      message: "Busy",
+    });
+  // Refused three times here: the next ask waits 2 s.
+  refuse();
+  f.elapse(500);
+  refuse();
+  f.elapse(1_000);
+  refuse();
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  await collection.threadsWindow({ project: "web" });
+  const web = windowWire(f, false);
+  refuse();
+  // The new project's first refusal is asked again after its own first wait.
+  f.elapse(500);
+  await expect.poll(() => windowWire(f, false)).not.toBe(web);
+  const project = f.sent.findLast(
+    (message) => message.type === "subscribe" && message.subscriptionId === windowWire(f, false),
+  );
+  expect(
+    project?.type === "subscribe" &&
+      project.scope.kind === "threads" &&
+      project.scope.window?.project,
+  ).toBe("web");
+  collection.close();
+  await f.client.close();
+});

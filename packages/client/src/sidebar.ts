@@ -259,9 +259,12 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#wire = undefined;
       this.#home = undefined;
       this.#confirm(["home"], false);
-      // Another project's list: what this one was refused says nothing of it.
+      // Another project's list: what this one was refused, and its wait to ask again, say
+      // nothing of it. Its own first refusal starts its own backoff.
       this.#refused.delete("home");
       this.#failures.delete("home");
+      this.#waits.get("home")?.();
+      this.#waits.delete("home");
       this.#adopt("home");
     }
     // While the list starts, no filter change subscribes: the first subscribe goes for the
