@@ -38,19 +38,24 @@ function history() {
       VALUES (?, ?, 'parent', 'agent', 'studio', 'Task', 'claude', 0, NULL, 1, 1, ?)`,
     );
     for (let index = 0; index < 50_000; index++)
-      insert.run(`retired-${index}`, `parent:retired-${index}`, index % 2 ? null : 0);
+      insert.run(`retired-${index}`, `parent:retired-${index}`, null);
   });
   return { store, put, ledger: new ChildLedger(store) };
 }
 
 it("a remote child is watched while it works or while its settled window is open", () => {
   const { put, ledger } = history();
-  expect(ledger.watchingRemote(now)).toBe(false);
+  expect(ledger.watchingRemote()).toBe(false);
   put("child", 0, null);
-  expect(ledger.watchingRemote(now)).toBe(true);
+  expect(ledger.watchingRemote()).toBe(true);
   put("child", 1, now - 1000);
-  expect(ledger.watchingRemote(now)).toBe(true);
-  expect(ledger.watchingRemote(now + RECHECK_WINDOW_MS)).toBe(false);
+  expect(ledger.watchingRemote()).toBe(true);
+  // A day on, its final check not yet answered: still watched, whatever the clock says.
+  put("child", 1, now - 2 * RECHECK_WINDOW_MS);
+  expect(ledger.watchingRemote()).toBe(true);
+  // The re-check let it go: its window is closed.
+  put("child", 1, null);
+  expect(ledger.watchingRemote()).toBe(false);
 });
 
 it("checking for a watched remote child reads only bounded indexes (ADR 0170)", () => {
@@ -82,7 +87,7 @@ it("checking for a watched remote child reads only bounded indexes (ADR 0170)", 
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
-  expect(new ChildLedger(traced).watchingRemote(now)).toBe(false);
+  expect(new ChildLedger(traced).watchingRemote()).toBe(false);
   expect(plans).toEqual([
     // A partial index holding only rows with settled=0: scanning it reads only working children.
     "SCAN machine_children USING COVERING INDEX machine_children_unsettled",

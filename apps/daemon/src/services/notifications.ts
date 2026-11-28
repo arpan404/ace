@@ -41,7 +41,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
       signal: context.signal,
       slept: !retained,
       // Read from the ledger itself, so the rule holds before the machines service is up.
-      remoteWatched: (now) => children.watchingRemote(now),
+      remoteWatched: () => children.watchingRemote(),
       ...(options.notificationWorker ? { spawn: options.notificationWorker } : {}),
       ...(gateway
         ? {

@@ -288,6 +288,8 @@ export function machine(
   const state = (id: string) => children.watched(ThreadId.parse(id))?.view.state;
   return {
     home,
+    /** The store itself, for what reads the ledger beside the poll (a Live Activity's end). */
+    store: real,
     children,
     add,
     report,

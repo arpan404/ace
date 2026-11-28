@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { RECHECK_POLLS, RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
+import { ChildLedger } from "./child-ledger.ts";
 import { HOUR, POLL_MS, done, machine, working } from "./children-test-support.ts";
 
 /*
@@ -155,4 +156,24 @@ it("an answer that leaves a settled child out never counts as its last check", a
   const final = h.asked.length;
   await runUntil(h, h.clock.now + HOUR);
   expect(h.asked.length).toBe(final);
+});
+
+it("a child that starts again just before its 24-hour mark, its machine unreachable, holds a Live Activity's end past the mark", async () => {
+  const h = machine(undefined, { pollMs: 1000 });
+  const ledger = new ChildLedger(h.store);
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 60_000);
+  // At 23 h 59 min it starts again there, and its machine can't be reached for hours.
+  h.report(id, working);
+  h.reads.error = new Error("Studio is unreachable");
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 3 * HOUR);
+  // Its final check has not been answered: it is still watched, so no end may go.
+  expect(ledger.watchingRemote()).toBe(true);
+  delete h.reads.error;
+  await runUntil(h, h.clock.now + 60_000);
+  expect(h.state(id)).toBe("working");
+  expect(ledger.watchingRemote()).toBe(true);
 });

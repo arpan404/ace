@@ -76,7 +76,7 @@ function lane() {
   let paused: Promise<void> | undefined;
   const delivery = createActivityDelivery({
     store: counted,
-    remoteWatched: (at) => ledger.watchingRemote(at),
+    remoteWatched: () => ledger.watchingRemote(),
     gateway: {
       async sendActivity(_address, prepare) {
         if (paused) await paused;
@@ -258,8 +258,9 @@ it("end waits while a child on another machine is working, and while a settled o
   activity.advance(60 * 60_000);
   await activity.read();
   expect(activity.events()).not.toContain("end");
-  // The window closed long since, and the machine has been quiet for 120 s: the end goes.
+  // A day on, its last check answered, the re-check lets it go; the machine has long been quiet.
   activity.advance(24 * 60 * 60_000);
+  activity.remoteChild("remote-a", { settled: true });
   await activity.read();
   expect(activity.events().at(-1)).toBe("end");
 });

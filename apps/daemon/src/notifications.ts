@@ -76,7 +76,7 @@ interface Runtime {
   /** Elapsed time, for intervals a clock someone sets must not stretch or cut short. */
   monotonic?: () => number;
   /** Whether a child this machine delegated to another one is still watched: no end until not. */
-  remoteWatched?: (now: number) => boolean;
+  remoteWatched?: () => boolean;
   delay?: (run: () => void, milliseconds: number) => () => void;
   /** How long an idle worker stays up before it stops. */
   quietMs?: number;

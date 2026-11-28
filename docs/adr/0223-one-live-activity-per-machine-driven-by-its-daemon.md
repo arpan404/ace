@@ -103,15 +103,20 @@ and a poll only samples the child: the person there can start it again between t
 the parent can't prove it stayed quiet.
 
 1. **No `end` while this machine's ledger watches any remote child.** That is a child still
-   working there (one whose pairing was lost included), or a settled child whose 24-hour
-   re-check window is still open. A stop never confirmed counts while its window lasts.
-   Once none is watched and the machine has been quiet for 120 seconds, the `end` goes.
+   working there (one whose pairing was lost included), or a settled child the re-check still
+   tracks: until its final check, sent at or after its 24-hour mark, is answered and the ledger
+   lets it go. A clock alone never lets it go, so a child that starts again just before its mark
+   while its machine is unreachable keeps the `end` held. A stop never confirmed counts while its
+   window lasts. Once none is watched and the machine has been quiet for 120 seconds, the `end`
+   goes.
 2. **The check is bounded (ADR 0170).** Two `LIMIT 1` reads: the `machine_children_unsettled`
-   partial index, and the `settled_at` range of `machine_children_settled`. Neither reads the
-   settled history. They read the ledger directly, so the rule holds before the machines
+   partial index, and `settled_at IS NOT NULL` on `machine_children_settled`, a range seek.
+   Neither reads the settled history. They read the ledger directly, so the rule holds before the machines
    service starts.
 3. **A held `end` is looked at again on the delivery lane's own timer**, one second later, with
-   no other loop.
+   no other loop. While nothing has changed, that look reads only the two bounded queries; the
+   activity's state is built again only when something changes or the gate opens, and the gate
+   is checked once more in the same turn as the POST.
 4. **A status answer counts only for the children it holds a view of.** A child left out of a
    successful reply learns nothing from it, so a reply can't advance or close a child's watch
    without saying anything about that child. A missing-thread refusal of a read of that child
