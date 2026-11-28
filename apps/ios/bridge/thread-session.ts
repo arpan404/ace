@@ -65,7 +65,7 @@ import {
 import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
-import { goalPayload, PillFollower } from "./thread-pill.ts";
+import { compactPayload, goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { readQueuedWords } from "./queued-words.ts";
 import { followWorkLine } from "./work-line.ts";
@@ -535,6 +535,13 @@ export class ThreadSession {
           goalPayload(this.#threadId, this.#store.thread?.goal, this.#pill.editable, action.change),
           action.requestId,
           "That goal has changed. Check it and try again.",
+        );
+        break;
+      case "compact":
+        this.#dispatch(
+          compactPayload(this.#store, this.#threadId),
+          action.requestId,
+          "This thread can't compact its context right now.",
         );
         break;
       case "steps.open":

@@ -292,3 +292,65 @@ test("a pill that only says the turn works names no subagent or command", async 
   await until(() => pill()?.status ?? undefined, "the pill");
   expect(covers()).toEqual({ subagents: false, commands: false });
 });
+
+type Context = { long: string; supported: boolean; reason: string };
+const context = () => latest("thread.pill")?.context as Context | null | undefined;
+const sample = {
+  type: "context.sample",
+  agent: "root",
+  usedTokens: 124_000,
+  windowTokens: 200_000,
+  model: "gpt-5",
+} as const;
+
+test("an idle thread's pill keeps its context readout, and the context's sheet compacts it", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "full", workspaceId: "ace", title: "Full", provider: "codex" });
+  fake.apply("full", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root"), sample]);
+  const session = open(connect(fake), "full");
+  const segments = await until(() => pill()?.segments.length && pill()?.segments, "the readout");
+  expect(segments).toEqual([
+    { kind: "context", label: "62% context", detail: "", opens: "context", live: false },
+  ]);
+  expect(context()).toEqual({
+    long: "124,000 of 200,000 tokens in context",
+    supported: true,
+    reason: "",
+  });
+
+  session.handle({ type: "compact", requestId: "compact" });
+  await until(() => latest("receipt", "compact"), "the daemon's receipt");
+  expect(commands("thread.compact")).toEqual([{ type: "thread.compact", threadId: "full" }]);
+});
+
+test("a turn in progress keeps Compact back with why, and a compact sent anyway goes nowhere", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "busy", workspaceId: "ace", title: "Busy", provider: "codex" });
+  fake.apply("busy", [facts.rootAgent("codex"), facts.turn("root"), sample]);
+  const session = open(connect(fake), "busy");
+  const row = await until(() => context(), "the context row");
+  expect(row).toMatchObject({ supported: true, reason: "Wait for this turn to finish" });
+  session.handle({ type: "compact", requestId: "early" });
+  expect(await until(() => latest("admission", "early"), "the refusal")).toMatchObject({
+    ok: false,
+  });
+  expect(commands("thread.compact")).toEqual([]);
+});
+
+test("a provider with no compaction of its own shows the readout with no Compact", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "plain", workspaceId: "ace", title: "Plain", provider: "cursor" });
+  fake.apply("plain", [
+    facts.rootAgent("cursor"),
+    facts.turn("root"),
+    facts.endTurn("root"),
+    sample,
+  ]);
+  const session = open(connect(fake), "plain");
+  expect(await until(() => context(), "the context row")).toMatchObject({ supported: false });
+  session.handle({ type: "compact", requestId: "none" });
+  expect(await until(() => latest("admission", "none"), "the refusal")).toMatchObject({
+    ok: false,
+  });
+  expect(commands("thread.compact")).toEqual([]);
+});
