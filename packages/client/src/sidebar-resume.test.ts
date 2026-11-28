@@ -114,3 +114,24 @@ test("a resumed list takes the kept rows' read cursors the daemon sends with it"
   collection.close();
   await f.client.close();
 });
+
+test("a list subscribe the daemon turns down after a reconnect is asked again, and confirms on that socket", async () => {
+  const { f, collection, store, snapshot } = await sidebar();
+  snapshot(listOf([placed("a", "p", "inbox", 3)], 7));
+  await f.reconnect(12);
+  const refused = f.wire("threads").subscriptionId;
+  f.deliver({ type: "error", subscriptionId: refused, code: "unavailable", message: "Busy" });
+  // Refused is never current: the list claims nothing while it waits to ask again.
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  // As a held thread's refusal is, the list's is asked again on the same socket.
+  f.elapse(500);
+  await expect.poll(() => f.wire("threads").subscriptionId).not.toBe(refused);
+  expect(f.client.state).toBe("ready");
+  snapshot(listOf([placed("a", "p", "settled", 3)], 9));
+  expect(store.error).toBeUndefined();
+  expect(store.syncing).toBe(false);
+  expect(store.unconfirmed).toBe(false);
+  expect(store.thread("a")?.place?.tab).toBe("settled");
+  collection.close();
+  await f.client.close();
+});

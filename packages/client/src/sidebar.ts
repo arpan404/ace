@@ -156,6 +156,27 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (id === this.#archiveWire) this.#archiveWire = undefined;
     else this.#wire = undefined;
     this.#notifications.emit(["error", "sync"]);
+    // A refusal never rests while the list is held, as a thread's doesn't: the daemon may turn
+    // a subscribe down for a moment (busy, at its subscription limit). Without asking again the
+    // list stays unconfirmed for the rest of the socket. One over this client's own limit
+    // fails the same way every time: it rests.
+    if (this.#refs && error.code !== "limit" && !this.#retry) {
+      const wait = Math.min(30_000, 500 * 2 ** this.#failures++);
+      this.#retry = this.#delay(wait, () => {
+        this.#retry = undefined;
+        this.#askAgain();
+      });
+    }
+  }
+  /** The refused subscribe of what the list still shows, once more on the same socket. */
+  #askAgain(): void {
+    if (!this.#refs || !this.#ready() || this.#startup.phase === "waiting") return;
+    if (!this.#wire) this.#subscribe();
+    else if (this.#filter.archived && !this.#archiveWire) this.#subscribeArchive();
+  }
+  #cancelRetry(): void {
+    this.#retry?.();
+    this.#retry = undefined;
   }
   #view: ThreadListView | undefined;
   #memory = new FilterMemory();
@@ -253,6 +274,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #delay: (milliseconds: number, run: () => void) => () => void;
+  /** Cancels the wait before a refused subscribe is asked again. */
+  #retry: (() => void) | undefined;
+  /** Refusals in a row, for the backoff; a snapshot resets it. */
+  #failures = 0;
   #wire: string | undefined;
   #refs = 0;
   #homeSnapshotAllowed = true;
@@ -262,9 +288,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    delay: (milliseconds: number, run: () => void) => () => void,
     persistence?: Persistence,
   ) {
     this.#persistence = persistence;
+    this.#delay = delay;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
@@ -332,6 +360,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         released = true;
         if (--this.#refs === 0 && this.#startup.phase === "waiting")
           this.#drive({ type: "released" });
+        if (this.#refs === 0) this.#cancelRetry();
         if (this.#refs === 0 && this.#wire) {
           this.#await(["released"]);
           // Kept unfollowed: what a warm view paints from it is no longer confirmed.
@@ -413,6 +442,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     else if (this.#refs && !this.#wire) this.#subscribe();
   }
   disconnect(): void {
+    // The next socket subscribes afresh; a refusal on this one waits for nothing.
+    this.#cancelRetry();
     if (this.#startup.phase === "waiting") this.#drive({ type: "disconnected" });
     if (this.#refs) this.#await(["disconnected"]);
     this.#wire = undefined;
@@ -473,6 +504,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         return;
       }
       this.#failure = undefined;
+      this.#failures = 0;
       if (message.subscriptionId === this.#archiveWire) this.#archive = view;
       else this.#home = view;
       this.#confirm([archived ? "archive" : "home"], false);
