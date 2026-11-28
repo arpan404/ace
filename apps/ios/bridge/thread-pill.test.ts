@@ -354,3 +354,19 @@ test("a provider with no compaction of its own shows the readout with no Compact
   });
   expect(commands("thread.compact")).toEqual([]);
 });
+
+test("archiving a thread keeps its readout but holds Compact until it is restored", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "kept", workspaceId: "ace", title: "Kept", provider: "codex" });
+  fake.apply("kept", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root"), sample]);
+  const session = open(connect(fake), "kept");
+  await until(() => context()?.supported, "the context row");
+  fake.updateThread("kept", { archivedAt: 1_795_000_000_000 });
+  const row = await until(() => context()?.reason && context(), "the archived row");
+  expect(row).toMatchObject({ supported: true, reason: "Restore this thread to compact it" });
+  session.handle({ type: "compact", requestId: "kept" });
+  expect(await until(() => latest("admission", "kept"), "the refusal")).toMatchObject({
+    ok: false,
+  });
+  expect(commands("thread.compact")).toEqual([]);
+});

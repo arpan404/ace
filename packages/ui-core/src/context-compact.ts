@@ -7,6 +7,12 @@ import type { AgentStatus } from "@ace/protocol";
  * Compact reads this, so the web strip and the phone's sheet refuse with the same words.
  */
 
+/** The daemon's refusals of `thread.compact`, in words, by error code. */
+export const compactFailures: Readonly<Record<string, string>> = {
+  unsupported_compact: "This agent can't compact its context.",
+  thread_not_idle: "Wait for this turn to finish before compacting.",
+};
+
 /** The root agent is compacting its context right now. */
 export function contextCompacting(status: AgentStatus | undefined): boolean {
   return status?.state === "working" && status.activity === "compacting";

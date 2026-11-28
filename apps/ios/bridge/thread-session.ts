@@ -15,6 +15,7 @@ import {
   type Interaction,
 } from "@ace/protocol";
 import {
+  compactFailures,
   composerReply,
   isBusy,
   isStoreCurrent,
@@ -537,13 +538,16 @@ export class ThreadSession {
           "That goal has changed. Check it and try again.",
         );
         break;
-      case "compact":
-        this.#dispatch(
-          compactPayload(this.#store, this.#threadId),
-          action.requestId,
-          "This thread can't compact its context right now.",
-        );
+      case "compact": {
+        const payload = compactPayload(this.#store, this.#threadId);
+        if (!payload)
+          this.#admission(action.requestId, false, "This thread can't compact its context now.");
+        else
+          void dispatchCommand(this.#client, payload, action.requestId, this.#pump, {
+            refusal: (error) => (error && compactFailures[error]) ?? error ?? "Request refused",
+          });
         break;
+      }
       case "steps.open":
         this.#steps.open(
           action.ordinal,

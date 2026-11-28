@@ -289,6 +289,11 @@ struct ThreadView: View {
             // A sheet whose subject went away closes.
             .onChange(of: screen.goal == nil) { _, gone in if gone { goalSheet = nil } }
             .onChange(of: screen.context == nil) { _, gone in if gone { contextSheet = nil } }
+            // A sheet opened under an earlier generation would only send refused changes: close it.
+            .onChange(of: thread.epoch) { _, epoch in
+                if goalSheet?.epoch != epoch { goalSheet = nil }
+                if contextSheet?.epoch != epoch { contextSheet = nil }
+            }
             .onChange(of: screen.queue?.messages.isEmpty ?? true) { _, gone in if gone { showQueue = false } }
             // The agent may open its browser after the thread was opened: ask again as it works.
             .onChange(of: metadata?.state) { model.probeBrowser() }

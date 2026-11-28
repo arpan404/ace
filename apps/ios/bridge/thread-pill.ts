@@ -87,7 +87,11 @@ export function contextRow(store: ThreadSource, rootId: string) {
   return {
     long: usage?.long ?? "",
     supported: store.thread?.capabilities?.compaction === true,
-    reason: compactRefusal(status) ?? "",
+    // An archived thread is read-only on the phone: its composer offers only Restore.
+    reason:
+      store.thread?.archivedAt !== undefined
+        ? "Restore this thread to compact it"
+        : (compactRefusal(status) ?? ""),
   };
 }
 
