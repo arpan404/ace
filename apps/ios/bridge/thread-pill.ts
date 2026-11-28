@@ -3,6 +3,9 @@ import type { CommandPayload, GoalChange, ProviderGoal, ThreadId } from "@ace/pr
 import {
   type TurnActivity,
   backgroundCommand,
+  compactRefusal,
+  contextCompacting,
+  contextUsage,
   goalResumable,
   goalTitle,
   goalUsage,
@@ -15,8 +18,9 @@ import { preview } from "./presentation.ts";
 
 /*
  * The phone's live pill over the composer (`livePill` in `@ace/ui-core`): what the thread does
- * now and what else is live (subagents, commands, the queue, the goal), each part naming the
- * sheet it opens; and the goal's sheet, with the changes ace can make to it. Swift draws what this
+ * now and what else is live (subagents, commands, the queue, the goal, how full the context is),
+ * each part naming the sheet it opens; the goal's sheet, with the changes ace can make to it; and
+ * the context's sheet, with the provider's own Compact. Swift draws what this
  * sends and never decides any of it. Re-read when a key the pill was read from changes, or when
  * the queue's count moves.
  */
@@ -73,6 +77,31 @@ export function pillCovers(pill: LivePill | undefined, activity: TurnActivity | 
     subagents: kinds.has("subagents") || waiting === "subagents",
     commands: kinds.has("commands") || waiting === "background",
   };
+}
+
+/** The context's sheet: how full it is, and whether the provider can compact it now. */
+export function contextRow(store: ThreadSource, rootId: string) {
+  const status = store.agent(rootId)?.status;
+  const usage = contextUsage(store.contextMeter(rootId));
+  if (!usage && !contextCompacting(status)) return null;
+  return {
+    long: usage?.long ?? "",
+    supported: store.thread?.capabilities?.compaction === true,
+    // An archived thread is read-only on the phone: its composer offers only Restore.
+    reason:
+      store.thread?.archivedAt !== undefined
+        ? "Restore this thread to compact it"
+        : (compactRefusal(status) ?? ""),
+  };
+}
+
+/** The daemon command for the context sheet's Compact, or undefined when it can't run now. */
+export function compactPayload(
+  store: ThreadSource,
+  threadId: ThreadId,
+): CommandPayload | undefined {
+  const row = contextRow(store, store.thread?.rootAgentId ?? "");
+  return row?.supported && !row.reason ? { type: "thread.compact", threadId } : undefined;
 }
 
 export class PillFollower {
@@ -152,13 +181,14 @@ export class PillFollower {
       const thread = this.#store.thread;
       const rootId = thread?.rootAgentId ?? "";
       const reading = readTurnActivity(this.#store, rootId, { threadStatus: thread?.status });
-      this.#watch = new Set([...always, `agent:${rootId}`, ...reading.watch]);
+      this.#watch = new Set([...always, `agent:${rootId}`, `context:${rootId}`, ...reading.watch]);
       const pill = livePill({
         activity: reading.activity,
         queued: this.#queued,
         goal: thread?.goal,
         requestShown: this.#requestShown(),
         holdShown: this.#held,
+        context: contextUsage(this.#store.contextMeter(rootId)),
       });
       return {
         type: "thread.pill",
@@ -186,6 +216,7 @@ export class PillFollower {
             }
           : null,
         goal: goalRow(thread?.goal, this.editable),
+        context: contextRow(this.#store, rootId),
         leftRunning: this.#leftRunning(rootId),
       };
     });

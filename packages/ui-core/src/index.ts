@@ -162,6 +162,7 @@ export * from "./question-line.ts";
 export * from "./question-draft.ts";
 export * from "./composer-reply.ts";
 export * from "./queue.ts";
+export * from "./context-compact.ts";
 export * from "./queue-actions.ts";
 export * from "./retained-input.ts";
 export * from "./last-sent.ts";

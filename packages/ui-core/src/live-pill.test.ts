@@ -195,3 +195,53 @@ test("a goal's pill carries its progress, as the web's goal strip does", () => {
   });
   expect(fresh?.segments[0]?.detail).toBeUndefined();
 });
+
+const used = (percent: number | undefined) => ({
+  percent,
+  short: percent === undefined ? "84k tokens" : `${percent}%`,
+  long: "84,000 of 200,000 tokens in context",
+  high: false,
+});
+
+test("an idle thread with a known context keeps the pill for its readout, which opens the context", () => {
+  const pill = livePill({
+    activity: undefined,
+    queued: 0,
+    goal: undefined,
+    requestShown: false,
+    context: used(62),
+  });
+  expect(pill?.status).toBeUndefined();
+  expect(pill?.segments).toEqual([
+    { kind: "context", label: "62% context", opens: "context", live: false },
+  ]);
+});
+
+test("a window of unknown size reads the token count alone, after everything else live", () => {
+  const pill = livePill({
+    activity: working({ subagents: 1 }),
+    queued: 1,
+    goal: undefined,
+    requestShown: false,
+    context: used(undefined),
+  });
+  expect(words(pill)).toEqual(["Working", "1 subagent", "1 queued", "84k tokens"]);
+});
+
+test("an idle thread with no context sample still has no pill", () => {
+  expect(
+    livePill({ activity: undefined, queued: 0, goal: undefined, requestShown: false }),
+  ).toBeUndefined();
+});
+
+test("a request card still takes the pill's place while the context is known", () => {
+  expect(
+    livePill({
+      activity: working(),
+      queued: 0,
+      goal: undefined,
+      requestShown: true,
+      context: used(62),
+    }),
+  ).toBeUndefined();
+});

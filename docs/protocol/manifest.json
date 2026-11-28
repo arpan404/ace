@@ -37,8 +37,8 @@
       "sha256": "b43841d1094a22d3760f53a497b9f8850eb174c2f12e2c4f141a649b48d5d061"
     },
     "requests.md": {
-      "bytes": 128716,
-      "sha256": "a9eaf9ddf191f0615173307b6e46a2242673a6b6a41aeabce3ca5d30eb5d4c91"
+      "bytes": 128714,
+      "sha256": "1a1262d09b83fc12d9e51aa75b4e2718af576330381dd56f60c9c89e8735e88c"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2756,6 +2756,10 @@
       "bytes": 384,
       "sha256": "7474a2f2e14d93d14e0785ef82ac10f92780bb06bce1debda661e4f5795e653e"
     },
+    "schema/LiveActivitySync.json": {
+      "bytes": 689,
+      "sha256": "7a7eb49538a0fc282cc8a33f0fd463180c25325ea6e2c960589f1b6319e2cbf3"
+    },
     "schema/LiveVideoStatus.json": {
       "bytes": 401,
       "sha256": "faf2c33e850d7fba23d6e469c0f7b49c36f80f4bf1b0058ce9bfd713acc6d20e"
@@ -3957,8 +3961,8 @@
       "sha256": "13ae64f09afc8eadacae6d6e018255571f06e58a9dae5cb26a366955126590f5"
     },
     "schema/NotificationRegister.json": {
-      "bytes": 591,
-      "sha256": "1e9191e619a72078741a7220f0359f87965bf1255c18f95f63f886d21641e92e"
+      "bytes": 590,
+      "sha256": "baa00256e24dce08975229936fff8ef3b150da663b0620d87eec62379a2f19b9"
     },
     "schema/NotificationRegisterResult.json": {
       "bytes": 415,
@@ -4319,10 +4323,6 @@
     "schema/PermissionState.json": {
       "bytes": 739,
       "sha256": "fe23e5b27538246043eb455ea6aba7ebed5841c2551c68fee089e17b4becd402"
-    },
-    "schema/PhoneLiveActivity.json": {
-      "bytes": 690,
-      "sha256": "f69599741a8b69af0736237005ec4325378f506cdc175240143f4704dc87cbb4"
     },
     "schema/PiControlRequest.json": {
       "bytes": 1574,
@@ -7021,10 +7021,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1428163,
-      "sha256": "ca7d278079d18d2924ad0e3ba223cb1a419f9241b812e0dfbe17e429af500b62"
+      "bytes": 1428946,
+      "sha256": "63dab8bf192dd29b9fb3d0e0824ecd0a3755e254bb6dfbb73bef7ba4558ecc1d"
     }
   },
-  "input": "d9174c6837fdf860b0d49a7a2ddaa96bd2b49a8e858dbb249eef5e373131b68f",
+  "input": "4d29a844565f57fc3a3353388ea5ba1e0c1e5e38d1c437674db7ec34f597df96",
   "version": 1
 }

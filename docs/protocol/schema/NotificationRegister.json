@@ -6,7 +6,7 @@
       "$ref": "https://ace.local/protocol/v1/NotificationAddress.json"
     },
     "liveActivity": {
-      "$ref": "https://ace.local/protocol/v1/PhoneLiveActivity.json"
+      "$ref": "https://ace.local/protocol/v1/LiveActivitySync.json"
     },
     "requestId": {
       "maxLength": 200,

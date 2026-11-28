@@ -98,6 +98,87 @@ struct GoalSheet: View {
     }
 }
 
+/// The context, opened from the pill's readout: how full it is in full words, and Compact, which
+/// asks the provider to compact its own history (never a summarising prompt from ace). Compact is
+/// there only for a provider that has its own compaction; while it can't run, the sheet says why
+/// (the bridge's `ContextRow`). It stays pending until the daemon took it, then the sheet closes and
+/// the pill says Compacting context; a refusal is said here, with Compact back.
+struct ContextSheet: View {
+    let context: ContextRow
+    let canOperate: Bool
+    /// Asks for the compaction; resolves with nil once the daemon took it, else the refusal's words.
+    let compact: () async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var pending = false
+    @State private var problem: String?
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.row) {
+                    if !context.long.isEmpty {
+                        Text(context.long)
+                            .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                            .monospacedDigit()
+                            .accessibilityIdentifier("context.used")
+                    }
+                    Text(context.supported
+                         ? "Compacting has the provider shorten the agent's own history to free room. This thread keeps every message."
+                         : "This provider can't compact its own context.")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
+            }
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
+            .background(AceTheme.Colours.background)
+            .navigationTitle("Context")
+            .navigationBarTitleDisplayMode(.inline)
+            .escapeCloses { dismiss() }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(ace: .x) }
+                        .accessibilityLabel("Close").accessibilityIdentifier("context.close")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+    @ViewBuilder private var actions: some View {
+        if canOperate, context.supported {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+                if let note = problem ?? (context.reason.isEmpty ? nil : context.reason) {
+                    Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(problem == nil ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("context.reason")
+                }
+                Button(action: run) {
+                    Text(pending ? "Compacting…" : "Compact context").fontWeight(AceDesign.Typeface.regular)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(AceTheme.Colours.onAccent)
+                }
+                .buttonStyle(.borderedProminent).tint(AceTheme.Colours.accent)
+                .controlSize(.large)
+                .buttonBorderShape(.capsule)
+                .disabled(pending || !context.reason.isEmpty)
+                .accessibilityIdentifier("context.compact")
+            }
+            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
+        }
+    }
+    private func run() {
+        pending = true
+        problem = nil
+        Task {
+            let refused = await compact()
+            pending = false
+            if let refused { problem = refused } else { dismiss() }
+        }
+    }
+}
+
 /// The queued messages, opened from the pill: each can get new words, go now, move or be removed.
 struct QueueSheet: View {
     let queue: QueueRow

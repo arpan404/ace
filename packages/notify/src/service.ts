@@ -13,6 +13,8 @@ import type { InboxFeed } from "./inbox.ts";
 import { PresenceIndex } from "./presence.ts";
 import { isQuiet, maxRetries, retryDelay } from "./policy.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
+import type { LiveActivitySync } from "@ace/protocol/notifications";
+import type { LiveActivityTarget } from "./live-activity.ts";
 
 export type DeliveryResult = "accepted" | "retry" | "gone" | "revoked" | "failed";
 export interface NotificationTransport {
@@ -188,6 +190,26 @@ export class NotificationService {
   }
   preferences(id: DeviceId, input: unknown): void {
     this.database.preferences(id, input);
+  }
+  /**
+   * The phone's Live Activity tokens for this machine (ADR 0223), from the ids the daemon proved
+   * are one install. Authoritative: what the sync leaves out is gone.
+   */
+  syncLiveActivity(
+    id: DeviceId,
+    linked: readonly DeviceId[],
+    input: LiveActivitySync | undefined,
+  ): void {
+    this.database.syncLiveActivity(id, linked, input);
+  }
+  liveActivityTargets(): LiveActivityTarget[] {
+    return this.database.liveActivityTargets();
+  }
+  clearLiveActivity(): void {
+    this.database.clearLiveActivity();
+  }
+  dropLiveActivityToken(address: Pick<LiveActivityTarget, "token" | "environment" | "kind">): void {
+    this.database.dropLiveActivityToken(address);
   }
   notify(notification: Notification): void {
     this.database.notify(notification, this.options.now());
