@@ -46,8 +46,34 @@ function lane() {
   const errors: unknown[] = [];
   const lifetime = new AbortController();
   const ledger = new ChildLedger(store);
+  /** Times the lane read the threads' revisions: once each time it builds the activity's state. */
+  let snapshots = 0;
+  const atomic = store.atomic.bind(store);
+  const counted = new Proxy(store, {
+    get(base, prop) {
+      if (prop === "atomic")
+        return <T>(run: (db: import("node:sqlite").DatabaseSync) => T) =>
+          atomic((db) =>
+            run(
+              new Proxy(db, {
+                get(inner, key) {
+                  if (key === "prepare")
+                    return (sql: string) => {
+                      if (sql.includes("FROM sidebar_thread_revisions")) snapshots++;
+                      return inner.prepare(sql);
+                    };
+                  const value: unknown = Reflect.get(inner, key, inner);
+                  return typeof value === "function" ? value.bind(inner) : value;
+                },
+              }),
+            ),
+          );
+      const value: unknown = Reflect.get(base, prop, base);
+      return typeof value === "function" ? value.bind(base) : value;
+    },
+  });
   const delivery = createActivityDelivery({
-    store,
+    store: counted,
     remoteWatched: (at) => ledger.watchingRemote(at),
     gateway: {
       async sendActivity(_address, prepare) {
@@ -101,6 +127,7 @@ function lane() {
     wall: () => wall,
     elapsed: () => elapsed,
     read: () => delivery.run(),
+    snapshots: () => snapshots,
     fired: () => fired,
     /**
      * Time passes `ms`: each timer the lane armed fires when it comes due, and the run it starts
@@ -237,4 +264,20 @@ it("an end held for a remote child is looked at again on the lane's timer, once 
   expect(activity.fired() - before).toBeGreaterThanOrEqual(9);
   expect(activity.fired() - before).toBeLessThanOrEqual(11);
   expect(activity.events()).not.toContain("end");
+});
+
+it("a held end checks only the remote children on each tick, not the whole activity", async () => {
+  const activity = lane();
+  await settled(activity);
+  activity.remoteChild("remote-a", { settled: true, settledAt: activity.wall() });
+  await activity.tick(121_000);
+  const before = activity.snapshots();
+  await activity.tick(10_000);
+  // Ten ticks with nothing changed: the activity's state is not built again.
+  expect(activity.snapshots() - before).toBeLessThanOrEqual(1);
+  expect(activity.events()).not.toContain("end");
+  // Its window closes: the state is read again and the end goes.
+  activity.remoteChild("remote-a", { settled: true });
+  await activity.tick(2000);
+  expect(activity.events().at(-1)).toBe("end");
 });

@@ -52,6 +52,8 @@ interface Stream {
   prefs?: readonly NotificationPreferences[];
   retryAt?: number;
   failures: number;
+  /** The lane's `changes` when the remote-children gate last held this stream's end. */
+  heldAt?: number;
 }
 
 function snoozed(state: ActivitySnapshot, stream: Stream) {
@@ -102,14 +104,24 @@ export function createActivityDelivery(options: Options) {
       Math.max(0, at - elapsed()),
     );
   };
+  /**
+   * Counts what may change the activity's state: events, reads, new tokens, snoozes. A wake with
+   * no change since an end was held only looks at the remote-children gate again.
+   */
+  let changes = 0;
   const refresh = () => {
+    changes++;
     generation++;
     arm(elapsed());
   };
   const stopEvents = store.subscribe((events) => {
-    if (streams.size > 0 && facts.changed(events)) arm(elapsed());
+    if (streams.size > 0 && facts.changed(events)) {
+      changes++;
+      arm(elapsed());
+    }
   });
   const stopReads = store.onThreadRead(() => {
+    changes++;
     if (streams.size > 0) arm(elapsed());
   });
 
@@ -182,6 +194,7 @@ export function createActivityDelivery(options: Options) {
     // A remote child may start again unseen: no end while one is watched. Looked at again on
     // this lane's own timer, a second from now.
     if (next?.event === "end" && options.remoteWatched?.(wall)) {
+      stream.heldAt = changes;
       arm(elapsed() + rereadMs);
       return;
     }
@@ -203,6 +216,13 @@ export function createActivityDelivery(options: Options) {
       streams.delete(keyOf(target));
       return;
     }
+    // Its end is held for a remote child and nothing has changed since: only the bounded gate is
+    // looked at again (ADR 0170). The state is built once more when it opens.
+    if (stream.heldAt === changes && options.remoteWatched?.(now())) {
+      arm(elapsed() + rereadMs);
+      return;
+    }
+    delete stream.heldAt;
     stream.prefs ??= await Promise.all(target.devices.map((device) => options.preferences(device)));
     if (closed || !eligible(target)) return;
     const state = snapshot(stream);
@@ -342,6 +362,7 @@ export function createActivityDelivery(options: Options) {
     run,
     refresh,
     snooze(_thread: ThreadId) {
+      changes++;
       if (streams.size > 0) arm(elapsed());
     },
     stop() {
