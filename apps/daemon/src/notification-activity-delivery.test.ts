@@ -72,14 +72,17 @@ function lane() {
       return typeof value === "function" ? value.bind(base) : value;
     },
   });
-  /** While set, a send waits for it before it prepares its body, as a slow gateway lookup does. */
-  let paused: Promise<void> | undefined;
+  /** While set, a send says it arrived and waits before it prepares its body, as a slow lookup does. */
+  let paused: { arrived: () => void; until: Promise<void> } | undefined;
   const delivery = createActivityDelivery({
     store: counted,
     remoteWatched: (at) => ledger.watchingRemote(at),
     gateway: {
       async sendActivity(_address, prepare) {
-        if (paused) await paused;
+        if (paused) {
+          paused.arrived();
+          await paused.until;
+        }
         const body = prepare();
         if (!body) return { status: "skipped" };
         sent.push(body);
@@ -134,10 +137,15 @@ function lane() {
     /** The next sends wait in the gateway until `release`. */
     pauseSends() {
       const gate = Promise.withResolvers<void>();
-      paused = gate.promise;
-      return () => {
-        paused = undefined;
-        gate.resolve();
+      const arrival = Promise.withResolvers<void>();
+      paused = { arrived: () => arrival.resolve(), until: gate.promise };
+      return {
+        /** Settles once a send has reached the gateway and waits there. */
+        arrived: arrival.promise,
+        release: () => {
+          paused = undefined;
+          gate.resolve();
+        },
       };
     },
     fired: () => fired,
@@ -299,12 +307,20 @@ it("a delegation that lands while the end waits on the gateway holds it", async 
   const activity = lane();
   await settled(activity);
   activity.advance(121_000);
-  const release = activity.pauseSends();
+  const gateway = activity.pauseSends();
   const sending = activity.read();
-  await new Promise((resolve) => setImmediate(resolve));
+  await gateway.arrived;
   // The parent delegates to another machine while the gateway looks up the handle.
   activity.remoteChild("remote-a", { settled: false });
-  release();
+  gateway.release();
   await sending;
   expect(activity.events()).not.toContain("end");
+  // It made this machine busy again. Once it is let go of, the machine has a new quiet grace,
+  // and the lane's own timer sends the end when that grace is over.
+  activity.remoteChild("remote-a", { settled: true });
+  await activity.read();
+  await activity.tick(119_000);
+  expect(activity.events()).not.toContain("end");
+  await activity.tick(2000);
+  expect(activity.events().at(-1)).toBe("end");
 });
