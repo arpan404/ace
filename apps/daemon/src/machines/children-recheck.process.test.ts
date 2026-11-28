@@ -135,3 +135,24 @@ it("a child read after its 24 h mark leaves tracking for good, even across a res
   expect(restarted.timers).toEqual([]);
   expect(restarted.asked).toEqual([]);
 });
+
+it("an answer that leaves a settled child out never counts as its last check", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 1);
+  // Past its 24-hour mark, Studio answers without it: nothing is known of the child.
+  h.omit(id);
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 2 * POLL_MS * RECHECK_SLOWEST_POLLS);
+  const asked = h.asked.filter((call) => call.includes(id)).length;
+  // It is still tracked, read again, and leaves only on an answer that holds it.
+  await runUntil(h, h.clock.now + 10 * POLL_MS * RECHECK_POLLS);
+  expect(h.asked.filter((call) => call.includes(id)).length).toBeGreaterThan(asked);
+  h.report(id, done("Done."));
+  await runUntil(h, h.clock.now + 2 * POLL_MS * RECHECK_SLOWEST_POLLS);
+  const final = h.asked.length;
+  await runUntil(h, h.clock.now + HOUR);
+  expect(h.asked.length).toBe(final);
+});

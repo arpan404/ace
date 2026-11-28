@@ -917,3 +917,30 @@ test("for any tracked set, something owed always has a time: nextDue is defined"
     }
   }
 });
+
+/** A settled child on its machine, paired, settled at time zero. */
+const settledAtZero = (id: string): ScheduleChild => ({
+  id,
+  settled: true,
+  settledAt: 0,
+  unconfirmed: false,
+  paired: true,
+});
+
+test("an answer that leaves a child out is no answer for that child", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  const children = [settledAtZero("kept"), settledAtZero("missing")];
+  // Past their 24-hour mark: an answered read of each is its last check.
+  const sent = RECHECK_WINDOW_MS + 1000;
+  const folded = foldCall(
+    new Map(),
+    children,
+    ["kept", "missing"],
+    { kind: "answered", reported: new Set(["kept"]) },
+    { sent, now: sent + 100 },
+    config,
+  );
+  expect(folded.ended).toEqual(["kept"]);
+  expect(folded.records.get("kept")?.lastAnsweredAt).toBe(sent);
+  expect(folded.records.get("missing")?.lastAnsweredAt).toBeUndefined();
+});

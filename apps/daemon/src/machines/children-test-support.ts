@@ -259,6 +259,8 @@ export function machine(
     });
     return threadId;
   };
+  /** The machine leaves the child out of its answers, as one that no longer lists it might. */
+  const omit = (id: string) => views.delete(id);
   const report = (id: string, next: Partial<MachineThreadView>) =>
     views.set(id, {
       threadId: ThreadId.parse(id),
@@ -289,6 +291,7 @@ export function machine(
     children,
     add,
     report,
+    omit,
     fire,
     step,
     state,
