@@ -23,16 +23,16 @@ export function acceptsPersonInput(state: ThreadState, now: number): boolean {
 }
 
 /**
- * Whether the provider's own work keeps a compaction out now: its turn, a retry or a lost
- * connection, a rate limit, or a request it waits on. Work that keeps going without the model
- * (background commands, subagents, a child waiting its turn) never holds it. This is
- * `acceptsPersonInput`'s rule seen from the agent status that clients and the fake hold; the
- * daemon checks its own engine state, and the two must agree.
+ * Whether the provider's own work keeps a compaction out now. The provider compacts its own
+ * idle history, so a live turn always holds it: running, starting, lost, retrying, waiting on
+ * the person, or waiting on its foreground subagents (their parent's turn is still live, and
+ * Claude's `/compact` would join it while Pi refuses it). Only work that runs without the model
+ * a turn ended with — a background shell or monitor — leaves the provider free to compact.
+ * This is `acceptsPersonInput`'s rule seen from the agent status clients and the fake hold.
  */
 export function compactionBlocked(status: AgentStatus | undefined): boolean {
   if (status === undefined) return false;
-  if (status.state === "blocked")
-    return status.on !== "background_task" && status.on !== "subagents" && status.on !== "queue";
+  if (status.state === "blocked") return status.on !== "background_task";
   return (
     status.state === "working" || status.state === "starting" || status.state === "unresponsive"
   );
