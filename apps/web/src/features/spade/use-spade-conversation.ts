@@ -82,6 +82,9 @@ export function useSpadeConversation(conversation: string) {
         images: images.map((image) => image.ref),
         documents: (message.documents ?? []).map((document) => document.ref),
         ...(message.voice ? { voice: message.voice.ref } : {}),
+        ...(message.invoke
+          ? { invoke: { kind: message.invoke.kind, name: message.invoke.name } }
+          : {}),
         // Until Spade stores what it quoted, the bubble quotes what the person picked.
         ...(message.replyTo
           ? {
@@ -109,6 +112,13 @@ export function useSpadeConversation(conversation: string) {
         follow.apply({ kind: "refused", key });
         throw error;
       }
+    },
+    /** The person's reaction to a message, or taking it back (`emoji` undefined). */
+    async react(message: string, emoji: string | undefined): Promise<void> {
+      const target = `${path}/messages/${segment(message)}/reactions`;
+      await (emoji === undefined
+        ? spadeHttp(client, "DELETE", target)
+        : spadeHttp(client, "POST", target, { body: { emoji } }));
     },
     /**
      * Try again on the last reply, which failed: Spade answers the same turn again in its place,

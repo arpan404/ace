@@ -3,6 +3,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { expect, vi } from "vitest";
+import { memoryValue } from "./changes-fixture.ts";
 import type { KeptValue } from "./kept-value.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 
@@ -27,7 +28,13 @@ export const alert = (id: string) =>
   });
 
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
-export async function phone(now?: () => number, runProgress?: KeptValue, applyFeed = () => true) {
+export async function phone(
+  now?: () => number,
+  runProgress?: KeptValue,
+  applyFeed = () => true,
+  /** The push address kept between launches; in memory here, like the phone's. */
+  pushKept: KeptValue = memoryValue(),
+) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: threadId,
@@ -95,6 +102,7 @@ export async function phone(now?: () => number, runProgress?: KeptValue, applyFe
     undefined,
     now,
     runProgress,
+    pushKept,
   );
   closers.push(async () => {
     bridge.close();

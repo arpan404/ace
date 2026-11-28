@@ -8,6 +8,7 @@ import type {
 import type { SpadeDecision } from "./decisions.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
+import type { SpadeMessageReactions } from "./reactions.ts";
 import { spadeSoonestWake, type SpadeWake } from "./wakes.ts";
 
 /** The conversation's Working line: what runs, in words, and since when. */
@@ -65,6 +66,8 @@ export interface SpadeView {
   decisions: readonly SpadeDecision[];
   /** The latest state the bot set on each of its panels, by panel id (ADR 0200 §5.2). */
   panels: ReadonlyMap<string, unknown>;
+  /** What each side reacted with, by message id. */
+  reactions: ReadonlyMap<string, SpadeMessageReactions>;
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -85,6 +88,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     ...(message.documents ? { documents: message.documents } : {}),
     ...(message.voice ? { voice: message.voice } : {}),
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    ...(message.invoke ? { invoke: message.invoke } : {}),
     pending: true,
   }));
   return {
@@ -121,6 +125,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     services: state.capabilities.services,
     decisions: state.decisions,
     panels: new Map(state.panels),
+    reactions: new Map(state.reactions),
   };
 }
 

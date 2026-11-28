@@ -22,6 +22,8 @@ export async function answerSettingsManage(
   owner: Pick<ClientCore, "request" | "registry">,
   request: SettingsManageRequest,
   signal: AbortSignal,
+  /** The phone reaches this machine through ace's relay (`provider-key.ts`). */
+  relayed = false,
 ): Promise<unknown> {
   try {
     if (request.type.startsWith("acp."))
@@ -37,6 +39,7 @@ export async function answerSettingsManage(
         AccountsScreenRequest.parse(request),
         signal,
         host.now(),
+        relayed,
       );
     return await answerMcpScreen(owner, McpScreenRequest.parse(request), signal);
   } catch {

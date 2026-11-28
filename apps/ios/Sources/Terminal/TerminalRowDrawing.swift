@@ -99,7 +99,9 @@ struct TerminalRowDrawing {
                     spans[spans.count - 1] = Span(column: last.column, width: last.width + width, colour: background)
                 } else { spans.append(Span(column: column, width: width, colour: background)) }
             }
-            let decorations = flags.intersection([.underline, .strike, .overline])
+            var decorations = flags.intersection([.underline, .strike, .overline])
+            // A hyperlink reads as one on the phone: there is no pointer to change on hover.
+            if style.link != 0 { decorations.insert(.underline) }
             if !decorations.isEmpty { rules.append(Rule(column: column, width: width, colour: foreground, kind: decorations)) }
             let visible = !flags.contains(.invisible) && cell.scalar > 0x20
             let scalar = visible ? Unicode.Scalar(cell.scalar) ?? " " : " "

@@ -59,4 +59,74 @@ describe("Spade notices as ace's alerts", () => {
       300,
     );
   });
+
+  it("deep-links a grouped alert to its single owning conversation or to the root with item targets", () => {
+    const oneWorker = alertFromSpadeNotice(
+      notice({
+        id: "batch:a-scout:1:2:2",
+        kind: "needs_you_batch",
+        agent: "a-root",
+        name: "Scout",
+        conversation: "c-root",
+        text: "2 approvals waiting.",
+        items: [
+          { agent: "a-scout", conversation: "c-scout", request: "c1" },
+          { agent: "a-scout", conversation: "c-scout", request: "c2" },
+        ],
+      }),
+      host,
+    );
+    expect(oneWorker?.spade).toEqual({
+      agent: "a-scout",
+      conversation: "c-scout",
+      category: "needs_you",
+      items: [
+        { agent: "a-scout", conversation: "c-scout", request: "c1" },
+        { agent: "a-scout", conversation: "c-scout", request: "c2" },
+      ],
+    });
+
+    const multiBot = alertFromSpadeNotice(
+      notice({
+        id: "batch:a-root:1:2:2",
+        kind: "needs_you_batch",
+        agent: "a-root",
+        name: "Builder",
+        conversation: "c-root",
+        text: "2 questions waiting (Scout and Runner).",
+        items: [
+          { agent: "a-scout", conversation: "c-scout", request: "q1" },
+          { agent: "a-runner", conversation: "c-runner", request: "q2" },
+        ],
+      }),
+      host,
+    );
+    expect(multiBot?.spade).toEqual({
+      agent: "a-root",
+      conversation: "c-root",
+      category: "needs_you",
+      items: [
+        { agent: "a-scout", conversation: "c-scout", request: "q1" },
+        { agent: "a-runner", conversation: "c-runner", request: "q2" },
+      ],
+    });
+  });
+  it("keeps the first 50 item targets and honors the root when a later item has another owner", () => {
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      agent: index < 50 ? "a-worker" : "a-other",
+      conversation: index < 50 ? "c-worker" : "c-other",
+      request: `q${index}`,
+    }));
+    const alert = alertFromSpadeNotice(
+      notice({ kind: "needs_you_batch", text: "51 questions waiting.", items }),
+      host,
+    );
+    expect(alert?.message).toBe("51 questions waiting.");
+    expect(alert?.spade).toEqual({
+      agent: "a1",
+      conversation: "c1",
+      category: "needs_you",
+      items: items.slice(0, 50),
+    });
+  });
 });

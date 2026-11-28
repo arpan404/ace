@@ -1,7 +1,10 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { antigravityQuirks, createAcpAdapter } from "@ace/adapter-acp";
-import { AcpIdentity } from "@ace/protocol";
+import { AcpIdentity, type ThreadId } from "@ace/protocol";
 import { INTERRUPT_GRACE_MS } from "../liveness/stop.ts";
 import { cleanupRecovery, fixture } from "./recovery-test-support.ts";
 import { scriptFrames } from "./test-support.ts";
@@ -24,7 +27,7 @@ const server = fileURLToPath(
 );
 
 /** An Antigravity thread on the ACP double, recording each session it opens and what it took. */
-async function antigravity(first: string) {
+async function antigravity(first: string, releaseDir?: string, wait = true) {
   const frames = scriptFrames();
   const h = await fixture([], frames, {
     provider: "antigravity",
@@ -42,22 +45,31 @@ async function antigravity(first: string) {
       version: "1.2.1",
       command: process.execPath,
       args: [server],
-      env: {},
+      env: releaseDir
+        ? {
+            ACE_ACP_RELEASE_DIR: join(releaseDir, "release"),
+            ACE_ACP_EVENT_LOG: join(releaseDir, "events.log"),
+          }
+        : {},
     }),
     acceptsIdentity: () => true,
   });
-  const sessions: { prompts: string[]; closed: boolean }[] = [];
+  const sessions: { prompts: string[]; cancels: string[]; closed: boolean }[] = [];
   h.registry.register(
     {
       ...adapter,
       async openSession(ctx) {
         const session = await adapter.openSession(ctx);
-        const seen = { prompts: [] as string[], closed: false };
+        const seen = { prompts: [] as string[], cancels: [] as string[], closed: false };
         sessions.push(seen);
-        // The session is a class instance: only its sending and closing are watched.
+        // The session is a class instance: only its sending, cancelling and closing are watched.
         const send: typeof session.send = async (input, ...rest) => {
           await session.send(input, ...rest);
           for (const part of input) if (part.type === "text") seen.prompts.push(part.text);
+        };
+        const interrupt: typeof session.interrupt = async (target) => {
+          seen.cancels.push(target.agent ?? "root");
+          await session.interrupt(target);
         };
         const close: typeof session.close = async (reason) => {
           seen.closed = true;
@@ -65,13 +77,21 @@ async function antigravity(first: string) {
         };
         return new Proxy(session, {
           get: (target, key) =>
-            key === "send" ? send : key === "close" ? close : Reflect.get(target, key, target),
+            key === "send"
+              ? send
+              : key === "interrupt"
+                ? interrupt
+                : key === "close"
+                  ? close
+                  : Reflect.get(target, key, target),
         });
       },
     },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
-  const id = first.startsWith("hold-for-steer") ? startHeldPrompt() : await h.create(first);
+  // A held prompt never answers, so the thread's creation is not awaited as a whole.
+  const held = first.startsWith("hold-");
+  const id = held ? startHeldPrompt() : await h.create(first);
   function startHeldPrompt() {
     const result = h.command({
       type: "thread.create",
@@ -89,19 +109,60 @@ async function antigravity(first: string) {
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  if (first.startsWith("hold-for-steer"))
+  // A caller that sends a steer before the session is live takes the thread as it is.
+  if (held && wait)
     await expect
-      .poll(() => Object.values(h.store.snapshotThread(id).items))
+      .poll(() => Object.values(h.store.snapshotThread(id).items), { timeout: 10_000 })
       .toContainEqual(
         expect.objectContaining({
           type: "tool_call",
           call: expect.objectContaining({ status: "running" }),
         }),
       );
-  else await expect.poll(() => running().length).toBe(1);
+  else if (!held) await expect.poll(() => running().length, { timeout: 10_000 }).toBe(1);
   const send = (text: string) =>
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }] }).ok;
   return { h, id, sessions, running, send };
+}
+
+/** Where a test releases the double's held shell or turn, one marker file at a time. */
+function tempDir() {
+  const dir = mkdtempSync(join(tmpdir(), "ace-acp-release-"));
+  mkdirSync(join(dir, "release"));
+  return dir;
+}
+function release(dir: string, step: number) {
+  writeFileSync(join(dir, "release", `release-${step}`), "");
+}
+/** What the double saw, in order: a release it honoured and a cancel it took. */
+function events(dir: string) {
+  const path = join(dir, "events.log");
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean);
+}
+function activeRootRun(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
+  return Object.values(h.store.snapshotThread(id).runs).find((run) => run.state === "active");
+}
+type RootRun = NonNullable<ReturnType<typeof activeRootRun>>;
+/** The next turn once it is active, read inside the poll so no gap can hide it. */
+async function nextActiveRun(
+  h: Awaited<ReturnType<typeof antigravity>>["h"],
+  id: ThreadId,
+  previous: string,
+): Promise<RootRun> {
+  let found: RootRun | undefined;
+  await expect
+    .poll(
+      () => {
+        const run = activeRootRun(h, id);
+        if (run && run.id !== previous) found = run;
+        return found?.id;
+      },
+      { timeout: 10_000 },
+    )
+    .toBeDefined();
+  if (!found) throw new Error("Expected the queued prompt to be active");
+  return found;
 }
 
 test("a person's ACP steer cancels its target turn and sends the follow-up once", async () => {
@@ -161,6 +222,54 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
   } finally {
     if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
       h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+  }
+});
+
+test("an ACP steer waits for the running command, then cancels once and sends the follow-up once", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-for-steer", dir);
+  const active = activeRootRun(h, id);
+  if (!active) throw new Error("Expected the first prompt to be active");
+
+  try {
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "read another file" }],
+        delivery: "steer",
+        runId: active.id,
+      }).ok,
+    ).toBe(true);
+    // Held: the steer lane runs at once and spares the command, which is still running.
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(h.engine.queue(id).pendingCount).toBe(1);
+    expect(
+      Object.values(h.store.snapshotThread(id).items).filter(
+        (item) => item.type === "tool_call" && item.call.detail.kind === "shell",
+      ),
+    ).toMatchObject([{ type: "tool_call", complete: false }]);
+
+    // The test releases the command: one cancel, and the steer's prompt goes in once.
+    release(dir, 1);
+    await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 5000 })
+      .toEqual(["hold-shell-for-steer", "read another file"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(sessions[0]?.prompts).toEqual(["hold-shell-for-steer", "read another file"]);
+    expect(h.store.snapshotThread(id).runs[active.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+    // The double saw the release before any cancel: nothing stopped the running command.
+    expect(events(dir)).toEqual(["release", "cancel"]);
+  } finally {
+    if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
+      h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -296,4 +405,317 @@ test("a Stop over a shell Antigravity left running ends it with the session at o
   await h.engine.flush();
   await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
   expect(h.engine.queue(id).lastFailure).toBeNull();
+});
+
+/** The person's own steer at whatever turn runs now, as the app sends it. */
+const steer = (h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId, text: string) =>
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text }],
+    delivery: "steer",
+  }).ok;
+const queueMessage = (
+  h: Awaited<ReturnType<typeof antigravity>>["h"],
+  id: ThreadId,
+  text: string,
+) =>
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text }],
+    delivery: "queue",
+  }).ok;
+const queuedTexts = (h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) =>
+  h.engine.queue(id).messages.map((message) => ({
+    text: message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+    delivery: message.delivery,
+  }));
+
+test("an ACP steer sent during one turn never cancels the next", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
+  try {
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt to be active");
+    expect(queueMessage(h, id, "hold-for-steer:1")).toBe(true);
+    expect(steer(h, id, "late steer")).toBe(true);
+    // The steer waits on the shell A runs and kills nothing, beside the queued message.
+    expect(h.engine.queue(id).pendingCount).toBe(2);
+    expect(sessions[0]?.cancels).toEqual([]);
+
+    // A ends by itself; the queued message starts the next turn and holds it.
+    release(dir, 1);
+    await nextActiveRun(h, id, first.id);
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "completed" });
+    // The steer aimed at A is handed back as the next message, not sent into B.
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "late steer", delivery: "queue" }]);
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(events(dir)).toEqual(["release"]);
+
+    // B ends by itself, and the lost steer goes in once as its own message after it.
+    release(dir, 2);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 5000 })
+      .toEqual(["hold-shell-natural", "hold-for-steer:1", "late steer"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "late steer")).toHaveLength(1);
+    // No cancel ever reached the double: neither turn was interrupted.
+    expect(events(dir)).toEqual(["release", "release"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("choosing Steer on a queued message cancels the turn running now", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
+  try {
+    expect(queueMessage(h, id, "hold-for-steer:1")).toBe(true);
+    expect(queueMessage(h, id, "later steer")).toBe(true);
+    release(dir, 1);
+    const first = Object.values(h.store.snapshotThread(id).runs)[0];
+    if (!first) throw new Error("Expected the first prompt to be recorded");
+    const running = await nextActiveRun(h, id, first.id);
+
+    const queue = h.engine.queue(id);
+    const message = queue.messages.find(
+      (entry) => entry.input[0]?.type === "text" && entry.input[0].text === "later steer",
+    );
+    if (!message) throw new Error("Expected the steer to still be queued");
+    expect(
+      h.command({
+        type: "queue.edit",
+        threadId: id,
+        expectedRevision: queue.revision,
+        messageId: message.id,
+        input: message.input,
+        delivery: "steer",
+      }).ok,
+    ).toBe(true);
+
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 5000 })
+      .toEqual(["hold-shell-natural", "hold-for-steer:1", "later steer"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(h.store.snapshotThread(id).runs[running.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "later steer")).toHaveLength(1);
+    expect(events(dir)).toEqual(["release", "cancel"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("choosing Steer again on a steer that lost its turn cancels the turn running now", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
+  try {
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt to be active");
+    expect(queueMessage(h, id, "hold-for-steer:1")).toBe(true);
+    expect(steer(h, id, "late steer")).toBe(true);
+
+    // A ends by itself; the queued turn starts, and the steer aimed at A fell back to the queue.
+    release(dir, 1);
+    const running = await nextActiveRun(h, id, first.id);
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "late steer", delivery: "queue" }]);
+
+    // The person chooses Steer on that message again: the turn running now is the one they saw.
+    const queue = h.engine.queue(id);
+    const message = queue.messages.find(
+      (entry) => entry.input[0]?.type === "text" && entry.input[0].text === "late steer",
+    );
+    if (!message) throw new Error("Expected the lost steer to still be queued");
+    expect(
+      h.command({
+        type: "queue.edit",
+        threadId: id,
+        expectedRevision: queue.revision,
+        messageId: message.id,
+        input: message.input,
+        delivery: "steer",
+      }).ok,
+    ).toBe(true);
+
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-shell-natural", "hold-for-steer:1", "late steer"]);
+    await h.engine.flush();
+    // B was cancelled once, and the message went in once as the steer it was chosen to be.
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(h.store.snapshotThread(id).runs[running.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "late steer")).toHaveLength(1);
+    expect(events(dir)).toEqual(["release", "cancel"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Every shell the thread's snapshot lists, in no order: each held prompt reports its own. */
+function shells(h: Awaited<ReturnType<typeof antigravity>>["h"], id: ThreadId) {
+  return Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
+    item.type === "tool_call" && item.call.detail.kind === "shell" ? [item] : [],
+  );
+}
+
+test("a steer that lost its turn doesn't block a newer steer", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-shell-natural", dir);
+  try {
+    expect(queueMessage(h, id, "hold-shell-for-steer")).toBe(true);
+    expect(steer(h, id, "early steer")).toBe(true);
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt to be active");
+
+    // A ends by itself; the queued turn starts and runs a command of its own.
+    release(dir, 1);
+    const second = await nextActiveRun(h, id, first.id);
+    // The steer aimed at the finished turn leaves the lane even while the new turn's command
+    // runs, so a newer steer is not stuck behind it.
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "early steer", delivery: "queue" }]);
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(events(dir)).toEqual(["release"]);
+
+    // Free the new turn's command, then the person steers into that turn: one cancel.
+    // B's own shell must be listed first: A's completed one would satisfy the wait below alone.
+    await expect.poll(() => shells(h, id).length, { timeout: 10_000 }).toBe(2);
+    release(dir, 2);
+    await expect
+      .poll(() => shells(h, id).every((item) => item.complete), { timeout: 10_000 })
+      .toBe(true);
+    expect(steer(h, id, "stop now")).toBe(true);
+    await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 5000 })
+      .toEqual(["hold-shell-natural", "hold-shell-for-steer", "stop now", "early steer"]);
+    await h.engine.flush();
+    expect(h.store.snapshotThread(id).runs[second.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    // One cancel only: the lost steer stopped nothing, and both reached the agent once.
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(events(dir)).toEqual(["release", "release", "cancel"]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "stop now")).toHaveLength(1);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "early steer")).toHaveLength(1);
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a steer that lost its aim while the session opened doesn't hold up a newer steer", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-for-steer", dir, false);
+  try {
+    // S1 is admitted before the session is live, so it aims at no turn and carries no payload
+    // target. B, the turn its first prompt starts, is held by the double's read.
+    expect(steer(h, id, "early steer")).toBe(true);
+    let first: RootRun | undefined;
+    await expect.poll(() => (first = activeRootRun(h, id)), { timeout: 10_000 }).toBeDefined();
+    if (!first) throw new Error("Expected the first prompt's turn to be active");
+    // S1's turn never existed: it goes back to the queue instead of joining B unfenced and
+    // holding the lane until B ends.
+    await expect
+      .poll(() => queuedTexts(h, id), { timeout: 10_000 })
+      .toEqual([{ text: "early steer", delivery: "queue" }]);
+    expect(sessions[0]?.cancels).toEqual([]);
+
+    // The person steers into B, which runs no command: one cancel, and S2 goes in as its turn.
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "stop now" }],
+        delivery: "steer",
+        runId: first.id,
+      }).ok,
+    ).toBe(true);
+    await expect.poll(() => sessions[0]?.cancels, { timeout: 5000 }).toEqual(["root"]);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-for-steer", "stop now", "early steer"]);
+    await h.engine.flush();
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    // One cancel only: the lost steer stopped nothing, and both reached the agent once.
+    expect(sessions[0]?.cancels).toEqual(["root"]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "early steer")).toHaveLength(1);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "stop now")).toHaveLength(1);
+    expect(events(dir)).toEqual(["cancel"]);
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a steer sent while an ACP session is still opening never cancels the turn its first prompt starts", async () => {
+  const dir = tempDir();
+  const { h, id, sessions } = await antigravity("hold-for-steer", dir, false);
+  try {
+    // The session is not live yet, so no turn runs and nothing can be aimed at: the steer is
+    // admitted before the thread has a session to cancel.
+    expect(steer(h, id, "late steer")).toBe(true);
+    // B: the turn the first prompt starts, held by the double on a read it can't finish. The
+    // lane reaches the steer while B runs and hands it back to the queue without cancelling; a
+    // steer that read no aim would interrupt B here instead.
+    await expect
+      .poll(
+        () => {
+          const run = Object.values(h.store.snapshotThread(id).runs)[0];
+          if (!run) return undefined;
+          if (run.state === "interrupted") return run.state;
+          return run.state === "active" && h.engine.queue(id).pendingCount === 1
+            ? "queued"
+            : undefined;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe("queued");
+    const first = activeRootRun(h, id);
+    if (!first) throw new Error("Expected the first prompt's turn to be active");
+    expect(queuedTexts(h, id)).toEqual([{ text: "late steer", delivery: "queue" }]);
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "active" });
+
+    // B ends by itself, and the steer goes in once after it, as its own message.
+    release(dir, 1);
+    await expect
+      .poll(() => sessions[0]?.prompts, { timeout: 10_000 })
+      .toEqual(["hold-for-steer", "late steer"]);
+    await h.engine.flush();
+    expect(sessions[0]?.cancels).toEqual([]);
+    expect(sessions[0]?.prompts.filter((prompt) => prompt === "late steer")).toHaveLength(1);
+    expect(h.store.snapshotThread(id).runs[first.id]).toMatchObject({ state: "completed" });
+    // The steer is its own turn after B, not a follow-up inside the turn it never aimed at.
+    expect(Object.keys(h.store.snapshotThread(id).runs)).toHaveLength(2);
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+    expect(events(dir)).toEqual(["release"]);
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRootRun(h, id)) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -17,7 +17,10 @@ export class HistoryWindowReads {
 
   async read(input: ItemsWindowInput, options: RequestOptions = {}) {
     try {
-      return await this.#client.itemsWindow(input, options);
+      const reply = await this.#client.itemsWindow(input, options);
+      // Offline, the phone's archive answered: rows as of the last connection (ADR 0225).
+      if (this.#client.state !== "ready") this.cached = true;
+      return reply;
     } catch (error) {
       if (!(error instanceof ClientError) || !["offline", "timeout"].includes(error.code))
         throw error;

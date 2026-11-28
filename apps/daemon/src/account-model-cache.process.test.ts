@@ -52,6 +52,7 @@ test("validated account caches are available at startup while model discovery is
     });
     catalog = restarted;
     management = new AccountManagement({
+      platform: process.platform,
       registry: f.registry,
       accounts: f.accounts,
       dataDir: f.dataDir,
@@ -99,6 +100,7 @@ test("a missing CLI at account restoration keeps the last good models beside a d
     });
     catalog = restarted;
     management = new AccountManagement({
+      platform: process.platform,
       registry: f.registry,
       accounts: f.accounts,
       dataDir: f.dataDir,
@@ -153,6 +155,7 @@ test("each managed account is restored as its own folder answers, not after ever
     });
     catalog = restarted;
     management = new AccountManagement({
+      platform: process.platform,
       registry,
       accounts: f.accounts,
       dataDir: f.dataDir,

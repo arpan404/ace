@@ -1,5 +1,10 @@
 import type { ClientCore } from "@ace/client";
-import type { AntigravitySignIn, ProviderAccountSummary } from "@ace/protocol";
+import {
+  ApiKeyUpstream,
+  type AntigravitySignIn,
+  type ApiKeySupport,
+  type ProviderAccountSummary,
+} from "@ace/protocol";
 import {
   AccountBadgeColor,
   AccountBadgeIcon,
@@ -7,6 +12,7 @@ import {
 } from "@ace/protocol/accounts";
 import {
   accountBadgePreview,
+  apiKeyServiceLabel,
   accountStatus,
   accountView,
   antigravitySignIn,
@@ -16,7 +22,7 @@ import {
   type AccountBadgePreview,
 } from "@ace/ui-core";
 import { z } from "zod";
-import { preview as shorten } from "./presentation.ts";
+import { directLinkProblem } from "./provider-key.ts";
 
 /*
  * A provider's accounts on the phone, as the web's Settings manages them: each account's badge,
@@ -25,10 +31,10 @@ import { preview as shorten } from "./presentation.ts";
  * sign-in method); sign in again the same ways (`provider.accounts.reauth`); and on remove,
  * whether the account's files can go too. The live badge preview for the editor is here as well.
  *
- * API keys are never taken on the phone: ADR 0002 lets a paired device submit one only over the
- * relay's encrypted `provider_auth` channel, which the phone doesn't have, and the daemon refuses
- * keys on an ordinary paired connection. A provider that takes keys gets one line pointing to ace
- * on the computer instead. Swift draws.
+ * A provider that takes API keys also offers a key, one way per service when the daemon lists
+ * them, handed to the CLI only over the relay's encrypted `provider_auth` channel
+ * (`provider-key.ts`, ADR 0002). A phone that reaches its machine directly can't hand one over,
+ * so it gets one fixed line saying where keys are added instead. Swift draws.
  */
 
 const badge = {
@@ -119,9 +125,46 @@ export function reauthWays(provider: Provider): AccountWay[] {
   return ways;
 }
 
-/** The one line for a provider that takes API keys: keys are added in ace on the computer. */
-export function apiKeyLine(supported: boolean, machine: string): string | null {
-  return supported ? `Add an API key in ace on ${machine}.` : null;
+/** One way to add an account with a pasted API key (`accounts.screen.key`). */
+export interface KeyWay {
+  id: string;
+  label: string;
+  /** The service the key is for, when the provider routes to several (Pi). */
+  upstream: z.infer<typeof ApiKeyUpstream> | null;
+  next: string;
+}
+
+/** Providers whose key hand-off fails without the service it's for (`upstream`). */
+const needsUpstream = new Set<Provider>(["pi"]);
+
+/**
+ * The key ways the daemon reports for this provider, the same capability the web reads. OpenCode
+ * takes keys in its own sign-in terminal and Antigravity signs in with Google, as on the web.
+ * Pi stores a key only for a named service, so it offers none until the daemon lists services.
+ */
+export function keyWays(provider: Provider, support: z.infer<typeof ApiKeySupport>): KeyWay[] {
+  if (!support.supported || provider === "opencode" || provider === "antigravity") return [];
+  const name = providerNames[provider];
+  const offer = (upstream: KeyWay["upstream"]): KeyWay => {
+    const service = apiKeyServiceLabel(provider, upstream ?? undefined);
+    return {
+      id: upstream ? `api_key:${upstream}` : "api_key",
+      label: upstream ? `${service} API key` : "API key",
+      upstream,
+      next: `Paste your ${service} API key. ${name} stores it; ace hands it over once through ace's relay and never saves it.`,
+    };
+  };
+  const upstreams = (support.upstreams ?? []).flatMap((entry) => {
+    const parsed = ApiKeyUpstream.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+  if (upstreams.length) return upstreams.map(offer);
+  return needsUpstream.has(provider) ? [] : [offer(null)];
+}
+
+/** The line for a provider that takes keys when this phone can't hand one over: it's direct. */
+export function apiKeyLine(ways: KeyWay[], relayed: boolean): string | null {
+  return ways.length && !relayed ? directLinkProblem : null;
 }
 
 /** Agents whose sign-in ace removes along with the account, and whose files can go too. */
@@ -200,7 +243,9 @@ export interface AccountsScreen {
   accounts: AccountRow[];
   ways: AccountWay[];
   reauth: AccountWay[];
-  /** "Add an API key in ace on studio.", for a provider that takes keys; never asked for here. */
+  /** Ways to add an account with an API key; empty when the daemon offers none or can't here. */
+  keyWays: KeyWay[];
+  /** Why keys can't be added from this phone, for a provider that takes them. */
   apiKey: string | null;
 }
 
@@ -245,6 +290,8 @@ export async function answerAccountsScreen(
   request: AccountsScreenRequest,
   signal: AbortSignal,
   now: number,
+  /** The phone reaches this machine through ace's relay, where a key may go. */
+  relayed = false,
 ): Promise<Reply> {
   if (request.type === "accounts.screen.badge")
     return {
@@ -263,17 +310,15 @@ export async function answerAccountsScreen(
       options,
     );
     if (!reply.result.ok) return failure(reply.result.error);
-    const machine = await owner
-      .request({ type: "host.identity" }, options)
-      .then((identity) => identity.identity.displayName)
-      .catch(() => "the computer running ace");
+    const offered = keyWays(request.provider, reply.result.apiKey);
     const screen: AccountsScreen = {
       provider: request.provider,
       name: providerNames[request.provider],
       accounts: reply.result.accounts.map((entry) => accountRow(entry, request.provider, now)),
       ways: accountWays(request.provider),
       reauth: reauthWays(request.provider),
-      apiKey: apiKeyLine(reply.result.apiKey.supported, shorten(machine, 64)),
+      keyWays: relayed ? offered : [],
+      apiKey: apiKeyLine(offered, relayed),
     };
     return { ok: true, screen };
   }

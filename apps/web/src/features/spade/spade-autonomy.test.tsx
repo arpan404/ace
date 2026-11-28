@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -114,7 +114,7 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
   });
   await openPage("Scout");
   // The whole log is on the profile's Work tab.
-  await userEvent.click(await screen.findByRole("tab", { name: "Work" }));
+  await openSettingsPage("Activity and safety");
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   await waitFor(() =>
     expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([

@@ -59,6 +59,22 @@ function onlyText(data: Data): string | undefined {
 }
 
 /**
+ * Whether a user frame is ace's own `/compact` ask: the one ace sends (a send frame), or the
+ * provider echoing it back. The echo is matched by the uuid ace gave it, so it is dropped even
+ * when the provider doesn't mark it synthetic; the compaction's own row already says what
+ * happened, and it is never mistaken for the summary that follows.
+ */
+export function isCompactAsk(state: ClaudeState, data: Data, sent: boolean): boolean {
+  if (onlyText(data)?.trim() !== "/compact") return false;
+  const uuid = string(data["uuid"]);
+  if (sent) {
+    if (uuid) state.compactAsks.add(uuid);
+    return true;
+  }
+  return data["isSynthetic"] === true || (uuid !== undefined && state.compactAsks.has(uuid));
+}
+
+/**
  * Folds a received user frame into the compaction it summarizes, when it is that summary: the
  * main agent's synthetic turn right after a compaction, one Claude marks as a summary, or one
  * already folded and delivered again. Returns whether it did; any other frame of the main agent

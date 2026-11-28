@@ -39,6 +39,8 @@ export async function liveBrowser(
      * (`hanging`), as a lost connection would. `fails`: its request fails at once.
      */
     media?: "binds" | "refuses" | "unserved" | "hangs" | "fails";
+    /** Every subscribe's reply waits until the test releases it (`releaseSubscribes`). */
+    holdSubscribes?: boolean;
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
     context?: Pick<
       BrowserThreadContext,
@@ -56,9 +58,15 @@ export async function liveBrowser(
   const requested: unknown[] = [];
   /** Subscribes left waiting (`media: "hangs"`): each fails its request when called. */
   const hanging: ((error: Error) => void)[] = [];
+  /** Subscribes held (`holdSubscribes`): each answers as the daemon does when called. */
+  const held: (() => void)[] = [];
   const owner: BrowserOwner = {
     request: ((message, requestOptions) => {
       requested.push(message);
+      if (options.holdSubscribes && message.type === "browser.subscribe")
+        return new Promise((resolve, reject) => {
+          held.push(() => void client.request(message, requestOptions).then(resolve, reject));
+        });
       const named = message.type === "browser.subscribe" ? message.media : undefined;
       if (named && options.media === "refuses")
         return Promise.resolve({
@@ -144,7 +152,12 @@ export async function liveBrowser(
       run();
     }
   };
+  /** Answers every held subscribe. */
+  const releaseSubscribes = () => {
+    for (const release of held.splice(0)) release();
+  };
   return {
+    releaseSubscribes,
     daemon,
     client,
     sink,

@@ -72,6 +72,14 @@ struct BrowserBar: View {
             .accessibilityLabel("Address")
             .accessibilityValue([state?.connection?.label, addressText].compactMap { $0 }.joined(separator: ", "))
             .accessibilityIdentifier("browser.address")
+            if let sound = BrowserSound.control(shown: state?.shown, here: model.browser.soundHere),
+               state?.closed == false, let tabId = state?.activeTabId {
+                // Turning the sound on here is listening, which a view-only grant may do; muting the tab isn't.
+                barButton(sound.label, sound.muted ? .speakerSlash : .speakerHigh, enabled: operate || sound.step == .playHere) {
+                    model.browserSoundTap(sound.step, tabId: tabId)
+                }
+                .accessibilityIdentifier("browser.sound")
+            }
             if operate, state?.blank == false {
                 if state?.loading == true {
                     barButton("Stop", .x, enabled: true) { model.browserHistory("stop") }

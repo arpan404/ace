@@ -29,7 +29,7 @@ export type OptionalCapability =
   | "socketBytes";
 
 /** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
-export type KeptValueKey = "review" | "files" | "runAlerts";
+export type KeptValueKey = "review" | "files" | "runAlerts" | "pushAddress";
 
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";
@@ -117,6 +117,8 @@ export interface HostOperations {
   /** The non-secret machine directory. */
   "directory.load": { input: null; body: never };
   "directory.save": { input: null; body: string };
+  /** The app bundle's editor WebAssembly, as base64, loaded only when merging. */
+  "editor.wasm": { input: null; body: never };
   /** HTTPS to this runtime's own pinned daemon; answers `{status, body}` JSON. */
   http: {
     input: { method: string; path: string; body?: string | undefined; token?: string | undefined };

@@ -129,6 +129,7 @@ export async function harness(
     discover: options.discover ?? createModelDiscovery(),
   });
   const management = new AccountManagement({
+    platform: process.platform,
     registry,
     accounts,
     dataDir,

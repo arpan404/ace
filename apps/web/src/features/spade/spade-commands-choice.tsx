@@ -28,6 +28,8 @@ export function CommandsChoice(props: {
   effective: SpadeCommandsMode;
   /** The words for the machine's setting, on a bot's choice only. */
   inherit?: string;
+  /** Use a compact right-aligned width inside narrow profile panels. */
+  compact?: boolean;
   save(choice: Choice): Promise<unknown>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -65,6 +67,7 @@ export function CommandsChoice(props: {
     >
       <Select<Choice>
         label="Where commands run"
+        {...(props.compact ? { className: "w-40" } : {})}
         value={props.value}
         options={options}
         disabled={saving}

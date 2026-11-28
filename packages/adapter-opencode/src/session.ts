@@ -456,6 +456,15 @@ export class OpenCodeSession implements ProviderSession {
   ): Promise<void> {
     return this.prompts.send(input, delivery, commandId, fence);
   }
+  // OpenCode's own compaction: the server summarises the session's history in place and
+  // publishes `session.compaction.started|ended`, which the translator shows as one row.
+  async compact(): Promise<void> {
+    if (this.closed) throw new Error("OpenCode session is closed");
+    await this.barrier();
+    await request("compaction request", () =>
+      this.client.session.compact({ sessionID: this.nativeSessionId }),
+    );
+  }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     await this.barrier();
     const root =

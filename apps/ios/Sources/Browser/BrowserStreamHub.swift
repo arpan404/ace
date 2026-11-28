@@ -9,6 +9,7 @@ final class BrowserStreamHub: @unchecked Sendable {
     typealias Sink<Picture> = @Sendable (Picture, String) -> Void
     private let lock = NSLock()
     private var sink: Sink<BrowserVideoChunk>?
+    private var audioSink: Sink<BrowserAudioChunk>?
     private var screenSink: Sink<DeviceFrameChunk>?
     private var deviceSink: Sink<DeviceFrameChunk>?
     /// Posters from subscribe replies by the token that names them there, the newest few, until
@@ -20,6 +21,9 @@ final class BrowserStreamHub: @unchecked Sendable {
     private var deliverySinks: [String: @Sendable (String, MediaDelivery) -> Void] = [:]
 
     func attach(_ sink: Sink<BrowserVideoChunk>?) { lock.withLock { self.sink = sink } }
+    /// The open live view's sound; nil when it closes.
+    func attachAudio(_ sink: Sink<BrowserAudioChunk>?) { lock.withLock { audioSink = sink } }
+    func deliver(_ chunk: BrowserAudioChunk, path: String) { lock.withLock { audioSink }?(chunk, path) }
     func attachScreen(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { screenSink = sink } }
     func deliverScreen(_ chunk: DeviceFrameChunk, path: String) { lock.withLock { screenSink }?(chunk, path) }
     func attachDevice(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { deviceSink = sink } }
@@ -73,6 +77,8 @@ struct BinaryRouter {
         /// Waiting for more pieces, or a kind the live view doesn't draw (JPEG frames among them).
         case none
         case stream(BrowserVideoChunk)
+        /// The page's sound, while this view turned it on.
+        case audio(BrowserAudioChunk)
         /// A simulator's or emulator's picture (kind 4), on the devices channel.
         case device(DeviceFrameChunk)
         case screen(DeviceFrameChunk)
@@ -92,6 +98,7 @@ struct BinaryRouter {
             guard let envelope = try assembler.push(bytes) else { return .none }
             if envelope.kind == StreamWire.Kind.screenFrame { return .screen(try DeviceFrameChunk.decodeScreen(envelope.meta, envelope.payload)) }
             if envelope.kind == StreamWire.Kind.deviceFrame { return .device(try DeviceFrameChunk.decode(envelope.meta, envelope.payload)) }
+            if let audio = try BrowserAudioChunk.decode(envelope) { return .audio(audio) }
             guard let chunk = try BrowserVideoChunk.decode(envelope) else { return .none }
             return .stream(chunk)
         } catch {

@@ -10,6 +10,8 @@ struct BrowserPicture: @unchecked Sendable {
     let page: CGSize
     /// The tab this picture shows, as its stream's last keyframe said; nil before one did.
     var tabId: String? = nil
+    /// When it was captured (stream ms), for the page's sound to follow.
+    var timestamp: Double = 0
 }
 
 /// A cumulative video acknowledgement (`browser.ack` with `video`, ADR 0088).
@@ -50,16 +52,20 @@ final class BrowserRenderer: @unchecked Sendable {
     private let latch = ClosedLatch()
     /// Where this thread's deliveries and the posters they name come from, once following.
     private var hub: BrowserStreamHub?
+    /// Which of the page's sound may play, in order with the pictures, and where it plays.
+    private var audio = AudioGate()
+    private let sound: BrowserSoundPlayer?
 
     init(threadId: String, clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          discard: @escaping @Sendable () -> Void = {}, showPoster: @escaping @Sendable (CGImage) -> Void = { _ in },
-         waiting: @escaping @Sendable (String?) -> Void = { _ in },
+         waiting: @escaping @Sendable (String?) -> Void = { _ in }, sound: BrowserSoundPlayer? = nil,
          present: @escaping @Sendable (BrowserPicture) -> Void, ack: @escaping @Sendable (BrowserAck) -> Void) {
         self.threadId = threadId
         self.clock = clock
         self.discard = discard
         self.showPoster = showPoster
         self.waiting = waiting
+        self.sound = sound
         self.present = present
         self.ack = ack
     }
@@ -72,6 +78,14 @@ final class BrowserRenderer: @unchecked Sendable {
                 tell()
                 handle(chunk, generation: generation)
             }
+        }
+    }
+    /// One packet of the page's sound, from any queue; it plays only if it belongs to the stream shown.
+    func receive(_ chunk: BrowserAudioChunk, path: String) {
+        guard chunk.threadId == threadId, let sound else { return }
+        queue.async { [self] in
+            guard !closed, audio.admits(chunk, path: path) else { return }
+            sound.play(chunk)
         }
     }
     /// The script set this thread's delivery: a new one starts the decoder over, a settled one
@@ -96,6 +110,7 @@ final class BrowserRenderer: @unchecked Sendable {
         let change = delivery.set(next)
         guard change.accepted else { return }
         if change.reset { forget(); discard() }
+        audio.delivery(path: next.path, reset: false)
         for chunk in change.released { handle(chunk, generation: next.generation) }
         if let ask = change.keyframe { ack(BrowserAck(sequence: ask.sequence, generation: next.generation, keyframe: true)) }
         tell()
@@ -119,6 +134,8 @@ final class BrowserRenderer: @unchecked Sendable {
         gate.reset()
         decoder = nil
         tabId = nil
+        audio.reset()
+        sound?.restart()
     }
     private func handle(_ chunk: BrowserVideoChunk, generation: Int) {
         guard !closed else { return }
@@ -132,7 +149,9 @@ final class BrowserRenderer: @unchecked Sendable {
             }
             if chunk.key { tabId = chunk.tabId }
             guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed(codec: chunk.codec, generation: generation) }
-            present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height), tabId: tabId))
+            audio.shown(timestamp: chunk.timestamp, tabId: tabId)
+            present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height),
+                                   tabId: tabId, timestamp: chunk.timestamp))
             ack(BrowserAck(sequence: chunk.sequence, generation: generation))
         }
     }

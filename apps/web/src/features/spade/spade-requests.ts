@@ -112,12 +112,23 @@ export function spadeBody(message: {
   devices?: readonly DeviceContextItem[] | undefined;
   /** The message it replies to, by id (ADR 0212 §4). */
   replyTo?: SpadeQuote | undefined;
+  /** The skill or command it starts; Spade checks the bot may use it. */
+  invoke?: { kind: "skill" | "command"; id: string; args?: string | undefined } | undefined;
 }) {
   const documents = message.documents ?? [];
   const devices = message.devices ?? [];
   return {
     text: message.text,
     ...(message.replyTo ? { reply_to: message.replyTo.id } : {}),
+    ...(message.invoke
+      ? {
+          invoke: {
+            kind: message.invoke.kind,
+            id: message.invoke.id,
+            ...(message.invoke.args ? { args: message.invoke.args } : {}),
+          },
+        }
+      : {}),
     ...(devices.length
       ? {
           devices: devices.map((device) =>

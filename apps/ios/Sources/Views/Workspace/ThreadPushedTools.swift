@@ -27,6 +27,10 @@ struct ThreadPushedTools: ViewModifier {
                     pushed = nil
                 }) { answer in if let help { model.resolve(help, answer: answer) } }
             }
+            // Picture-in-picture's "back to the page" opens this thread's Browser again.
+            .onChange(of: model.browser.pipRestore?.count) {
+                if model.browser.pipRestore?.threadId == thread.id { pushed = .browser }
+            }
             .navigationDestination(isPresented: showing(.agents)) {
                 AgentTreePage(model: model, thread: thread, openAgent: openAgent, openThread: openThread,
                               openChat: { pushed = nil }, openBrowser: { pushed = .browser })

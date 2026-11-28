@@ -200,7 +200,10 @@ export function openCodeLoginDriver(
           const earlier = await (options.earlierLogins?.() ?? Promise.resolve(new Set<string>()))
             // Unreadable, it marks nothing: every service is still offered.
             .catch(() => new Set<string>());
-          choices = openCodeSignInChoices(await server.integrations(), earlier);
+          const listed = await server.integrations();
+          // Nothing listed is no choice: failing here hands over to the terminal's usual list.
+          if (listed.length === 0) throw new Error("OpenCode listed no services");
+          choices = openCodeSignInChoices(listed, earlier);
         } catch {
           // OpenCode's own terminal still signs in when its server can't answer.
           signal.throwIfAborted();

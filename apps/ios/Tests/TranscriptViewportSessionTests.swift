@@ -6,6 +6,26 @@ import Testing
 /// outcomes for delete/eviction/rehydration/resize/lifecycle, plus
 /// consume-once evidence and sequence-grounded distant segments.
 @MainActor @Suite struct TranscriptViewportSessionTests {
+    // MARK: - History window: shown only once it has rows to draw
+
+    /// Reading up while the machine connected, the window's items landed before its rows: the
+    /// feed swapped in a window with nothing to draw, scrolled past its end, and went black.
+    @Test func aHistoryWindowStaysBehindTheLiveRowsUntilItHasRowsToDraw() throws {
+        let window = ThreadModel(id: "t")
+        window.order = ["a", "b"]
+        #expect(TranscriptReading.drawable(window) == nil, "Items without rows leave the live rows on screen")
+
+        let row = try block("a")
+        window.screen.blocks = ["a": row]
+        window.screen.blockOrder = ["a"]
+        #expect(TranscriptReading.drawable(window) === window)
+        #expect(TranscriptReading.drawable(nil) == nil)
+    }
+    private func block(_ id: String) throws -> BlockModel {
+        let json: [String: Any] = ["index": 0, "kind": "message", "items": [id], "headed": false, "interactionId": ""]
+        return BlockModel(id: id, row: try JSONDecoder().decode(BlockRow.self, from: JSONSerialization.data(withJSONObject: json)))
+    }
+
     // MARK: - Extent: explicit eviction vs deletion
 
     @Test func deletedEdgeRowsLeaveNoPhantomSpace() {

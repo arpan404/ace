@@ -35,7 +35,14 @@ struct SpadeComputerFiles: View {
 
     private var mayAct: Bool { scene == .active && watch.mayAct(model) }
 
+    // The body is split into typed pieces: as one chain it exceeded the type checker's time
+    // limit on CI's compiler.
     var body: some View {
+        messages(prompts(browser))
+    }
+
+    /// The folder's rows, refreshing, the drive line and the pickers.
+    private var browser: some View {
         List {
             Section { trail.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
             if let problem, folder == nil {
@@ -74,19 +81,23 @@ struct SpadeComputerFiles: View {
             photos = []
             Task { await pickedPhotos(picked) }
         }
+    }
+
+    /// New folder, rename or move, and delete, each asked over the list.
+    private func prompts(_ content: some View) -> some View {
+        content
         .alert("New folder", isPresented: $making) {
             TextField("Name", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("Cancel", role: .cancel) {}
             Button("Make") { makeFolder() }
         } message: { Text(path.isEmpty ? "In \(name)'s files." : "In \(path).") }
-        .alert("Rename or move", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+        .alert("Rename or move", isPresented: renamingShown) {
             TextField("Path", text: Binding(get: { renaming?.to ?? "" }, set: { renaming?.to = $0 }))
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("Cancel", role: .cancel) { renaming = nil }
             Button("Rename") { move() }
         } message: { Text("A path with folders moves it.") }
-        .confirmationDialog(deleting.map { "Delete \($0.entry.name)?" } ?? "", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                            titleVisibility: .visible) {
+        .confirmationDialog(deleting.map { "Delete \($0.entry.name)?" } ?? "", isPresented: deletingShown, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { remove() }
             Button("Cancel", role: .cancel) { deleting = nil }
         } message: {
@@ -95,12 +106,27 @@ struct SpadeComputerFiles: View {
                                     : "This deletes \(entry.path) from \(name)'s files.")
             }
         }
-        .alert(alert ?? "", isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } })) {
+    }
+
+    /// A change's outcome, and a downloaded file's share sheet.
+    private func messages(_ content: some View) -> some View {
+        content
+        .alert(alert ?? "", isPresented: alertShown) {
             Button("Close", role: .cancel) { alert = nil }
         }
         .sheet(item: $shared) { file in
             ShareSheet(url: file.url) { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         }
+    }
+
+    private var renamingShown: Binding<Bool> {
+        Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+    }
+    private var deletingShown: Binding<Bool> {
+        Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
+    }
+    private var alertShown: Binding<Bool> {
+        Binding(get: { alert != nil }, set: { if !$0 { alert = nil } })
     }
 
     /// "Files › src › lib": each step opens that folder.

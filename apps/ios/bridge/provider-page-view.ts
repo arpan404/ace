@@ -118,8 +118,9 @@ export interface ProviderPage {
   /** Its CLI signs out from here (Advanced → Sign out). */
   signOut: boolean;
   /**
-   * Where to add an API key, when its CLI takes one: keys go to the CLI only over the encrypted
-   * sign-in channel, which this phone doesn't open, so the page says where instead.
+   * Where to add an API key, when its CLI takes one: from its Accounts page, which hands the key
+   * over on the relay's encrypted `provider_auth` channel (or says why it can't), else on the
+   * computer.
    */
   apiKey: string | null;
   /** The CLI's own sign-in command, for its terminal on the computer. */
@@ -267,7 +268,9 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
     signOut: !missing && !!view?.more.includes("sign_out"),
     apiKey:
       !missing && status?.apiKey?.supported
-        ? `Add an API key in ace on ${preview(input.machine, 64)}.`
+        ? accountPageProviders.has(provider)
+          ? "Add an API key from Accounts."
+          : `Add an API key in ace on ${preview(input.machine, 64)}.`
         : null,
     terminal: !missing && steps ? { run: steps.run, prompt: steps.prompt ?? null } : null,
     about: missing ? [] : about,

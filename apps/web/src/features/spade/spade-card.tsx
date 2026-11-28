@@ -2,6 +2,7 @@ import { ClockIcon, HandIcon, QuestionIcon } from "@ace/icons";
 import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { createContext, useContext, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { SpadeFace } from "./spade-face.tsx";
@@ -13,21 +14,28 @@ import { SpadeFace } from "./spade-face.tsx";
  * quiet line.
  */
 
-/** A bubble is at most 600px, and never wider than its column however long a word it holds. */
+/** A bubble is at most ~70% of the column on desktop, and never wider than its column. */
 export const botBubble =
-  "min-w-0 max-w-[min(100%,--spacing(150))] rounded-lg bg-chat-bubble px-4 py-2.5 font-prose text-prose leading-[1.5] wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 font-prose text-prose leading-[1.5] wrap-anywhere";
 
 /** A skill's bubble: the bot's bubble, its words at control size. */
 export const quietBubble =
-  "min-w-0 max-w-[min(100%,--spacing(150))] rounded-lg bg-chat-bubble px-3 py-2 wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-lg bg-chat-bubble px-3 py-2 wrap-anywhere";
 
 export const personBubble =
-  "min-w-0 max-w-[80%] rounded-lg bg-chat-mine px-3 text-chat-mine-foreground py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
+  "min-w-0 max-w-[85%] sm:max-w-[70%] rounded-(--chat-bubble-radius) bg-chat-mine px-3.5 py-2.5 text-chat-mine-foreground font-prose text-prose leading-[1.5] wrap-anywhere";
 
 /**
  * A card that waits on the person: raised, its parts 16px apart, its actions in a footer. A Suit
  * reaches it as `card` `waiting`, by what it asks: `spade-question` or `spade-request`.
  */
+/**
+ * How wide a card is. Cards are size containers (`@container/card`), which have no intrinsic
+ * width: without a width of their own they collapse to their padding inside a fit-content
+ * bubble. So a card takes the column up to 34rem, never narrower than 17.5rem (or the column).
+ */
+export const cardSize = "w-full min-w-[min(100%,17.5rem)] max-w-[min(100%,--spacing(136))]";
+
 export function RaisedCard(
   props: React.ComponentProps<"div"> & {
     asks: "question" | "request";
@@ -43,7 +51,7 @@ export function RaisedCard(
       className={cn(
         // Focused when the chat opens on it, for screen readers: a target, not a control, so
         // no ring (its own buttons keep theirs).
-        "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised outline-none pointer-coarse:p-4",
+        `@container/card my-1 flex ${cardSize} flex-col gap-3.5 rounded-(--chat-bubble-radius) bg-chat-bubble px-4 py-3.5 outline-none`,
         className,
       )}
     >
@@ -141,6 +149,106 @@ export function CardSecondary(props: React.ComponentProps<typeof Button>) {
 
 /** A key hint on a card's accent pill: quieter than its word, dropped in a card too narrow. */
 export const cardKeyHint = "font-normal opacity-60 @max-[20rem]/card:hidden";
+
+/** One secondary action in a card's action row: quiet text, or destructive in `--destructive`. */
+export interface CardAction {
+  key?: string | undefined;
+  label: ReactNode;
+  onClick?: (() => void) | undefined;
+  type?: "button" | "submit" | undefined;
+  disabled?: boolean | undefined;
+  busy?: boolean | undefined;
+  tone?: "default" | "danger" | undefined;
+  expanded?: boolean | undefined;
+  ariaLabel?: string | undefined;
+}
+
+/** A card's one main action: a filled pill at the right, with an optional key hint. */
+export interface CardPrimaryAction extends Omit<CardAction, "tone"> {
+  /** Key hint shown on the primary pill: `"enter"` (`↵`), `"mod+enter"` (`⌘↵`), or `false`. */
+  hint?: "enter" | "mod+enter" | false | undefined;
+}
+
+/**
+ * The shared action row for every Spade action card: right-aligned, one filled primary pill on
+ * the right with optional key hint, quiet secondary text actions to its left (destructive ones in
+ * `--destructive`), and optional quiet status or links pinned to the left via `aside`.
+ */
+export function CardActions(props: {
+  primary?: CardPrimaryAction | undefined;
+  secondary?: readonly (CardAction | false | "" | null | undefined)[] | undefined;
+  /** Optional outlined companion right before `primary` (e.g. No beside Yes on a confirm card). */
+  companion?: CardAction | undefined;
+  /** Quiet note, status, or non-answer links pinned to the far left of the footer row. */
+  aside?: ReactNode;
+  /** Replaces the primary pill when the primary action isn't available yet. */
+  primaryFallback?: ReactNode;
+  className?: string | undefined;
+}) {
+  const secondary = (props.secondary ?? []).filter((action): action is CardAction =>
+    Boolean(action),
+  );
+  const { primary, companion } = props;
+  return (
+    <div
+      data-part="spade-card-actions"
+      className={cn("flex flex-wrap items-center gap-1", props.className)}
+    >
+      {props.aside && <div className="flex min-w-0 items-center gap-1">{props.aside}</div>}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+        {secondary.map((action, index) => (
+          <CardWord
+            key={action.key ?? index}
+            type={action.type ?? "button"}
+            tone={action.tone}
+            disabled={action.disabled}
+            aria-busy={action.busy || undefined}
+            aria-expanded={action.expanded}
+            aria-label={action.ariaLabel}
+            onClick={action.onClick}
+          >
+            {action.label}
+          </CardWord>
+        ))}
+        {companion && (
+          <CardSecondary
+            type={companion.type ?? "button"}
+            tone={companion.tone}
+            disabled={companion.disabled}
+            aria-busy={companion.busy || undefined}
+            aria-label={companion.ariaLabel}
+            onClick={companion.onClick}
+          >
+            {companion.label}
+          </CardSecondary>
+        )}
+        {primary ? (
+          <CardPrimary
+            type={primary.type ?? "button"}
+            disabled={primary.disabled}
+            aria-busy={primary.busy || undefined}
+            aria-expanded={primary.expanded}
+            aria-label={primary.ariaLabel}
+            onClick={primary.onClick}
+          >
+            {primary.label}
+            {primary.hint && (
+              <Kbd
+                aria-hidden
+                keys={primary.hint}
+                resolve={false}
+                variant="on-primary"
+                className={cardKeyHint}
+              />
+            )}
+          </CardPrimary>
+        ) : (
+          props.primaryFallback
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * A settled card or one left for later, as one quiet line in the run: a word for how it stands

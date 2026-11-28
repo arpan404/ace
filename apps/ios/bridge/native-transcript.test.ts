@@ -2,8 +2,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { ClientCore, ReadSnapshotStorage } from "@ace/client";
 import { facts } from "@ace/fake-daemon";
 import { ItemId, ThreadId } from "@ace/protocol";
-import { connect, fixture, native, open, pump, reset, until } from "./thread-harness.ts";
+import { connect, fixture, native, open, pump, reset, sent, until } from "./thread-harness.ts";
 import { NativeTranscript, phoneWindow } from "./native-transcript.ts";
+import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { nativeStore } from "./snapshot-store-fixture.ts";
 
 /*
  * The phone's history window, over the real SDK, the fake daemon and the production pump
@@ -27,6 +29,7 @@ async function longThread(
   count: number,
   text = (index: number) => `Step ${index}`,
   storage?: ReadSnapshotStorage,
+  archive = false,
 ) {
   const fake = fixture();
   fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
@@ -39,7 +42,11 @@ async function longThread(
       );
     fake.apply("long", batch);
   }
-  const client = connect(fake, { items: 200, ...(storage ? { readSnapshots: storage } : {}) });
+  const client = connect(fake, {
+    items: 200,
+    ...(storage ? { readSnapshots: storage } : {}),
+    archive,
+  });
   open(client, "long");
   await until(() => native.frames.some((frame) => frame.type === "thread.ready"), "the thread");
   return { fake, client };
@@ -175,6 +182,53 @@ test("reading far back keeps the window within its text weight", async () => {
 
 /** A frame the reading window sends, rather than the live transcript. */
 const readingFrame = (frame: Record<string, unknown>) => frame.epoch === -1;
+
+/** History windows the phone asked the machine for so far. */
+const windowReads = () => sent.filter((wire) => wire.includes('"type":"items.window"')).length;
+
+test("scrolling back down after reading past the window refills from the phone, not the machine", async () => {
+  const { call } = nativeStore();
+  const { client } = await longThread(1500, undefined, nativeReadSnapshots(call, Date.now), true);
+  const read = reader(client);
+  await read("hold");
+  let state = await read("older");
+  for (let pages = 0; state.hasOlder && pages < 40; pages++) state = await read("older");
+  expect(held(-1)[0]).toBe(message(0));
+  expect(held(-1)).not.toContain(message(1499));
+  const asked = windowReads();
+  for (let pages = 0; !state.joined && pages < 40; pages++) state = await read("newer");
+  expect(state.joined).toBe(true);
+  expect(windowReads()).toBe(asked);
+  expect(contiguous(held(-1))).toBe(true);
+});
+
+test("history read before the app closed is there offline after it reopens, marked cached", async () => {
+  const { call } = nativeStore();
+  const first = await longThread(1500, undefined, nativeReadSnapshots(call, Date.now), true);
+  let read = reader(first.client);
+  await read("hold");
+  for (let pages = 0; pages < 6; pages++) await read("older");
+  const deepest = held(-1)[0];
+  expect(step(deepest)).toBeLessThan(1000);
+  transcript?.close();
+  await reset();
+
+  const client = connect(first.fake, {
+    items: 200,
+    readSnapshots: nativeReadSnapshots(call, Date.now),
+    archive: true,
+    held: new Promise(() => {}),
+  });
+  open(client, "long");
+  await until(() => native.frames.some((frame) => frame.type === "thread.ready"), "cached thread");
+  read = reader(client);
+  // A window never asked for in exactly this shape: only the archive can answer it.
+  const target = message(step(deepest) + 37);
+  const state = await read("item", -1, target);
+  expect(held(-1)).toContain(target);
+  expect(contiguous(held(-1))).toBe(true);
+  expect(state.freshness).toBe("cached");
+});
 
 test("each page's rows reach Swift before the read says it settled", async () => {
   const { client } = await longThread(1500);

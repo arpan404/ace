@@ -352,3 +352,29 @@ test("a retry that gives up stays visible", () => {
 });
 
 const working = { state: "working", activity: "tool" } as const;
+
+/** The person steers mid-turn where ace steers by cancelling: the run ends for the steer. */
+function steeredMidTurn() {
+  const thread = recorded();
+  thread.admit(0, ask("ask", 0), started("first", 0, "user", 1), step("read", "first", 1_000));
+  thread.admit(5_000, ask("steer", 5_000));
+  thread.admit(
+    6_000,
+    { ...ended("first", 6_000, "interrupted"), endedBy: "steer" },
+    settled("interrupted"),
+    { type: "thread.updated", status: { state: "waiting", on: "queue" } },
+    queue(null),
+  );
+  return thread;
+}
+
+test("a turn that ended only to let the person's steer in puts no Stopped under the steer", () => {
+  const blocks = steeredMidTurn().blocks();
+  expect(blocks.some((block) => block.kind === "end")).toBe(false);
+});
+
+test("a Stop while the steer waits to go in still reads as stopped", () => {
+  const thread = steeredMidTurn();
+  thread.admit(7_000, queue("stopped"));
+  expect(thread.blocks().at(-1)).toMatchObject({ kind: "end", ending: "interrupted" });
+});

@@ -18,11 +18,12 @@ use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
 use crate::chatgpt::{self, SignIn};
 use crate::effort::{self, Refusals, Sent};
 use crate::error::{self, ModelError};
+use crate::format::Format;
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
 use crate::signed::{Bearers, DispatchGuard, Signed};
 use crate::waits::{Activity, StreamWaits};
-use crate::{failure, thoughts, typed};
+use crate::{bound, failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
 /// Calls models on the person's endpoints. Starts with the presets' endpoints; the server sets the
@@ -61,6 +62,10 @@ struct Call {
     reference: String,
     target: ServiceTarget,
     options: ChatOptions,
+    /// The endpoint's wire format: only Anthropic refuses a thought made from another prefix.
+    format: Format,
+    /// What a thought of the reply is bound to (see `bound.rs`).
+    seed: bound::Prefix,
     /// The endpoint answers only streamed requests (a ChatGPT account).
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
@@ -85,6 +90,9 @@ struct Resolved {
     effort: Option<ReasoningEffort>,
     room: u32,
     key: String,
+    /// The endpoint's wire format and what a thought of a reply is bound to (see `bound.rs`).
+    format: Format,
+    seed: bound::Prefix,
     /// The endpoint answers only streamed requests (a ChatGPT account).
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
@@ -115,6 +123,8 @@ impl Resolved {
             reference: self.reference.clone(),
             target: self.target.clone(),
             options,
+            format: self.format,
+            seed: self.seed.clone(),
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
             held: None,
@@ -411,9 +421,10 @@ impl Models {
             let reference = call.reference.clone();
             return fold(reference, self.stream_once(call, prompt, None).await?).await;
         }
+        let (request, digest) = request(prompt, false, call.format, &call.seed);
         let response = self
             .client
-            .exec_chat(call.target, request(prompt, false), Some(&call.options))
+            .exec_chat(call.target, request, Some(&call.options))
             .await
             .map_err(|error| {
                 failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
@@ -428,6 +439,7 @@ impl Models {
         let thoughts = thoughts::read(
             Some(&response.content),
             response.reasoning_content.as_deref(),
+            &digest,
         );
         let text = response.content.joined_texts().unwrap_or_default();
         if text.is_empty() && calls.is_empty() {
@@ -483,9 +495,10 @@ impl Models {
             });
         }
         let options = call.options.with_response_format(typed::spec::<T>()?);
+        let (request, _) = request(prompt, false, call.format, &call.seed);
         let response = self
             .client
-            .exec_chat(call.target, request(prompt, false), Some(&options))
+            .exec_chat(call.target, request, Some(&options))
             .await
             .map_err(|error| {
                 failure::read_scrubbed(&call.reference, &error, false, &call.secrets)
@@ -562,13 +575,10 @@ impl Models {
             .with_capture_content(true)
             .with_capture_reasoning_content(true);
         let (options, closed) = crate::closed_calls::tap(options);
+        let (request, digest) = request(prompt, call.streamed_only, call.format, &call.seed);
         let response = self
             .client
-            .exec_chat_stream(
-                call.target,
-                request(prompt, call.streamed_only),
-                Some(&options),
-            )
+            .exec_chat_stream(call.target, request, Some(&options))
             .await
             .map_err(|error| {
                 failure::read_scrubbed_as(&call.reference, &error, false, signed, &secrets)
@@ -603,6 +613,7 @@ impl Models {
                             thoughts: thoughts::read(
                                 end.captured_content.as_ref(),
                                 end.captured_reasoning_content.as_deref(),
+                                &digest,
                             ),
                         }));
                         Some(out)
@@ -703,6 +714,13 @@ impl Models {
             headers.extend(extra);
         }
         options = options.with_extra_headers(Headers::from(headers));
+        let seed = bound::Prefix::new(
+            endpoint.format,
+            &endpoint.base_url,
+            &model.id,
+            prompt.system.as_deref(),
+            &prompt.tools,
+        );
         Ok(Resolved {
             reference: reference.to_owned(),
             target: ServiceTarget {
@@ -720,6 +738,8 @@ impl Models {
                 prompt.effort,
             ),
             effort,
+            format: endpoint.format,
+            seed,
             streamed_only,
             secrets,
             signed: token,
@@ -778,10 +798,29 @@ async fn fold(
     Ok(reply)
 }
 
-/// The request for `prompt`. `instructed`: the endpoint needs instructions even when the prompt
-/// has none (the ChatGPT backend refuses a request without them).
-fn request(prompt: &Prompt, instructed: bool) -> ChatRequest {
-    let mut request = ChatRequest::new(prompt.messages.iter().map(message).collect());
+/// The request for `prompt`, and the digest its reply's thoughts are bound to. `instructed`: the
+/// endpoint needs instructions even when the prompt has none (the ChatGPT backend refuses a
+/// request without them). Anthropic alone refuses a thought made from another prefix, so only its
+/// requests leave out the thoughts that no longer match (see `bound.rs`); every other format gets
+/// them back as they came.
+fn request(
+    prompt: &Prompt,
+    instructed: bool,
+    format: Format,
+    seed: &bound::Prefix,
+) -> (ChatRequest, String) {
+    let (mut request, digest) = if format == Format::Anthropic {
+        let (messages, digest) = bound::sendable(&prompt.messages, seed.clone());
+        let sent: Vec<ChatMessage> = messages.iter().map(|m| message(m.as_ref())).collect();
+        (ChatRequest::new(sent), digest)
+    } else {
+        // Nothing is trimmed, so the history is read where it already is.
+        let sent: Vec<ChatMessage> = prompt.messages.iter().map(message).collect();
+        (
+            ChatRequest::new(sent),
+            bound::digest(&prompt.messages, seed.clone()),
+        )
+    };
     match &prompt.system {
         Some(system) => request = request.with_system(system.as_str()),
         None if instructed => request = request.with_system(""),
@@ -794,7 +833,7 @@ fn request(prompt: &Prompt, instructed: bool) -> ChatRequest {
                 .with_schema(tool.schema.clone())
         }));
     }
-    request
+    (request, digest)
 }
 
 fn message(message: &Message) -> ChatMessage {

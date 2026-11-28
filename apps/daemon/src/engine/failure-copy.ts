@@ -5,6 +5,7 @@
 
 const titles: Record<string, string> = {
   "thread.interrupt": "Couldn't stop the agent",
+  "thread.compact": "Couldn't compact the context",
   "thread.resume": "Couldn't resume",
   "queue.resume": "Couldn't resume the queue",
   "thread.limit": "Couldn't resume after the limit",

@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { RowSnapshots, type SnapshotRows, type ThreadWrite } from "./row-snapshots.ts";
+import {
+  RowSnapshots,
+  rowWriteBytes,
+  type SnapshotRows,
+  type ThreadWrite,
+} from "./row-snapshots.ts";
 import type { KeptSnapshot } from "./snapshot-retention.ts";
 
 /*
@@ -404,4 +409,29 @@ test("history content writes prune old records even when no thread snapshot is w
   await snapshots.set("history/new", { text: "y".repeat(120) });
   await expect.poll(() => rows.records.has("history/old")).toBe(false);
   expect(await snapshots.get("history/new")).toEqual({ text: "y".repeat(120) });
+});
+
+test("a thread write larger than one native write lands whole across several", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  const items = Array.from({ length: 12 }, (_, index) =>
+    message(`m${index}`, "z".repeat(rowWriteBytes / 4), true),
+  );
+  await snapshots.set("host/archive:t", record("t", items));
+  for (const write of rows.writes)
+    expect(write.items.reduce((sum, item) => sum + item.text.length, 0)).toBeLessThanOrEqual(
+      rowWriteBytes,
+    );
+  expect(rows.writes.length).toBeGreaterThan(1);
+  expect(rows.items.get("host/archive:t")?.size).toBe(12);
+});
+
+test("Settings counts each chat once, not its archive as another", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  await snapshots.set("host/thread:t", record("t", [message("a", "hi", true)]));
+  await snapshots.set("host/archive:t", record("t", [message("a", "hi", true)]));
+  expect((await snapshots.usage()).threads).toBe(1);
 });

@@ -2,7 +2,15 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { setShowWork } from "./spade-show-work.ts";
-import { botRow, openProfile, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import {
+  botRow,
+  openProfile,
+  roster,
+  spadeApp,
+  withEndpoint,
+  openSettingsPage,
+  backToActivity,
+} from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -187,15 +195,22 @@ test("editing a bot sends only what changed", async () => {
   });
   await feed("Garden");
   await openProfile("Garden");
-  await userEvent.click(
-    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
-  );
-  const task = screen.getByRole("textbox", { name: "Task" });
+  await openSettingsPage("Job");
+  const task = await screen.findByRole("textbox", { name: "Task" });
+  expect((task as HTMLTextAreaElement).value).toBe("Keep the garden alive");
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   await userEvent.clear(task);
-  await userEvent.type(task, "Keep the tomatoes alive{Meta>}{Enter}{/Meta}");
-  await screen.findByRole("button", { name: "Edit the task: Keep the tomatoes alive" });
+  await userEvent.type(task, "Keep the tomatoes alive");
+  expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([{ task: "Keep the tomatoes alive" }]),
+  );
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Save" })).toBeNull());
+  expect((screen.getByRole("textbox", { name: "Task" }) as HTMLTextAreaElement).value).toBe(
+    "Keep the tomatoes alive",
   );
 });
 
@@ -205,13 +220,14 @@ test("Esc puts a task being edited back, and nothing is sent", async () => {
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive" });
   });
-  await userEvent.click(
-    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
-  );
-  const task = screen.getByRole("textbox", { name: "Task" });
+  await openSettingsPage("Job");
+  const task = await screen.findByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
   await userEvent.type(task, "Something else{Escape}");
-  await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull());
+  expect((screen.getByRole("textbox", { name: "Task" }) as HTMLTextAreaElement).value).toBe(
+    "Keep the garden alive",
+  );
   expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
 });
 
@@ -223,6 +239,7 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
   });
   await feed("Garden");
   await openProfile("Garden");
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Delete bot…" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete Garden?" }));
   expect(confirm.getByText("This deletes Garden and its whole conversation.")).toBeTruthy();
@@ -241,12 +258,15 @@ test("Spade itself can be changed in its profile but never deleted, and keeps it
   });
   await feed("Spade");
   await openProfile("Spade");
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
   await screen.findByRole("button", { name: "Duplicate" });
-  expect(screen.getByRole("button", { name: "Write its task" })).toBeTruthy();
+  await openSettingsPage("Job");
+  expect(screen.getByRole("textbox", { name: "Task" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete bot…" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Change face" })).toBeNull();
   // Its Library starts with what every bot knows about the person.
+  await backToActivity();
   await userEvent.click(screen.getByRole("tab", { name: "Library" }));
   const headings = await screen.findAllByRole("heading", { level: 3 });
   expect(headings.map((each) => each.textContent).slice(0, 2)).toEqual(["About you", "Notes"]);

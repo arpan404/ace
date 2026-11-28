@@ -287,6 +287,8 @@ export function retireThreadIntents(
     for (const intent of repo.pending.headers(id)) {
       repo.mark(intent, "failed", reason);
       repo.queue.clearUncertain(intent.id);
+      // Its aim row is pruned only once the uncertainty is gone, as when a send fails.
+      repo.queue.prune(intent.id);
       repo.transitions.releaseGuards(intent.commandId);
     }
     const uncertain = repo.store
