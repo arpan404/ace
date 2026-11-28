@@ -75,6 +75,8 @@ interface Runtime {
   now?: () => number;
   /** Elapsed time, for intervals a clock someone sets must not stretch or cut short. */
   monotonic?: () => number;
+  /** Whether a child this machine delegated to another one is still watched: no end until not. */
+  remoteWatched?: (now: number) => boolean;
   delay?: (run: () => void, milliseconds: number) => () => void;
   /** How long an idle worker stays up before it stops. */
   quietMs?: number;
@@ -579,6 +581,7 @@ export function createDaemonNotifications(
           preferences: (device) => use((worker) => worker.getPreferences(device)),
           now,
           monotonic,
+          ...(runtime.remoteWatched ? { remoteWatched: runtime.remoteWatched } : {}),
           delay,
           report,
           signal,

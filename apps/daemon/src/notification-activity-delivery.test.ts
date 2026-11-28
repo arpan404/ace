@@ -13,6 +13,7 @@ import {
 import { createDevThread } from "./commands.ts";
 import { createActivityDelivery } from "./notification-activity-delivery.ts";
 import type { LiveActivitySendTarget } from "./notification-live-activity.ts";
+import { ChildLedger } from "./machines/child-ledger.ts";
 import { Store } from "./store.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -38,10 +39,16 @@ function lane() {
   let wall = Date.parse("2026-11-24T12:00:00Z");
   let elapsed = 5_000;
   const sent: ActivityPush[] = [];
+  /** The timers the lane armed and that haven't fired, by when they come due. */
+  const timers: { at: number; run: () => void }[] = [];
+  /** How many times one of them fired. */
+  let fired = 0;
   const errors: unknown[] = [];
   const lifetime = new AbortController();
+  const ledger = new ChildLedger(store);
   const delivery = createActivityDelivery({
     store,
+    remoteWatched: (at) => ledger.watchingRemote(at),
     gateway: {
       async sendActivity(_address, prepare) {
         const body = prepare();
@@ -57,7 +64,14 @@ function lane() {
     preferences: async () => NotificationPreferences.parse({}),
     now: () => wall,
     monotonic: () => elapsed,
-    delay: () => () => {},
+    delay: (run, ms) => {
+      const timer = { at: elapsed + ms, run };
+      timers.push(timer);
+      return () => {
+        const index = timers.indexOf(timer);
+        if (index >= 0) timers.splice(index, 1);
+      };
+    },
     report: (error) => errors.push(error),
     signal: lifetime.signal,
   });
@@ -85,7 +99,42 @@ function lane() {
       wall += ms;
     },
     wall: () => wall,
+    elapsed: () => elapsed,
     read: () => delivery.run(),
+    fired: () => fired,
+    /**
+     * Time passes `ms`: each timer the lane armed fires when it comes due, and the run it starts
+     * finishes before the next. Nothing else starts a run.
+     */
+    async tick(ms: number) {
+      const until = elapsed + ms;
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const next = timers[0];
+        if (!next || next.at > until) break;
+        timers.shift();
+        const step = Math.max(0, next.at - elapsed);
+        wall += step;
+        elapsed += step;
+        fired++;
+        next.run();
+        for (let turn = 0; turn < 50; turn++) await new Promise((resolve) => setImmediate(resolve));
+      }
+      wall += until - elapsed;
+      elapsed = until;
+    },
+    /** A child this machine delegated to another one, as the machines ledger records it. */
+    remoteChild(id: string, state: { settled: boolean; settledAt?: number }) {
+      store.atomic((db) =>
+        db
+          .prepare(
+            `INSERT OR REPLACE INTO machine_children (id, request_key, parent_thread, parent_agent,
+              machine, role, provider, created_at, view, settled, delivered, settled_at)
+            VALUES (?, ?, ?, 'agent', 'studio', 'Task', 'claude', 0, NULL, ?, 1, ?)`,
+          )
+          .run(id, `${thread}:${id}`, thread, state.settled ? 1 : 0, state.settledAt ?? null),
+      );
+    },
     events: () => sent.map((push) => push.event),
   };
 }
@@ -152,4 +201,40 @@ it("a wall clock set forward does not cut the quiet grace short", async () => {
   // The wire still carries the machine's own wall time.
   expect(activity.sent.at(-1)?.state.at).toBe(Math.floor(activity.wall() / 1000));
   expect(activity.errors).toEqual([]);
+});
+
+it("end waits while a child on another machine is working, and while a settled one is in its window", async () => {
+  const activity = lane();
+  activity.remoteChild("remote-a", { settled: false });
+  await settled(activity);
+  activity.advance(121_000);
+  await activity.read();
+  expect(activity.events()).not.toContain("end");
+  // It finished there, and this machine is quiet. Its re-check window is open for a day: it may
+  // start again there, so no end goes however long the grace has run.
+  activity.remoteChild("remote-a", { settled: true, settledAt: activity.wall() });
+  await activity.read();
+  activity.advance(121_000);
+  await activity.read();
+  activity.advance(60 * 60_000);
+  await activity.read();
+  expect(activity.events()).not.toContain("end");
+  // The window closed long since, and the machine has been quiet for 120 s: the end goes.
+  activity.advance(24 * 60 * 60_000);
+  await activity.read();
+  expect(activity.events().at(-1)).toBe("end");
+});
+
+it("an end held for a remote child is looked at again on the lane's timer, once a second", async () => {
+  const activity = lane();
+  await settled(activity);
+  // Settled there a moment ago: inside its window, so it holds the end.
+  activity.remoteChild("remote-a", { settled: true, settledAt: activity.wall() });
+  await activity.tick(121_000);
+  const before = activity.fired();
+  await activity.tick(10_000);
+  // About one look a second, no loop, and still no end.
+  expect(activity.fired() - before).toBeGreaterThanOrEqual(9);
+  expect(activity.fired() - before).toBeLessThanOrEqual(11);
+  expect(activity.events()).not.toContain("end");
 });

@@ -4,6 +4,7 @@ import type { NotificationTransport, PushGatewayTransport } from "@ace/notify";
 import { repeatableWarmup } from "./warmup.ts";
 import { loadNotificationChannels, pushTarget } from "../notification-config.ts";
 import { followRemotePushSetting } from "../notification-live-activity.ts";
+import { ChildLedger } from "../machines/child-ledger.ts";
 import { createDaemonNotifications } from "../notifications.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -29,6 +30,7 @@ export async function startNotifications(context: ServiceContext): Promise<void>
   const liveActivityAllowed = () => context.orgHost?.org() === undefined;
   // Nothing saved needs delivery while no client is connected: the worker starts when one does.
   const retained = notificationsRetained(join(config.dataDir, "notifications.sqlite"));
+  const children = new ChildLedger(store);
   const notifications = createDaemonNotifications(
     config.dataDir,
     store,
@@ -38,6 +40,8 @@ export async function startNotifications(context: ServiceContext): Promise<void>
     {
       signal: context.signal,
       slept: !retained,
+      // Read from the ledger itself, so the rule holds before the machines service is up.
+      remoteWatched: (now) => children.watchingRemote(now),
       ...(options.notificationWorker ? { spawn: options.notificationWorker } : {}),
       ...(gateway
         ? {

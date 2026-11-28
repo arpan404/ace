@@ -20,6 +20,11 @@ const keyOf = (target: LiveActivitySendTarget) => `${target.environment}\n${targ
 
 interface Options {
   store: Store;
+  /**
+   * Whether a child this machine delegated to another one is still watched at wall time `now`.
+   * Polling can't prove such a child stayed quiet, so the end waits until none is.
+   */
+  remoteWatched?: (now: number) => boolean;
   gateway: ActivitySender;
   targets(): Promise<LiveActivitySendTarget[]>;
   guard(): (target: LiveActivitySendTarget) => boolean;
@@ -172,6 +177,12 @@ export function createActivityDelivery(options: Options) {
     });
     if (next && "at" in next) {
       arm(next.at);
+      return;
+    }
+    // A remote child may start again unseen: no end while one is watched. Looked at again on
+    // this lane's own timer, a second from now.
+    if (next?.event === "end" && options.remoteWatched?.(wall)) {
+      arm(elapsed() + rereadMs);
       return;
     }
     return next;
