@@ -226,6 +226,27 @@ describe("Live browser view", () => {
     expect(paneReports(off.requested).at(-1)).not.toHaveProperty("viewport.audio");
   });
 
+  test("a daemon that comes back without the thread's browser shows no page, not the tab it had", async () => {
+    const { daemon, sink, view, requested } = await live();
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(sink)?.activeTabId != null, "browser state");
+    const before = paneReports(requested).length;
+    // The daemon restarts and its browser doesn't come back with it.
+    daemon.disconnectAll();
+    daemon.browser.close("web");
+    await until(
+      () =>
+        paneReports(requested)
+          .slice(before)
+          .some((r) => r.type === "browser.subscribe"),
+      "the resubscribe",
+    );
+    await until(() => state(sink) === null, "no page");
+    expect(sink.read("browser:view")).toMatchObject({ error: null, state: null });
+    // Nothing points at the tab the daemon no longer has.
+    expect(sink.read("browser:page")).toMatchObject({ tabId: null, page: null });
+  });
+
   test("a thread whose browser isn't open shows no page, not a failure, and is asked again", async () => {
     const { daemon, sink, view, scheduled, requested, releaseSubscribes } = await live({
       browser: false,

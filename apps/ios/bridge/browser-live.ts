@@ -636,9 +636,13 @@ export class BrowserLive {
             if (refused) return;
             // A thread whose browser isn't running has no page to show, which the phone offers
             // to open; only other refusals mean the view couldn't be shown.
-            watch.error = isBrowserNotOpen(reply.error)
-              ? undefined
-              : (reply.error ?? "browser_failed");
+            if (isBrowserNotOpen(reply.error)) {
+              watch.error = undefined;
+              // A daemon that restarted without it: the tabs from before are gone with it.
+              watch.state = undefined;
+              watch.pages.clear();
+              this.#putPage(watch);
+            } else watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
           }
