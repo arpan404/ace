@@ -12,6 +12,7 @@ import SwiftUI
     /// Why recording can't start, until the next try; `settings` when Settings can fix it.
     private(set) var problem: (text: String, settings: Bool)?
     @ObservationIgnored private var recorder: AVAudioRecorder?
+    @ObservationIgnored private var session: AppAudioSession.Claim?
     @ObservationIgnored private var url: URL?
     /// Between a press and the microphone opening (the system's prompt may be up).
     @ObservationIgnored private var starting = false
@@ -44,9 +45,7 @@ import SwiftUI
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
         ]
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .duckOthers])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            session = try AppAudioSession.shared.claim(.voiceRecording)
             let recorder = try AVAudioRecorder(url: url, settings: settings)
             guard recorder.record(forDuration: Self.longest) else { throw CocoaError(.fileWriteUnknown) }
             self.recorder = recorder
@@ -106,7 +105,10 @@ import SwiftUI
         recording = false
         release()
     }
-    private func release() { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    private func release() {
+        AppAudioSession.shared.release(session)
+        session = nil
+    }
 }
 
 /// The mic in Send's place while the field is empty: hold to record, let go to keep it for the
@@ -221,6 +223,7 @@ extension EnvironmentValues {
     /// Why a recording couldn't play, by ref, until it is tried again.
     private(set) var failures: [String: String] = [:]
     @ObservationIgnored private var player: AVAudioPlayer?
+    @ObservationIgnored private var session: AppAudioSession.Claim?
     @ObservationIgnored private var ticking: Task<Void, Never>?
     @ObservationIgnored private var reading: Task<Void, Never>?
 
@@ -268,14 +271,15 @@ extension EnvironmentValues {
         stopTicking()
         player?.stop()
         player = nil
+        AppAudioSession.shared.release(session)
+        session = nil
         current = nil
         playing = false
         elapsed = 0
     }
 
     private func start(_ player: AVAudioPlayer) {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        if session == nil { session = try? AppAudioSession.shared.claim(.voicePlayback) }
         guard player.play() else { release(); return }
         playing = true
         ticking?.cancel()

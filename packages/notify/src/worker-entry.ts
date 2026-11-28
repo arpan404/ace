@@ -128,6 +128,18 @@ port.on("message", (message: ToWorker) => {
         case "feed":
           value = service.feed(call.device, call.afterCursor, call.checkpoint, call.linked);
           break;
+        case "syncLiveActivity":
+          service.syncLiveActivity(call.device, call.linked, call.liveActivity);
+          break;
+        case "liveActivityTargets":
+          value = service.liveActivityTargets();
+          break;
+        case "clearLiveActivity":
+          service.clearLiveActivity();
+          break;
+        case "dropLiveActivityToken":
+          service.dropLiveActivityToken(call);
+          break;
         case "disconnect":
           service.disconnect(call.session);
           break;

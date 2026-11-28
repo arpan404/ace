@@ -211,6 +211,7 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                     switch self.router.route(bytes) {
                     case .none: break
                     case .stream(let message): if let path = self.path { self.streams?.deliver(message, path: path) }
+                    case .audio(let message): if let path = self.path { self.streams?.deliver(message, path: path) }
                     case .device(let message): if let path = self.path { self.streams?.deliver(message, path: path) }
                     case .screen(let message): if let path = self.path { self.streams?.deliverScreen(message, path: path) }
                     case .sdk: self.event("binary", .bytes(bytes))

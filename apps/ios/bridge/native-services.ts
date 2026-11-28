@@ -108,6 +108,7 @@ import { NativeAutomationRequest, type NativeAutomations } from "./automations.t
 import type { NativeSpade } from "./spade.ts";
 import { answerSpade, NativeSpadeRequest } from "./spade-requests.ts";
 import { NativeCatalogRequest, type CatalogPage } from "./catalog-page.ts";
+import { ApiKeyScreenRequest, handOverApiKey, type KeyHandOffDeps } from "./provider-key.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -137,7 +138,7 @@ const Request = z.union([
 ]);
 /**
  * ADR 0002 lets a paired device hand over an API key only on the relay's encrypted
- * `provider_auth` channel, which this bridge doesn't have, so a key never leaves the phone here.
+ * `provider_auth` channel, never this main socket: a key goes only by `accounts.screen.key`.
  */
 const ApiKeyHandOver = z.object({ type: z.literal("provider.login.apiKey") });
 const DeviceRequestType = z.object({
@@ -200,6 +201,8 @@ export class NativeServices {
   readonly publish: NativePublish;
   readonly automations: NativeAutomations | undefined;
   readonly now: () => number;
+  /** This machine's `provider_auth` channel, set once the runtime has made it. */
+  keys: KeyHandOffDeps | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -577,12 +580,27 @@ export class NativeServices {
         this.#answer(id, raw, value, read);
         return;
       }
+      const key = ApiKeyScreenRequest.safeParse(raw);
+      if (key.success) {
+        // Only the parsed copy goes on; the one Swift's JSON made is dropped here.
+        if (typeof raw === "object" && raw !== null) Reflect.set(raw, "apiKey", "");
+        const answer = this.keys
+          ? await handOverApiKey(this.keys, key.data, controller.signal)
+          : { ok: false, problem: "Couldn't reach the computer to hand over the key. Try again." };
+        this.#reply(id, true, answer, "");
+        return;
+      }
       const manage = SettingsManageRequest.safeParse(raw);
       if (manage.success) {
         this.#reply(
           id,
           true,
-          await answerSettingsManage(this.owner, manage.data, controller.signal),
+          await answerSettingsManage(
+            this.owner,
+            manage.data,
+            controller.signal,
+            this.keys?.relayed() ?? false,
+          ),
           "",
         );
         return;

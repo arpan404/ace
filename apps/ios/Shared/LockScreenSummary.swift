@@ -152,11 +152,10 @@ struct LockSummary: Codable, Hashable, Sendable {
     }
 }
 
-/// The one Live Activity for all of the person's agents. Its content is a `LockSummary` with up
-/// to three rows: plain JSON, so a push sent through ace's gateway can carry the same shape.
+/// Earlier builds' one Live Activity for all of the person's agents, replaced by one per machine
+/// (`MachineActivityAttributes`, ADR 0223). Kept only so launch can end any still showing.
 struct AgentsActivityAttributes: ActivityAttributes {
     typealias ContentState = LockSummary
-    /// Activities have to carry something fixed; it records which build started it.
     var version = 1
 }
 

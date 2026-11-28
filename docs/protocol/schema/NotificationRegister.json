@@ -5,6 +5,9 @@
     "device": {
       "$ref": "https://ace.local/protocol/v1/NotificationAddress.json"
     },
+    "liveActivity": {
+      "$ref": "https://ace.local/protocol/v1/LiveActivitySync.json"
+    },
     "requestId": {
       "maxLength": 200,
       "minLength": 1,

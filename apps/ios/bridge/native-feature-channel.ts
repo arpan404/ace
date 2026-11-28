@@ -16,7 +16,10 @@ export interface NativeFeatureConfig {
   id(): string;
   trust: TrustMonitor;
 }
-export function nativeFeatureChannel(config: NativeFeatureConfig, feature: "devices" | "screen") {
+export function nativeFeatureChannel(
+  config: NativeFeatureConfig,
+  feature: "devices" | "screen" | "provider_auth",
+) {
   return authenticatedChannel(
     {
       // Swift binds sockets to the runtime's pinned machine; caller URLs never leave JavaScript.

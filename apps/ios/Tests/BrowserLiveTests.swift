@@ -54,6 +54,39 @@ import Testing
         #expect(probes(session) == before + 1)
     }
 
+    @Test func leavingTheAppWithSoundOnMutesThePageUnlessItFloatsWithinTheStartWindow() async throws {
+        let (model, session) = try await connected()
+        model.browser.pipEnabled = { true }
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        model.enterBrowser()
+        model.browserSound(true)
+        // No float can start (the page isn't eligible): the sound stops at once.
+        var waits: [Duration] = []
+        await model.browserBackground { waits.append($0) }
+        #expect(waits.isEmpty)
+        #expect(!model.browser.soundHere)
+        #expect(session.browserActions.last?["kind"] as? String == "audio")
+        #expect(session.browserActions.last?["on"] as? Bool == false)
+
+        // An agent browses: leaving the app may float the page, so the sound waits for AVKit. Here
+        // another app holds picture-in-picture and none starts: the sound stops after the window.
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0, "blank": false,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/", "agent": "Claude"]],
+        ]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state]]))
+        model.browserSound(true)
+        #expect(model.browser.pipArmed)
+        await model.browserBackground { delay in
+            waits.append(delay)
+            #expect(model.browser.soundHere)
+        }
+        #expect(waits == [ClientModel.pipStartWindow])
+        #expect(!model.browser.soundHere)
+        #expect(session.browserActions.last?["on"] as? Bool == false)
+    }
+
     @Test func openingSubscribesAtTheViewsSizeAndClosingReleasesIt() async throws {
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)

@@ -2,6 +2,7 @@ import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { NativeReads } from "./native-reads.ts";
 import { NativeServices } from "./native-services.ts";
+import { directLinkProblem } from "./provider-key.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 let close: (() => Promise<void>) | undefined;
@@ -68,7 +69,7 @@ test("native service bridge refuses thread commands so they cannot bypass durabl
   expect(sink.read("service:bad")).toMatchObject({ ok: false, value: null });
 });
 
-test("an API key never leaves the phone, because ADR 0002 allows keys only over provider_auth", async () => {
+test("a raw API key message is never sent on the main socket: ADR 0002 allows keys only over provider_auth", async () => {
   const { client } = sheetFixture();
   close = () => client.close();
   await client.start();
@@ -83,6 +84,41 @@ test("an API key never leaves the phone, because ADR 0002 allows keys only over 
   // Refused in the bridge: a forwarded request would come back with the daemon's own answer.
   expect(sink.read("service:key")).toMatchObject({ ok: false, value: null });
   expect(JSON.stringify(sink.read("service:key"))).not.toContain("sk-test-123");
+});
+
+test("a key hand-off goes to the provider_auth path, and its answer and request hold no key", async () => {
+  const { client } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.state === "ready", "connected");
+  const sink = new RecordingSink();
+  const services = new NativeServices(client, sink);
+  let opened = 0;
+  services.keys = {
+    channel: () => {
+      opened++;
+      throw new Error("a direct link opens no channel");
+    },
+    relayed: () => false,
+    owner: client,
+    id: () => crypto.randomUUID(),
+    schedule: () => () => {},
+  };
+  const request = {
+    type: "accounts.screen.key",
+    provider: "codex",
+    label: "Work",
+    apiKey: "sk-test-123",
+  };
+  services.handle({ type: "service", id: "key", request });
+  await until(() => sink.read("service:key") !== undefined, "answered");
+  expect(sink.read("service:key")).toMatchObject({
+    ok: true,
+    value: { ok: false, problem: directLinkProblem },
+  });
+  expect(opened).toBe(0);
+  expect(JSON.stringify(sink.read("service:key"))).not.toContain("sk-test-123");
+  expect(request.apiKey).toBe("");
 });
 
 test("phone search finds message content beyond the loaded inbox titles", async () => {

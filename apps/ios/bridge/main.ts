@@ -64,6 +64,7 @@ import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
 import { OutsideOpenAction, OutsideWatch } from "./outside-clients.ts";
 import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
+import { nativeFeatureChannel } from "./native-feature-channel.ts";
 import { phoneMedia, type PhoneMedia } from "./phone-media.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -381,6 +382,7 @@ async function start(json: string): Promise<void> {
     undefined,
     () => host.now(),
     keptValue("runAlerts"),
+    keptValue("pushAddress"),
   );
   const owner = client;
   // An organization's host: the member's standing is kept proven on each socket (ADR 0206 §2.2).
@@ -595,6 +597,14 @@ async function start(json: string): Promise<void> {
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
   services.spade = spade;
+  // API keys go only on their own `provider_auth` channel, and only through ace's relay (ADR 0002).
+  services.keys = {
+    channel: () => nativeFeatureChannel(featureConfig, "provider_auth"),
+    owner: client,
+    relayed: () => standingRoute === "account",
+    id: () => host.uuid(),
+    schedule: (delayMs, callback) => scheduler.set(delayMs, callback),
+  };
   workspace = new NativeWorkspace(pump, {
     load: () => call("storage.workspace.load"),
     save: async (value) => {

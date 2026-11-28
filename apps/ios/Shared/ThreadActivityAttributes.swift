@@ -1,6 +1,7 @@
 import ActivityKit
 import Foundation
 
+/// Older builds' per-thread Live Activity; kept only so launch can end any still showing.
 struct ThreadActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         let title: String

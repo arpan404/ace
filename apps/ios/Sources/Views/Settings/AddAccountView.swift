@@ -25,17 +25,71 @@ private struct SignInAnswer: ManageAnswer {
     }
 }
 
+/// `accounts.screen.key`: the account a pasted key added.
+private struct KeyAnswer: ManageAnswer {
+    let ok: Bool
+    let problem: String?
+    let instance: String?
+}
+
+/// How a new account signs in: one of the daemon's sign-in ways, or a pasted API key. Pure.
+enum AddAccountChoice: Identifiable, Equatable {
+    case signIn(AccountWay)
+    case key(KeyWay)
+    var id: String {
+        switch self {
+        case .signIn(let way): "signIn/\(way.id)"
+        case .key(let way): "key/\(way.id)"
+        }
+    }
+    var label: String {
+        switch self {
+        case .signIn(let way): way.label
+        case .key(let way): way.label
+        }
+    }
+    var next: String {
+        switch self {
+        case .signIn(let way): way.next
+        case .key(let way): way.next
+        }
+    }
+    var keyWay: KeyWay? { if case .key(let way) = self { way } else { nil } }
+    var signInWay: AccountWay? { if case .signIn(let way) = self { way } else { nil } }
+    /// The sign-in ways first, as before, then each key way the daemon offers.
+    static func all(ways: [AccountWay], keys: [KeyWay]) -> [AddAccountChoice] {
+        ways.map(AddAccountChoice.signIn) + keys.map(AddAccountChoice.key)
+    }
+    /// The bridge request that hands `key` over for a new account (`bridge/provider-key.ts`).
+    static func keyRequest(provider: String, label: String, letters: String, way: KeyWay, key: String) -> [String: Any] {
+        var payload: [String: Any] = [
+            "type": "accounts.screen.key", "provider": provider, "label": label,
+            "shortLabel": letters, "apiKey": key,
+        ]
+        if let upstream = way.upstream { payload["upstream"] = upstream }
+        return payload
+    }
+}
+
 /// Name a new account, give it a badge, choose how it signs in, then sign in.
 struct AddAccountView: View {
     let model: ClientModel
     let provider: String
     let name: String
     let ways: [AccountWay]
+    var keyWays: [KeyWay] = []
     @Environment(\.dismiss) private var dismiss
     @State private var label = ""
     @State private var draft = BadgeDraft()
     @State private var badgeProblem: String?
-    @State private var way: AccountWay?
+    @State private var way: AddAccountChoice?
+    /// The pasted key, only until it is handed over or the sheet goes; never kept anywhere else.
+    @State private var key = ""
+    /// The account a key added, for its badge once it exists.
+    @State private var added: String?
+    /// The add in flight. Leaving the sheet cancels it, which cancels the bridge's hand-off
+    /// (`service.cancel`), so a key is never sent for a sheet that's gone.
+    @State private var submission: Task<Void, Never>?
     @State private var project = ""
     @State private var location = "global"
     @State private var problem: String?
@@ -57,18 +111,21 @@ struct AddAccountView: View {
         .animation(.default, value: started)
         .navigationTitle(started == nil ? "Add \(name) account" : label).navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if started == nil {
+            // Once a key has added the account, only its badge is left: Add again would add another.
+            if started == nil && added == nil {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(busy ? "Adding…" : "Add") { Task { await add() } }
-                        .disabled(busy || badgeProblem != nil || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate)
+                    Button(busy ? "Adding…" : "Add") { submission = Task { await add() } }
+                        .disabled(busy || badgeProblem != nil || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate
+                                  || (way?.keyWay != nil && key.isEmpty))
                 }
             } else {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { Task { await finish() } }.disabled(busy) }
             }
         }
         .sensoryFeedback(.success, trigger: started != nil)
-        .onAppear { if way == nil { way = ways.first } }
+        .onAppear { if way == nil { way = choices.first } }
+        .onDisappear { submission?.cancel(); submission = nil; key = "" }
     }
     private var form: some View {
         Form {
@@ -76,7 +133,7 @@ struct AddAccountView: View {
                 Section { TextField("Work", text: $label).accessibilityLabel("Account name") } header: { InsetHeader("Name") }
                 BadgeFields(model: model, name: label.isEmpty ? "Work" : label, draft: $draft, problem: $badgeProblem)
                 Section {
-                    ForEach(ways) { option in
+                    ForEach(choices) { option in
                         Button { withAnimation { way = option } } label: {
                             HStack {
                                 Text(option.label).foregroundStyle(AceDesign.Ink.primary)
@@ -87,11 +144,18 @@ struct AddAccountView: View {
                         }
                         .accessibilityAddTraits(way?.id == option.id ? .isSelected : [])
                     }
-                    if way?.cloud == true {
+                    if way?.signInWay?.cloud == true {
                         TextField("Google Cloud project ID", text: $project).textInputAutocapitalization(.never).autocorrectionDisabled()
                         TextField("Location", text: $location).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 } header: { InsetHeader("Sign in with") } footer: { if let way { Text(way.next) } }
+                if way?.keyWay != nil {
+                    Section {
+                        SecureField("Paste the key", text: $key)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
+                            .accessibilityIdentifier("accounts.add.key")
+                    } header: { InsetHeader("API key") }
+                }
             }
             .insetRowBackground()
             if let problem { ProblemRow(problem, id: "accounts.add.problem") }
@@ -99,14 +163,31 @@ struct AddAccountView: View {
         .insetGroupedList()
         .sensoryFeedback(.selection, trigger: way)
     }
+    private var choices: [AddAccountChoice] { AddAccountChoice.all(ways: ways, keys: keyWays) }
     private func add() async {
         guard let way else { return }
         busy = true; problem = nil
         defer { busy = false }
+        if let keyWay = way.keyWay {
+            // Out of the field before it goes: a failure asks for the key again.
+            let entry = key; key = ""
+            do {
+                let answer = try await model.manage(
+                    AddAccountChoice.keyRequest(provider: provider, label: label, letters: draft.letters, way: keyWay, key: entry),
+                    as: KeyAnswer.self, timeout: .seconds(130))
+                // Only a confirmed add goes on to its badge and the refresh.
+                guard !Task.isCancelled else { return }
+                added = answer.instance
+                busy = false
+                await finish()
+            } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            return
+        }
+        guard let signIn = way.signInWay else { return }
         do {
             let answer = try await model.manage([
                 "type": "accounts.screen.add", "provider": provider, "label": label,
-                "shortLabel": draft.letters, "way": way.payload(project: project, location: location),
+                "shortLabel": draft.letters, "way": signIn.payload(project: project, location: location),
             ], as: SignInAnswer.self)
             guard let next = answer.started else { dismiss(); return }
             started = next
@@ -117,7 +198,7 @@ struct AddAccountView: View {
         guard !busy else { return }
         busy = true; problem = nil
         defer { busy = false }
-        if let instance = started?.instance, draft.icon != nil || draft.colour != "neutral" {
+        if let instance = started?.instance ?? added, draft.icon != nil || draft.colour != "neutral" {
             var payload = draft.payload
             payload["type"] = "accounts.screen.rename"; payload["provider"] = provider
             payload["instanceId"] = instance; payload["label"] = label
@@ -189,8 +270,8 @@ struct AccountSignInSheet: View {
     }
 }
 
-/// A started sign-in, continued in the provider's sign-in page. API keys are never entered on
-/// the phone: ADR 0002 allows them only over the relay's `provider_auth` channel.
+/// A started sign-in, continued in the provider's sign-in page. A pasted API key never comes
+/// here: it goes by `accounts.screen.key` over the relay's `provider_auth` channel (ADR 0002).
 struct AccountSignInFlow: View {
     let model: ClientModel
     let provider: String

@@ -3765,6 +3765,7 @@ Example:
 | type | yes | `"notification.register"` |  |
 | requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
+| liveActivity | no | [LiveActivitySync.json](schema/LiveActivitySync.json) |  |
 
 Example:
 
@@ -3774,6 +3775,11 @@ Example:
     "channel": "apns",
     "platform": "phone",
     "token": "7DebCadF7cff5C959Cadbaf6398AaAa9bbC62a758bB3225ecC523315ddB771AB"
+  },
+  "liveActivity": {
+    "environment": "production",
+    "frequentUpdates": true,
+    "slot": 5
   },
   "type": "notification.register"
 }
