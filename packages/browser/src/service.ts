@@ -53,6 +53,7 @@ import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
 import { mediaVideoHosts } from "./media-video.ts";
+import { browserNotOpen } from "./not-open.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -791,7 +792,7 @@ export class BrowserService {
   }
   private get(threadId: string): BrowserSession {
     const session = this.sessions.get(threadId);
-    if (!session || session.state.closed) throw new Error("Browser session not open");
+    if (!session || session.state.closed) throw new Error(browserNotOpen);
     return session;
   }
   /**

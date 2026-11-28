@@ -1,3 +1,4 @@
+import { browserNotOpen } from "@ace/browser/live-view";
 import { BrowserOriginError } from "@ace/browser/policy";
 import { encodeDownloadChunk } from "@ace/browser/stream";
 import { moveEngine, type EnginePreferencePort } from "@ace/browser/engine-move";
@@ -369,7 +370,7 @@ export function fakeBrowserSession(
           break;
         }
         case "browser.subscribe": {
-          if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
+          if (!browser.view(id) || browser.view(id)?.closed) throw new Error(browserNotOpen);
           const subscriber = message.subscriberId ?? "legacy";
           const video = fakeVideoCodec(message.video);
           const connection = media?.live(message.media?.connection)

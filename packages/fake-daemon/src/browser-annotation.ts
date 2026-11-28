@@ -1,3 +1,4 @@
+import { browserNotOpen } from "@ace/browser/live-view";
 import {
   BrowserAnnotation,
   ThreadId,
@@ -47,7 +48,7 @@ export class FakeAnnotations {
   /** As the daemon's browser service: any person may annotate; agents never get here. */
   execute(threadId: string, connectionId: string, command: AnnotationCommand): unknown {
     const page = this.page(threadId);
-    if (!page) throw new Error("Browser session not open");
+    if (!page) throw new Error(browserNotOpen);
     if (command.action === "annotate" && command.operation === "start") {
       const current = this.documents.get(threadId);
       if (current && page.annotation?.owner === connectionId) return { documentId: current.id };
