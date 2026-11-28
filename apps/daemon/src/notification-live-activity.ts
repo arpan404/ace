@@ -97,6 +97,18 @@ const pickAddress = (
   environment: address.environment,
   kind: address.kind,
 });
+const syncedAddresses = (
+  input: LiveActivitySync | undefined,
+): Pick<LiveActivityTarget, "token" | "environment" | "kind">[] => {
+  if (!input) return [];
+  const { environment } = input;
+  return [
+    ...(input.startToken ? [{ token: input.startToken, environment, kind: "start" as const }] : []),
+    ...(input.activityToken
+      ? [{ token: input.activityToken, environment, kind: "liveactivity" as const }]
+      : []),
+  ];
+};
 /** A registration that keeps failing is retried at most this often, then waits for a sync. */
 const maxAttempts = 8;
 /** A handle is renewed a day before it expires, as alerts' handles are (ADR 0106). */
@@ -434,8 +446,10 @@ export function createLiveActivityRegistrar(options: LiveActivityOptions): LiveA
         if (stopped || startedAt !== generation) return;
         if (!(await usable())) return;
         // Retired before the write: once it lands, a send holding a removed or replaced token
-        // of this install must not post, and a targets read already under way is stale.
+        // of this install must not post, and a targets read already under way is stale. A
+        // token the sync carries moves to these ids even from an install they share none with.
         unbindDevices([device, ...linked]);
+        for (const address of syncedAddresses(input)) bindings.delete(addressKey(address));
         revision++;
         await tokens.sync(device, linked, input);
         // The newest sync replaces what any earlier snapshot read, including a same-token one

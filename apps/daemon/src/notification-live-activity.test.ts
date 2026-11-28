@@ -33,7 +33,34 @@ function fixture(
   const forgets: string[] = [];
   let failClear = false;
   const tokens: LiveActivityTokens = {
-    async sync() {},
+    // As the store does: the newest sync of an install replaces its rows, and a token it
+    // carries moves to its ids.
+    async sync(device, linked, input) {
+      const devices = [device, ...linked];
+      const synced = input
+        ? [
+            { kind: "start" as const, value: input.startToken?.toLowerCase() },
+            { kind: "liveactivity" as const, value: input.activityToken?.toLowerCase() },
+          ]
+        : [];
+      const keep = stored.filter(
+        (entry) =>
+          !entry.devices.some((id) => devices.includes(id)) &&
+          !synced.some(({ kind, value }) => kind === entry.kind && value === entry.token),
+      );
+      stored.splice(0, stored.length, ...keep);
+      if (!input) return;
+      for (const { kind, value } of synced)
+        if (value !== undefined)
+          stored.push({
+            kind,
+            token: value,
+            environment: input.environment,
+            frequentUpdates: input.frequentUpdates,
+            slot: input.slot,
+            devices,
+          });
+    },
     async targets() {
       return [...stored];
     },
@@ -181,4 +208,20 @@ it("a late 410 from the gateway the daemon already left does not delete the toke
   await settle(0);
   expect(f.dropped).toEqual([]);
   expect(f.stored).toEqual([target]);
+});
+
+it("a send that read a token keeps nothing once a sync moves the token to another install", async () => {
+  const f = fixture();
+  const [before] = await f.registrar.sendTargets();
+  expect(before && f.registrar.eligible(before)).toBe(true);
+  // The same token arrives from a new id whose links share nothing with the old association.
+  const reinstalled = DeviceId.parse("reinstalled");
+  await f.registrar.sync(reinstalled, [], {
+    startToken: token.toUpperCase(),
+    environment: "sandbox",
+    frequentUpdates: false,
+    slot: 4,
+  });
+  expect(before && f.registrar.eligible(before)).toBe(false);
+  expect(await f.registrar.sendTargets()).toMatchObject([{ devices: [reinstalled], slot: 4 }]);
 });
