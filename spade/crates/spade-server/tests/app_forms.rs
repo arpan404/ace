@@ -14,25 +14,29 @@ use support::{Options, Result, Spade};
 /// Spade with the fake app as catalogue entry `fake`, its annotations trusted or not.
 async fn with_app(app: &FakeConnector, trusted: bool, scripts: Vec<Script>) -> Result<Spade> {
     app.accept_token("api-key-1");
-    let spade = Spade::start_with(
-        scripts,
-        Vec::new(),
-        Options {
-            connectors: true,
-            catalogue: vec![spade_connect::Entry {
-                id: "fake".into(),
-                name: "Fake".into(),
-                url: app.url(),
-                sign_in: vec![spade_connect::SignIn::Token],
-                source: "https://example.com/docs".into(),
-                local: true,
-                trusted_annotations: trusted,
-                ..Default::default()
-            }],
-            ..Options::default()
-        },
-    )
-    .await?;
+    let spade = Spade::start_with(scripts, Vec::new(), app_options(app, trusted)).await?;
+    connect_app(&spade).await?;
+    Ok(spade)
+}
+
+fn app_options(app: &FakeConnector, trusted: bool) -> Options {
+    Options {
+        connectors: true,
+        catalogue: vec![spade_connect::Entry {
+            id: "fake".into(),
+            name: "Fake".into(),
+            url: app.url(),
+            sign_in: vec![spade_connect::SignIn::Token],
+            source: "https://example.com/docs".into(),
+            local: true,
+            trusted_annotations: trusted,
+            ..Default::default()
+        }],
+        ..Options::default()
+    }
+}
+
+async fn connect_app(spade: &Spade) -> Result<()> {
     let (status, body) = spade
         .post(
             "/v1/connectors",
@@ -43,7 +47,7 @@ async fn with_app(app: &FakeConnector, trusted: bool, scripts: Vec<Script>) -> R
     for _ in 0..250 {
         let (_, body) = spade.get("/v1/connectors/fake").await?;
         if body["connector"]["tools"] != 0 {
-            return Ok(spade);
+            return Ok(());
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
@@ -191,6 +195,52 @@ async fn an_apps_form_is_a_card_from_the_bot_and_its_answer_goes_back_once() -> 
         app.elicit_answers(),
         vec![json!({ "action": "accept", "content": { "name": "Ada" } })]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn full_access_declines_a_connectors_ordinary_form_without_a_card() -> Result {
+    let app = FakeConnector::start(vec![tool("ask_name", Some(true), None)]).await;
+    app.accept_token("api-key-1");
+    let world = support::sandbox::world_with_options(app_options(&app, true), false, |_| {
+        turn(vec![call("c1", "ask_name")])
+    })
+    .await?;
+    connect_app(&world.spade).await?;
+    let (status, body) = world
+        .spade
+        .put(
+            &format!("/v1/agents/{}/connectors", world.bot),
+            json!({"connectors":["fake"]}),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let stamp = world.stamp(&world.bot, "full_access");
+    let (status, body) = world
+        .spade
+        .put_with(
+            &format!("/v1/agents/{}/security/autonomy", world.bot),
+            json!({"autonomy":"full_access"}),
+            &[(spade_server::security::attest::HEADER, &stamp)],
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    world
+        .spade
+        .say(&world.conversation, "Make the card")
+        .await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    assert!(
+        events.iter().all(|event| !matches!(
+            event["type"].as_str(),
+            Some("question_asked" | "approval_requested")
+        )),
+        "{events:?}"
+    );
+    assert_eq!(app.elicit_answers(), vec![json!({"action":"decline"})]);
     Ok(())
 }
 

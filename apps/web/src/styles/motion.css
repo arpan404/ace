@@ -272,6 +272,12 @@
 :root[data-reduce-motion] .step-shimmer {
   animation: none;
 }
+/* The conversation's working line: the sweep keeps going while the bot works (owner's call). */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-reduce-motion]) .step-shimmer-live {
+    animation-iteration-count: infinite;
+  }
+}
 
 /*
  * Nothing loops forever while ace is in use. Live state (an agent working, a subagent busy, a

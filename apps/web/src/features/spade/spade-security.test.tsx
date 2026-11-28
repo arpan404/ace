@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -27,13 +27,13 @@ const line = (fields: Record<string, unknown>) => ({
   ...fields,
 });
 
-/** Scout's profile, on Permissions, and one of its sections. */
+/** Scout's profile, on the settings page that holds one of its sections. */
 async function sectionOf(label: string) {
   await userEvent.click(await botRow("Scout"));
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
-  // Where it may reach and what it may run is on Permissions.
-  await userEvent.click(profile.getByRole("tab", { name: "Permissions" }));
+  // Each section is on its own settings page.
+  await openSettingsPage(label === "Security" ? "How it decides" : "Activity and safety");
   const section = (await profile.findByRole("heading", { name: label })).closest("section");
   if (!section) throw new Error(`no ${label} section`);
   return within(section);

@@ -1,6 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { ItemId, ThreadId, WorkspaceId } from "@ace/protocol";
-import { checkoutEditLimit } from "@ace/ui-core";
+import { checkoutEditLimit, checkoutViewLimit } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 
@@ -25,6 +25,13 @@ export const FilesOperation = z.discriminatedUnion("op", [
   /** A folder's archive before downloading it ("" for the checkout's root). */
   z.object({ op: z.literal("archive"), path: z.string().max(4096), includeIgnored: z.boolean() }),
   z.object({ op: z.literal("read"), path }),
+  z.object({ op: z.literal("compare"), path, text: z.string().max(checkoutEditLimit) }),
+  z.object({
+    op: z.literal("merge"),
+    path,
+    text: z.string().max(checkoutEditLimit),
+    base: z.string().max(checkoutViewLimit),
+  }),
   /** A page of a file too large to show whole, from a byte offset (`checkout-pages.ts`). */
   z.object({
     op: z.literal("page"),

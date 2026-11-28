@@ -3,6 +3,7 @@ import type { ClientCore } from "@ace/client";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
 import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { keyWays } from "./settings-accounts.ts";
 import { settingsFixture } from "./settings-fixture.ts";
 
 /*
@@ -35,13 +36,14 @@ async function open() {
 
 const labels = (ways: { label: string }[]) => ways.map((way) => way.label);
 
-test("each provider offers its sign-in ways and never asks for an API key on the phone", async () => {
+test("each provider offers its browser sign-in ways; keys come only as their own ways", async () => {
   const { ask } = await open();
   const codex = (await ask({ type: "accounts.screen", provider: "codex" })).screen;
   expect(labels(codex.ways)).toEqual(["Sign in with the browser"]);
   expect(labels(codex.reauth)).toEqual(["Sign in again"]);
-  // Codex takes keys, but only through ace on the computer (ADR 0002's provider_auth channel).
-  expect(codex.apiKey).toMatch(/^Add an API key in ace on .+\.$/);
+  // Codex takes keys: off the relay, the page says where they go instead of offering one.
+  expect(codex.keyWays).toEqual([]);
+  expect(codex.apiKey).toMatch(/only through ace's relay/);
   const claude = (await ask({ type: "accounts.screen", provider: "claude" })).screen;
   expect(labels(claude.ways)).toEqual(["Sign in with the browser"]);
   expect(claude.apiKey).toBeNull();
@@ -55,6 +57,19 @@ test("each provider offers its sign-in ways and never asks for an API key on the
   ]);
   for (const screen of [codex, claude, opencode, antigravity])
     expect(JSON.stringify([screen.ways, screen.reauth])).not.toMatch(/api.?key|upstream/i);
+});
+
+test("Pi offers a key only for a service the daemon lists, since its hand-off needs one", () => {
+  // Pi with key support but no services listed: a key form here could only fail.
+  expect(keyWays("pi", { supported: true })).toEqual([]);
+  expect(keyWays("pi", { supported: true, upstreams: [] })).toEqual([]);
+  expect(keyWays("pi", { supported: true, upstreams: ["openai", "unknown"] })).toMatchObject([
+    { id: "api_key:openai", label: "OpenAI API key", upstream: "openai" },
+  ]);
+  // Codex and Cursor take one key for themselves, with no service to name.
+  expect(keyWays("codex", { supported: true })).toMatchObject([{ id: "api_key", upstream: null }]);
+  expect(keyWays("cursor", { supported: true })).toMatchObject([{ id: "api_key", upstream: null }]);
+  expect(keyWays("codex", { supported: false })).toEqual([]);
 });
 
 test("adding an account starts a browser sign-in, even when a request names a key method", async () => {

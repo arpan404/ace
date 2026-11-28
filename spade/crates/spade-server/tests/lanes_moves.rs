@@ -6,7 +6,7 @@ mod support;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use spade_core::tools::Risk;
+use spade_core::{effect::Effect, tools::Risk};
 use spade_server::engine::Limits;
 use spade_testkit::{Route, Script};
 use support::lanes::*;
@@ -244,7 +244,7 @@ async fn a_wait_of_mains_moved_work_fires_in_the_lane() -> Result {
 
 #[tokio::test]
 async fn a_helper_of_mains_moved_work_asks_in_main_and_reports_to_the_lane() -> Result {
-    let note = FakeTool::new("send_note", Risk::Write, "sent");
+    let note = FakeTool::new("send_note", Risk::Write, "sent").declares(Effect::SendAsPerson);
     let sent = note.calls();
     let read = FakeTool::new("read_sheet", Risk::Read, "Q3 revenue: 1.2M");
     let mut main = warm_up();
@@ -340,6 +340,13 @@ async fn a_lane_moved_while_main_had_untrusted_content_in_view_asks_where_main_w
     }
     let routes = vec![
         Route::when(
+            "You review one step",
+            vec![
+                Script::reply("")
+                    .plain(r#"{"verdict":"refuse","reason":"Confirm before saving the note."}"#),
+            ],
+        ),
+        Route::when(
             "for a task the person asked for",
             vec![Script::failing(500)],
         ),
@@ -347,12 +354,16 @@ async fn a_lane_moved_while_main_had_untrusted_content_in_view_asks_where_main_w
             "Draft the quarterly note from Q3",
             vec![
                 Script::reply("").call("n1", "save_note", json!({ "text": "Q3 is up" })),
+                Script::reply("").call("n2", "save_note", json!({ "text": "Q3 is up" })),
                 Script::reply("Drafted."),
             ],
         ),
     ];
-    let spade =
-        Spade::start_routed(routes, main, tools(vec![page, note, read]), with(moving())).await?;
+    let options = Options {
+        reviewer: None,
+        ..with(moving())
+    };
+    let spade = Spade::start_routed(routes, main, tools(vec![page, note, read]), options).await?;
     let agent = spade.new_agent("Errands", "").await?;
     let conversation = agent["conversation"]
         .as_str()
@@ -380,6 +391,8 @@ async fn a_lane_moved_while_main_had_untrusted_content_in_view_asks_where_main_w
         .cloned()
         .unwrap_or_default();
     assert_eq!(asked["name"], "save_note");
+    assert_eq!(asked["call_id"], "n2");
+    assert_eq!(asked["stopped"], "reviewer");
     assert!(
         saved.lock().map(|c| c.is_empty()).unwrap_or(false),
         "it never ran unasked"

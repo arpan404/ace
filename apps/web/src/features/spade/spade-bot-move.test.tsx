@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint, openSettingsPage } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -17,6 +17,7 @@ test("Move to… is accepted on the machine picked, then started here, and reads
   const { spade, others } = await spadeApp("/spade/research?profile=details", withResearch, {
     machines: studio,
   });
+  await openSettingsPage("Model");
   await userEvent.click(
     await screen.findByRole("button", { name: "Move Research to another machine" }),
   );
@@ -62,6 +63,7 @@ test("a bot that can't move yet says why where the person asked", async () => {
     },
     { machines: studio },
   );
+  await openSettingsPage("Model");
   await userEvent.click(
     await screen.findByRole("button", { name: "Move Research to another machine" }),
   );
@@ -90,6 +92,7 @@ test("a failed move says the bot is still here, with Try again and Dismiss", asy
     },
     { machines: studio },
   );
+  await openSettingsPage("Model");
   expect(
     await screen.findByText(
       "Couldn't move Research to Studio Mac: the two machines run different versions of Spade; update both, then move it. It's still here.",
@@ -114,6 +117,7 @@ test("a bot that arrived names what needs the person until they dismiss it", asy
         endpoints: ["Paid"],
       };
   });
+  await openSettingsPage("Model");
   const line =
     "Moved from Laptop. 1 routine is paused until you resume it; add the endpoint Paid on this machine.";
   expect(await screen.findByText(line)).toBeTruthy();
@@ -136,6 +140,7 @@ test("Spade read through another machine offers to move here", async () => {
       },
     ],
   });
+  await openSettingsPage("Model");
   await userEvent.click(await screen.findByRole("button", { name: "Move Spade to this machine" }));
   await waitFor(() =>
     expect(others.get("studio")?.sent("POST", "/v1/agents/main/move")).toEqual([
@@ -167,6 +172,7 @@ test("a move waiting on the other machine after its commit says so, and Check ag
     },
     { machines: studio },
   );
+  await openSettingsPage("Model");
   // In the profile, and as the bot's line in the list.
   const waiting =
     "Waiting for Studio Mac to finish the move. Research stays here until Studio Mac answers.";
@@ -194,6 +200,7 @@ test("a move whose machine left after its commit offers Keep it here, which keep
     },
     { machines: studio },
   );
+  await openSettingsPage("Model");
   await userEvent.click(await screen.findByRole("button", { name: "Keep it here" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/research/move")).toHaveLength(1));
 });

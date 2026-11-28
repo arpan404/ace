@@ -9,6 +9,7 @@ import type {
   SpadeRequest,
   SpadeLaneAsking,
 } from "./fold.ts";
+import type { SpadeInvoked } from "./fold-types.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
@@ -61,6 +62,8 @@ type SpadeBubbleOf =
       id?: string;
       /** The message it replies to: a small quoted line above it. */
       quote?: SpadeQuote;
+      /** The skill or command it started: a chip before its words. */
+      invoke?: SpadeInvoked;
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
@@ -590,6 +593,7 @@ function userBubbles(
           ...(entry.fromThread ? { fromThread: entry.fromThread } : {}),
           ...(entry.id ? { id: entry.id } : {}),
           ...(entry.replyTo ? { quote: spadeQuoteOf(entry.replyTo) } : {}),
+          ...(entry.invoke ? { invoke: entry.invoke } : {}),
           ...stamp(entry.at),
         },
   );

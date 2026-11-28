@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeNotificationItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agent": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "conversation": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "request": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "type": "object"
+}

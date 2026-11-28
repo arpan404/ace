@@ -11,14 +11,7 @@ import { BotFace } from "@/components/bot-face.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 import { createAgent } from "./spade-api.ts";
-import {
-  CardBody,
-  CardFooter,
-  CardPrimary,
-  CardWord,
-  NeedsYouLine,
-  RaisedCard,
-} from "./spade-card.tsx";
+import { CardActions, CardBody, NeedsYouLine, RaisedCard } from "./spade-card.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { addNote, notesKey } from "./spade-notes-api.ts";
 import { rowPill } from "./spade-profile-parts.tsx";
@@ -141,17 +134,21 @@ function AboutYou(props: { onDone: Mark }) {
         )}
         {problem && <p className="mt-2 text-ui text-destructive">{problem}</p>}
       </CardBody>
-      <CardFooter
-        start={
-          <CardWord disabled={saving} onClick={() => void props.onDone({ about_you: "skipped" })}>
-            Skip for now
-          </CardWord>
-        }
-        end={
-          <CardPrimary disabled={saving} onClick={next}>
-            {last ? (saving ? "Saving…" : "Done") : answer.trim() ? "Next" : "Skip this one"}
-          </CardPrimary>
-        }
+      <CardActions
+        secondary={[
+          {
+            key: "skip",
+            label: "Skip for now",
+            disabled: saving,
+            onClick: () => void props.onDone({ about_you: "skipped" }),
+          },
+        ]}
+        primary={{
+          label: last ? (saving ? "Saving…" : "Done") : answer.trim() ? "Next" : "Skip this one",
+          disabled: saving,
+          hint: "enter",
+          onClick: next,
+        }}
       />
     </RaisedCard>
   );
@@ -218,16 +215,21 @@ function Starters(props: { onDone: Mark }) {
         </ul>
         {problem && <p className="mt-2 text-ui text-destructive">{problem}</p>}
       </CardBody>
-      <CardFooter
-        start={
-          made.size === 0 && (
-            <CardWord onClick={() => void props.onDone({ starters: "skipped" })}>Not now</CardWord>
-          )
-        }
-        end={
-          made.size > 0 && (
-            <CardPrimary onClick={() => void props.onDone({ starters: "done" })}>Done</CardPrimary>
-          )
+      <CardActions
+        secondary={[
+          made.size === 0 && {
+            key: "not-now",
+            label: "Not now",
+            onClick: () => void props.onDone({ starters: "skipped" }),
+          },
+        ]}
+        primary={
+          made.size > 0
+            ? {
+                label: "Done",
+                onClick: () => void props.onDone({ starters: "done" }),
+              }
+            : undefined
         }
       />
     </RaisedCard>

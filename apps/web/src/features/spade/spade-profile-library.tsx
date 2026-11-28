@@ -1,15 +1,11 @@
 import { spadeSkillsOf } from "@ace/ui-core/spade-chat";
-import { formatAge } from "@ace/ui-core/time";
-import { FileIcon, FolderIcon, StackIcon } from "@ace/icons";
+import { StackIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
-import { useNow } from "@/lib/time.ts";
-import { part } from "@/lib/suit-part.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
+import { LibraryFiles } from "./spade-library-files.tsx";
 import { LibraryPage } from "./spade-library-page.tsx";
 import { LibraryLearnedFrom } from "./spade-provenance.tsx";
 import { LibraryPages } from "./spade-library-pages.tsx";
@@ -17,13 +13,14 @@ import { LibraryEpisode, LibraryPast } from "./spade-library-past.tsx";
 import { LibraryResults, LibrarySearchField } from "./spade-library-search.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
-import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import {
+  ProfileCardSkeleton,
+  ProfileNone,
+  ProfileProblem,
+  ProfileSection,
+} from "./spade-profile-parts.tsx";
 import { readSkillStore } from "./spade-skills-api.ts";
-import { readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
-
-/** Files shown before All files. */
-const shownFiles = 5;
 
 /** What the Library has open in its place: a page or a piece of past work. */
 type Open = { kind: "page"; id: string } | { kind: "episode"; id: string };
@@ -52,6 +49,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
         <LibraryResults
           bot={bot}
           query={query}
+          onClear={() => setTyped("")}
           onOpenPage={openPage}
           onOpenEpisode={openEpisode}
           onOpenFile={props.onOpenFile}
@@ -64,6 +62,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
               heading="About you"
               label="About you"
               placeholder="Add something every bot should know about you"
+              empty="Nothing about you yet."
               bot={bot.id}
             />
           )}
@@ -77,7 +76,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
           <LibraryPages bot={bot} onOpen={openPage} />
           <LibraryLearnedFrom bot={bot} />
           <LibraryPast bot={bot} onOpen={openEpisode} />
-          <Files bot={bot} onOpen={props.onOpenFile} />
+          <LibraryFiles bot={bot} onOpen={props.onOpenFile} />
           <Skills bot={bot} />
         </>
       )}
@@ -85,73 +84,7 @@ export function ProfileLibrary(props: { bot: RosterBot; onOpenFile(files: FilesA
   );
 }
 
-/** The top of its workspace, newest kept first; a file or folder opens in Computer's Files. */
-function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
-  const { bot } = props;
-  const client = useSpadeClient();
-  const machine = useSpadeMachine();
-  const now = useNow();
-  const listing = useQuery({
-    queryKey: ["spade", "workspace", machine.key, bot.id, ""],
-    queryFn: ({ signal }) => readFolder(client, bot.id, "", { signal }),
-  });
-  const entries = listing.data?.entries ?? [];
-  return (
-    <ProfileSection
-      label="Files"
-      bare={listing.isSuccess && entries.length === 0}
-      actions={
-        entries.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className={rowPill}
-            onClick={() => props.onOpen({ folder: "" })}
-          >
-            All files
-          </Button>
-        )
-      }
-    >
-      {listing.isPending ? (
-        <ListSkeleton label="files" shape="row" rows={2} />
-      ) : listing.isError ? (
-        <ProfileProblem text="Couldn't read the files." onRetry={() => void listing.refetch()} />
-      ) : entries.length === 0 ? (
-        <ProfileNone>{`${bot.name} hasn't kept any files yet.`}</ProfileNone>
-      ) : (
-        entries.slice(0, shownFiles).map((entry) => (
-          <button
-            key={entry.path}
-            type="button"
-            data-setting-slot=""
-            {...part("list-row", undefined, entry.kind)}
-            onClick={() =>
-              props.onOpen(
-                entry.kind === "folder" ? { folder: entry.path } : { folder: "", file: entry.path },
-              )
-            }
-            className="group/file flex min-h-11 min-w-0 items-center gap-3 rounded-sm py-2 text-left text-ui text-foreground focus-ring"
-          >
-            <Icon
-              icon={entry.kind === "folder" ? FolderIcon : FileIcon}
-              size={16}
-              className="shrink-0 text-muted-foreground"
-            />
-            <span className="min-w-0 flex-1 truncate group-hover/file:underline">{entry.name}</span>
-            {entry.modifiedAt !== undefined && (
-              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                {formatAge(entry.modifiedAt, now)}
-              </span>
-            )}
-          </button>
-        ))
-      )}
-    </ProfileSection>
-  );
-}
-
-/** The skills it wrote or loaded, from Spade's skill store; none: one line. */
+/** The skills it wrote or loaded, from Spade's skill store; none: one rounded empty row. */
 function Skills(props: { bot: RosterBot }) {
   const { bot } = props;
   const client = useSpadeClient();
@@ -161,13 +94,19 @@ function Skills(props: { bot: RosterBot }) {
     queryFn: ({ signal }) => readSkillStore(client, { signal }),
   });
   const mine = store.data ? spadeSkillsOf(store.data, bot.id) : [];
+  const empty = store.isSuccess && mine.length === 0;
+  const failed = store.isError;
   return (
-    <ProfileSection label="Skills" bare={store.isSuccess && mine.length === 0}>
+    <ProfileSection label="Skills" bare={empty || failed} flush={!empty && !failed}>
       {store.isPending ? (
-        <ListSkeleton label="skills" shape="row" rows={1} />
-      ) : store.isError ? (
-        <ProfileProblem text="Couldn't read the skills." onRetry={() => void store.refetch()} />
-      ) : mine.length === 0 ? (
+        <ProfileCardSkeleton label="skills" leading="icon" rows={1} />
+      ) : failed ? (
+        <ProfileProblem
+          card
+          text="Couldn't read the skills."
+          onRetry={() => void store.refetch()}
+        />
+      ) : empty ? (
         <ProfileNone>{`${bot.name} hasn't used a skill yet.`}</ProfileNone>
       ) : (
         mine.map(({ skill, word }) => (
@@ -175,11 +114,13 @@ function Skills(props: { bot: RosterBot }) {
             key={skill.id}
             data-setting-slot=""
             title={skill.description || undefined}
-            className="flex min-h-11 min-w-0 items-center gap-3 py-2 text-ui text-foreground"
+            className="flex min-h-11 min-w-0 items-center gap-3 px-4 py-2.5 text-ui text-foreground transition-colors duration-(--motion-fast) hover:bg-hover"
           >
-            <Icon icon={StackIcon} size={16} className="shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">{skill.name}</span>
-            <span className="shrink-0 text-xs text-subtle-foreground">{word}</span>
+            <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+              <Icon icon={StackIcon} size={16} />
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{skill.name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{word}</span>
           </div>
         ))
       )}

@@ -10,6 +10,7 @@ export interface FakeSpadeRequest {
 export interface FakeSpadeAnswer {
   status: number;
   body?: string;
+  encoding?: "text" | "base64";
   contentType?: string;
   /** The daemon refused it before Spade saw it (a person-only change without standing). */
   refused?: string;
@@ -127,7 +128,7 @@ function response(answer: FakeSpadeAnswer): HttpResult {
     kind: "response",
     status: answer.status,
     body: answer.body ?? "",
-    encoding: "text",
+    encoding: answer.encoding ?? "text",
     contentType: answer.contentType ?? "application/json",
   };
 }

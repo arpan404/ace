@@ -111,6 +111,16 @@ impl SkillLibrary for SkillStore {
         })
     }
 
+    fn origin_of(&self, id: &str) -> Option<String> {
+        let row = self.store.skill(id).ok().flatten()?;
+        Some(match (row.origin, row.source) {
+            (SkillOrigin::Plugin, Some(plugin)) => plugin,
+            (SkillOrigin::Spade, _) => "Spade".to_owned(),
+            (SkillOrigin::Market, _) => "Store".to_owned(),
+            _ => "ace".to_owned(),
+        })
+    }
+
     fn read(&self, id: &str) -> LibraryFuture<String> {
         let text = folders::read_skill(&self.root, id).map_err(|e| e.to_string());
         Box::pin(async move { text })

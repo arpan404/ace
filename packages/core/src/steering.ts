@@ -22,6 +22,14 @@ export function hasForegroundShellCommand(
   return false;
 }
 
+/** The thread's live foreground shells, whichever agent of it runs them. */
+function liveForegroundCommand(state: ThreadState): boolean {
+  return hasForegroundShellCommand(
+    Object.keys(state.indexes.liveTools).map((key) => state.items[key]),
+    Object.keys(state.indexes.runningTasks).map((key) => state.tasks[key]?.toolCallId),
+  );
+}
+
 /** Read only live work, never transcript history; background tasks do not hold steering. */
 export function hasRunningForegroundCommand(state: ThreadState): boolean {
   const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.agent.id;
@@ -32,4 +40,14 @@ export function hasRunningForegroundCommand(state: ThreadState): boolean {
       .filter((item) => item?.agentId === root),
     Object.keys(state.indexes.runningTasks).map((key) => state.tasks[key]?.toolCallId),
   );
+}
+
+/**
+ * A foreground shell anywhere in this thread's tree, not just the root's: cancelling the root
+ * stops the commands its native children run too. Every agent in one state belongs to this
+ * thread; a delegated thread keeps a state of its own.
+ */
+export function hasRunningForegroundCommandInTree(state: ThreadState): boolean {
+  if (state.rootKey === undefined) return false;
+  return liveForegroundCommand(state);
 }

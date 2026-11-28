@@ -43,6 +43,40 @@ extension ClientModel {
             Self.action(["type": "browser", "action": value], to: session)
         }
         browserAction(["kind": "open", "threadId": threadId, "viewport": Self.viewport(size, scale)])
+        browser.onPipCommand = { [weak self] command in self?.browserPipCommand(command) }
+    }
+    /// The Browser came on screen. A stream kept for another thread's picture-in-picture closes,
+    /// so this one opens its own.
+    func enterBrowser() {
+        if browser.keptForPip, browser.threadId != thread?.id { closeBrowser() }
+        browser.setShowingBrowser(true)
+    }
+    /// The person left the Browser: the page floats in picture-in-picture when `BrowserPipRule`
+    /// says so, its stream kept open for it; otherwise the stream closes.
+    func leaveBrowser() {
+        browser.setShowingBrowser(false)
+        browser.leaveBrowser()
+    }
+    /// How long leaving the app waits for AVKit to float the page before its sound stops.
+    static let pipStartWindow: Duration = .seconds(3)
+    /// The app went to the background from the Browser: the page's sound keeps playing only while
+    /// it floats. A float that may still start (another app may hold picture-in-picture) gets
+    /// `pipStartWindow`; if none is on screen by then, the sound stops here and in the pane report.
+    func browserBackground(sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) async {
+        guard browser.threadId != nil, browser.soundHere, !browser.pipActive else { return }
+        if browser.pipArmed || browser.pipFloating {
+            let subscription = browser.subscription
+            do { try await sleep(Self.pipStartWindow) } catch { return }
+            guard browser.subscription == subscription, !browser.pipActive else { return }
+        }
+        browserSound(false)
+    }
+    private func browserPipCommand(_ command: PipLifecycle.Command) {
+        switch command {
+        case .closeStream: closeBrowser()
+        case .mute: browserSound(false)
+        case .start, .stop: break
+        }
     }
     func closeBrowser() {
         guard browser.threadId != nil else { return }
@@ -84,6 +118,25 @@ extension ClientModel {
     func browserDeviceToolbar(_ show: Bool) {
         guard browser.threadId != nil else { return }
         browserAction(["kind": "deviceToolbar", "show": show])
+    }
+
+    /// The address's speaker (`BrowserSound`): sound turns on here first, inside the tap, then the
+    /// tab's mute changes for everyone.
+    func browserSoundTap(_ step: BrowserSound.Step, tabId: String) {
+        switch step {
+        case .playHere: browserSound(true)
+        case .unmuteTab(let hereToo):
+            if hereToo { browserSound(true) }
+            browserMute(tabId, false)
+        case .muteTab: browserMute(tabId, true)
+        }
+    }
+    /// This phone plays the page's sound or stops: its pane report says so (`audio`), so the daemon
+    /// sends the sound only while it does.
+    func browserSound(_ on: Bool) {
+        guard browser.threadId != nil else { return }
+        browser.setSoundHere(on)
+        browserAction(["kind": "audio", "on": on])
     }
 
     private func browserAction(_ value: [String: Any]) { action(["type": "browser", "action": value]) }

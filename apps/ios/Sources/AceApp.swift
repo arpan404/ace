@@ -180,6 +180,7 @@ import QuartzCore
         machines.afterLoad = { warmup?.releaseUnused() }
         machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
         notifications.machineName = { [weak machines] hostId in machines?.inbox.names[hostId] }
+        notifications.pairedMachines = { [weak machines] in machines.map { Set($0.machines.map(\.hostId)) } }
         machines.afterRemove = { [weak notifications] model, _ in notifications?.detach(model) }
         machines.afterTurnOff = { [weak notifications] hostId in notifications?.turnedOff(hostId) }
         return machines

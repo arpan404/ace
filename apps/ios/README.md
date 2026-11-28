@@ -11,8 +11,8 @@ and native pairing flows for iOS and Android.
 
 ## Run
 
-From this directory, with dependencies installed at the repository root (`generate` downloads
-markit's released Swift package, so no Rust is needed):
+From this directory, with dependencies installed at the repository root. `generate` downloads
+markit's released Swift package and bundles the shared editor Wasm built by the root install:
 
 ```sh
 bun run generate
@@ -657,7 +657,16 @@ viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
-version opened; a newer version is only replaced on Replace. Larger text (`LargeFileView`) reads
+version opened. If the file changed, Compare shows the machine's text against the draft. Merge
+uses the original text and lets the person answer overlapping changes before applying the result
+to the editor. A subsequent Save checks the version used for the merge. Keep editing and Replace
+are also available. Settings › Editor (`EditorSettingsView`, kept on this phone as the web keeps
+its device settings) sets auto save (after a pause, and how long), font size, line height, tab
+size and indentation, and word wrap; an open editor takes a change at once. Auto save makes the
+same versioned write Save does without reloading the text, and a file that changed stops it and
+offers Compare and Merge from what it last wrote. The phone's editor draws no indent guides,
+sticky scroll or whitespace marks and has SF Mono alone, so the web's settings for those aren't on
+its page. Larger text (`LargeFileView`) reads
 a part (about 256 KB, `page`) at a time and holds at most eight (`LargeFileText`). Find
 (`LargeFileFind`) searches the file a page at a time without keeping it, holds at most 10,000
 matches with a point to go on from, and jumps to a match's part by its offset. A thread's file
@@ -873,9 +882,15 @@ tracks verification and the remaining device work.
   explicitly in a new task's first message.
 - Thread tools include skills and commands, MCP controls, durable conversation
   branches and a terminal. The live browser uses the entry described above. Terminal output acknowledges
-  native delivery and resumes by byte offset. Its text renderer supports basic VT
-  controls, with 1,000 rows of 80 cells. Lost output resets escape parsing and marks
-  the gap. Colour and alternate-screen emulation remain future work.
+  native delivery and resumes by byte offset. Its VT/xterm emulator handles colour (the 16
+  themed, 256 and 24-bit), the alternate screen for full-screen programs, scrollback, wide
+  characters, bracketed paste and cursor keys, with 5,000 rows of history. Lost output resets
+  escape parsing and marks the gap. It takes the OSC commands the web's xterm takes: the
+  program's window title (OSC 0/2, shown as the terminal's name), OSC 8 hyperlinks (underlined,
+  opened on a tap), indexed palette changes and their queries (OSC 4/104) and the default ink,
+  page and cursor colours (OSC 10/11/12, 110/111/112). OSC 52 clipboard writes, OSC 7 and
+  OSC 133 shell marks are ignored, as they are on the web; nothing a program prints reads the
+  phone's clipboard. `fixtures/terminal-emulator` holds the shared behaviour cases.
 - The live browser from `main` owns H.264 video, input and tab controls.
   View-only phones can watch while navigation and input remain disabled. The old
   screenshot-only browser has been removed. The native Devices view now uses the shared authenticated devices channel for H.264

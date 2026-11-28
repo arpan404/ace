@@ -49,6 +49,27 @@ import UIKit
     private(set) var latency: Int?
     /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
     private(set) var stills: [String: UIImage] = [:]
+    /// The person turned the page's sound on for this view (ADR 0088 › Audio); every view starts muted.
+    private(set) var soundHere = false
+    /// The page floats in picture-in-picture now (`BrowserPipRule`), past AVKit's start.
+    private(set) var pipActive = false
+    /// Bumped when the person asks picture-in-picture to go back to the page: that thread's Browser opens.
+    private(set) var pipRestore: (threadId: String, count: Int)?
+    @ObservationIgnored let pip = BrowserPictureInPicture()
+    /// Settings › Browser › Picture in picture, on this phone.
+    @ObservationIgnored var pipEnabled: () -> Bool = { UserDefaults.standard.object(forKey: BrowserPipRule.settingKey) as? Bool ?? true }
+    @ObservationIgnored private var showingBrowser = false
+    @ObservationIgnored private var pipDismissed = false
+    /// Leaving the app floats the page by itself.
+    @ObservationIgnored private(set) var pipArmed = false
+    /// AVKit's float through its asynchronous start and stop, fenced to the subscription that began it.
+    @ObservationIgnored private var lifecycle = PipLifecycle()
+    /// What a float leaves to the client: close the stream kept for it, or mute the page.
+    @ObservationIgnored var onPipCommand: (PipLifecycle.Command) -> Void = { _ in }
+    /// The stream stays open for picture-in-picture after the person left the Browser.
+    var keptForPip: Bool { lifecycle.kept != nil }
+    /// Starting or floating.
+    var pipFloating: Bool { lifecycle.floating }
     /// The picture on screen now and the tab it came from.
     @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
     @ObservationIgnored private var stillOrder: [String] = []
@@ -59,6 +80,7 @@ import UIKit
     @ObservationIgnored private var acks: BrowserAcks?
     @ObservationIgnored private var generation: Int?
     @ObservationIgnored private var visible = true
+    @ObservationIgnored private let sound = BrowserSoundPlayer()
 
     func hasBrowser(_ threadId: String, epoch: Int) -> Bool {
         guard let live else { return false }
@@ -79,15 +101,19 @@ import UIKit
                                        waiting: { [weak self] text in
                                            Task { @MainActor in if self?.threadId == threadId { self?.waiting = text } }
                                        },
-                                       present: { latest.put($0) }, ack: { acks.acknowledge($0) })
+                                       sound: sound, present: { latest.put($0) }, ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
         self.renderer = renderer
         streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
+        streams?.attachAudio { chunk, path in renderer.receive(chunk, path: path) }
         renderer.follow(streams)
+        pip.nextPicture = { [weak self] in self?.nextPicture() }
+        pip.onEvent = { [weak self] event in self?.pipEvent(event) }
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
+        streams?.attachAudio(nil)
         streams?.attachDelivery("browser", nil)
         poster = nil
         renderer?.close()
@@ -99,6 +125,84 @@ import UIKit
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
         done = nil; source = nil; sizes = nil; extensions = nil; latency = nil
         stills = [:]; stillOrder = []
+        soundHere = false
+        updateSound()
+        run(lifecycle.reset())
+        updatePip()
+    }
+    /// The Browser is on screen, or the person left it. Back on screen, nothing floats or is kept.
+    func setShowingBrowser(_ value: Bool) {
+        showingBrowser = value
+        if value {
+            pipDismissed = false
+            run(lifecycle.reset())
+        }
+        updatePip()
+    }
+    /// The person left the Browser: the page floats when the rule holds, its stream kept for it;
+    /// otherwise the stream closes (`onPipCommand`).
+    func leaveBrowser() {
+        guard let subscription else { return }
+        let commands = lifecycle.leave(subscription, eligible: threadId != nil && eligible(onScreen: false))
+        if commands.contains(.start), !pip.start() {
+            run(lifecycle.failed(subscription))
+        } else {
+            run(commands.filter { $0 != .start })
+        }
+    }
+    /// Re-reads the rule: arms the float for leaving the app, and ends one the rule no longer allows.
+    func updatePip() {
+        pipArmed = showingBrowser && threadId != nil && eligible(onScreen: false)
+        pip.arm(pipArmed)
+        // Back on screen ends an active float; one still starting may begin before the scene goes inactive.
+        let onScreen = lifecycle.active && showingBrowser && visible
+        run(lifecycle.recheck(eligible: threadId != nil && eligible(onScreen: onScreen)))
+    }
+    private func eligible(onScreen: Bool) -> Bool {
+        BrowserPipRule.shows(state: view?.state, showingBrowser: onScreen, dismissed: pipDismissed, enabled: pipEnabled())
+    }
+    /// AVKit's report, for the subscription shown now: a late one for an earlier view is fenced off.
+    private func pipEvent(_ event: BrowserPictureInPicture.Event) {
+        let onScreen = showingBrowser && visible
+        switch event {
+        case .willStart:
+            // A float is away from the Browser by nature: AVKit may start it before the scene goes inactive.
+            run(lifecycle.willStart(subscription, eligible: threadId != nil && eligible(onScreen: false)))
+        case .didStart:
+            run(lifecycle.didStart(subscription, eligible: threadId != nil && eligible(onScreen: false)))
+        case .failed:
+            run(lifecycle.failed(subscription))
+        case .ended(let restore):
+            if lifecycle.floating, !restore, !onScreen { pipDismissed = true }
+            if restore, lifecycle.kept != nil, lifecycle.kept == subscription, let threadId {
+                pipRestore = (threadId, (pipRestore?.count ?? 0) + 1)
+            }
+            run(lifecycle.ended(subscription, restore: restore, onScreen: onScreen))
+            updatePip()
+        }
+    }
+    /// Carries out the lifecycle's commands. While the page floats or starts to, its pictures are
+    /// acknowledged as if shown, so they keep coming.
+    private func run(_ commands: [PipLifecycle.Command]) {
+        for command in commands {
+            switch command {
+            case .start: break
+            case .stop: pip.stop()
+            case .closeStream, .mute: onPipCommand(command)
+            }
+        }
+        if pipActive != lifecycle.active { pipActive = lifecycle.active }
+        acks?.setVisible(visible || lifecycle.floating)
+    }
+    /// The person's speaker: this phone plays the page's sound, or stops. The bridge is told separately.
+    func setSoundHere(_ on: Bool) {
+        guard threadId != nil || !on else { return }
+        if soundHere != on { soundHere = on }
+        updateSound()
+    }
+    /// The audio output is open only while the shown tab plays to this phone (`BrowserSound.plays`).
+    private func updateSound() {
+        sound.set(BrowserSound.plays(here: soundHere, open: threadId != nil, shown: view?.state?.shown))
     }
     func clearSource() { source = nil }
     /// The picture on screen now, kept as the still of the tab it came from (never assumed to be
@@ -135,7 +239,8 @@ import UIKit
     /// The app came to the foreground or left it.
     func setVisible(_ value: Bool) {
         visible = value
-        acks?.setVisible(value)
+        acks?.setVisible(value || lifecycle.floating)
+        updatePip()
     }
     /// The poster a subscribe brought back since the last call, for the display link.
     func nextPoster() -> CGImage? {
@@ -147,6 +252,7 @@ import UIKit
     func nextPicture() -> BrowserPicture? {
         guard let picture = latest?.take() else { return nil }
         if pageSize != picture.page { pageSize = picture.page }
+        sound.shown(timestamp: picture.timestamp)
         return picture
     }
 
@@ -163,6 +269,8 @@ import UIKit
             generation = info.generation
             if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
             if view != info { view = info }
+            updateSound()
+            updatePip()
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
             if page != info { page = info }

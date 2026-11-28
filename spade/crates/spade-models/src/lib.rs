@@ -5,6 +5,7 @@
 //! presets, else defaults. The SDK stays inside this crate.
 
 pub mod base_url;
+mod bound;
 pub mod catalog;
 pub mod chatgpt;
 mod client;

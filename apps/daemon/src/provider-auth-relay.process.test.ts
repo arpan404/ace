@@ -25,7 +25,8 @@ async function receive(
   }
 }
 
-test("only the paired device with operate scope hands a key through the encrypted provider-auth relay", async () => {
+/** A daemon's provider-auth relay over a real relay, with a fake CLI that stores what it reads. */
+async function keyRelay() {
   const home = await mkdtemp(join(tmpdir(), "ace-key-relay-"));
   const store = new Store(join(home, "events.sqlite"));
   const auth = new RemoteAuth(store.devices, "host-local-token", {
@@ -81,6 +82,22 @@ test("only the paired device with operate scope hands a key through the encrypte
     expect(await client.receive()).toMatchObject({ type: "welcome" });
     return client;
   }
+  const close = async () => {
+    for (const client of clients) {
+      client.close();
+      await client.closed;
+    }
+    await host.close();
+    await login.close();
+    await relay.close();
+    await store.close();
+    await rm(home, { recursive: true, force: true });
+  };
+  return { home, store, login, operator, reader, seen, connect, close };
+}
+
+test("only the paired device with operate scope hands a key through the encrypted provider-auth relay", async () => {
+  const { home, store, operator, reader, seen, connect, close } = await keyRelay();
   try {
     const owner = await connect(operator),
       readonly = await connect(reader);
@@ -135,14 +152,48 @@ test("only the paired device with operate scope hands a key through the encrypte
       "opaque-relay-sentinel-key",
     );
   } finally {
-    for (const client of clients) {
-      client.close();
-      await client.closed;
+    await close();
+  }
+});
+
+test("a key sign-in whose provider-auth channel closes before any key is cancelled, not left waiting", async () => {
+  const { operator, seen, connect, close } = await keyRelay();
+  try {
+    const phone = await connect(operator);
+    await phone.send({
+      type: "provider.login.start",
+      requestId: "start",
+      provider: "codex",
+      method: "api_key",
+    });
+    const waiting = await receive(
+      phone,
+      seen,
+      (message) =>
+        message.type === "provider.login.progress" && message.progress.state === "awaiting_api_key",
+    );
+    if (waiting.type !== "provider.login.progress") throw new Error("Missing key prompt");
+    // The phone's channel goes before it hands over a key: no key can reach this sign-in now.
+    phone.close();
+    await phone.closed;
+    const again = await connect(operator);
+    for (;;) {
+      await again.send({
+        type: "provider.login.poll",
+        requestId: `poll-${seen.length}`,
+        session: waiting.progress.session,
+      });
+      const polled = await receive(
+        again,
+        seen,
+        (message) => message.type === "provider.login.result",
+      );
+      if (polled.type !== "provider.login.result" || !polled.result.ok)
+        throw new Error("Poll refused");
+      if (polled.result.progress.state === "cancelled") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    await host.close();
-    await login.close();
-    await relay.close();
-    await store.close();
-    await rm(home, { recursive: true, force: true });
+  } finally {
+    await close();
   }
 });

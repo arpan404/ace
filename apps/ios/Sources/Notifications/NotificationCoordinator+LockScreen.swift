@@ -17,7 +17,8 @@ extension NotificationCoordinator {
                 if row.confirmed == true, let look = row.look, look.level != "syncing",
                    LockScreenBuilder.state(look) != "needs-you" { answered.insert(key) }
             }
-            return LockScreenBuilder.Machine(hostId: entry.hostId, rows: rows, online: entry.model.inboxConfirmed)
+            return LockScreenBuilder.Machine(hostId: entry.hostId, rows: rows, online: entry.model.inboxConfirmed,
+                                             slot: slots[entry.hostId], name: machineName(entry.hostId) ?? "")
         }
         approvals = approvals.filter { !answered.contains($0.key) && (!confirmed.contains($0.value.hostId) || listed.contains($0.key)) }
         approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }

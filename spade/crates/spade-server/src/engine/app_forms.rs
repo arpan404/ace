@@ -70,6 +70,9 @@ impl Engine {
                 return None;
             }
         };
+        if self.autonomy(id) == spade_core::autonomy::Mode::FullAccess {
+            return None;
+        }
         let (tell, answer) = oneshot::channel();
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());

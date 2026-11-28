@@ -38,8 +38,8 @@ export function MarkdownPreview(props: {
     return () => onStatus(undefined);
   }, [doc, path, onStatus]);
   return (
-    <div className="min-h-0 flex-1 overflow-auto" tabIndex={-1}>
-      <article className="mx-auto w-full max-w-[760px] px-8 py-6 text-base leading-[1.6]">
+    <div className="@container min-h-0 flex-1 overflow-auto" tabIndex={-1}>
+      <article className="mx-auto w-full max-w-[760px] px-4 py-4 text-base leading-[1.6] @[560px]:px-8 @[560px]:py-6">
         <Prose text={text} />
       </article>
     </div>
