@@ -171,9 +171,31 @@ it("a child that starts again just before its 24-hour mark, its machine unreacha
   h.reads.error = new Error("Studio is unreachable");
   await runUntil(h, settledAt + RECHECK_WINDOW_MS + 3 * HOUR);
   // Its final check has not been answered: it is still watched, so no end may go.
-  expect(ledger.watchingRemote()).toBe(true);
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
   delete h.reads.error;
   await runUntil(h, h.clock.now + 60_000);
   expect(h.state(id)).toBe("working");
-  expect(ledger.watchingRemote()).toBe(true);
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+});
+
+it("a stop its machine never confirms stops holding a Live Activity's end after 24 hours, while its cancel goes on", async () => {
+  const h = machine(undefined, { pollMs: 1000, stopPlan: [{ action: "cancel", waitMs: 2_000 }] });
+  const ledger = new ChildLedger(h.store);
+  const id = h.add("child");
+  h.report(id, working);
+  await runUntil(h, h.clock.now + 2_000);
+  // Stopped here; its Mac stays paired but never answers again.
+  h.reads.error = new Error("Studio is unreachable");
+  h.children.stop(id);
+  await runUntil(h, h.clock.now + 10_000);
+  expect(h.children.watched(id)?.view.contact).toBe("unconfirmed");
+  const stoppedAt = h.clock.now;
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+  await runUntil(h, stoppedAt + RECHECK_WINDOW_MS - 60_000);
+  expect(ledger.watchingRemote(h.clock.now)).toBe(true);
+  const cancels = h.cancels.length;
+  await runUntil(h, stoppedAt + RECHECK_WINDOW_MS + HOUR);
+  // A day on it no longer holds the end; its cancel still goes out.
+  expect(ledger.watchingRemote(h.clock.now)).toBe(false);
+  expect(h.cancels.length).toBeGreaterThan(cancels);
 });

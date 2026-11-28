@@ -21,15 +21,16 @@ function history() {
     await store.close();
     rmSync(home, { recursive: true, force: true });
   });
-  const put = (id: string, settled: 0 | 1, settledAt: number | null) =>
+  const put = (id: string, settled: 0 | 1, settledAt: number | null, unconfirmed: 0 | 1 = 0) =>
     store.atomic((db) =>
       db
         .prepare(
           `INSERT OR REPLACE INTO machine_children (id, request_key, parent_thread, parent_agent,
-            machine, role, provider, created_at, view, settled, delivered, settled_at)
-          VALUES (?, ?, 'parent', 'agent', 'studio', 'Task', 'claude', 0, NULL, ?, 1, ?)`,
+            machine, role, provider, created_at, view, settled, delivered, settled_at,
+            stopped_unconfirmed)
+          VALUES (?, ?, 'parent', 'agent', 'studio', 'Task', 'claude', 0, NULL, ?, 1, ?, ?)`,
         )
-        .run(id, `parent:${id}`, settled, settledAt),
+        .run(id, `parent:${id}`, settled, settledAt, unconfirmed),
     );
   store.atomic((db) => {
     const insert = db.prepare(
@@ -45,17 +46,21 @@ function history() {
 
 it("a remote child is watched while it works or while its settled window is open", () => {
   const { put, ledger } = history();
-  expect(ledger.watchingRemote()).toBe(false);
+  expect(ledger.watchingRemote(now)).toBe(false);
   put("child", 0, null);
-  expect(ledger.watchingRemote()).toBe(true);
+  expect(ledger.watchingRemote(now)).toBe(true);
   put("child", 1, now - 1000);
-  expect(ledger.watchingRemote()).toBe(true);
+  expect(ledger.watchingRemote(now)).toBe(true);
   // A day on, its final check not yet answered: still watched, whatever the clock says.
   put("child", 1, now - 2 * RECHECK_WINDOW_MS);
-  expect(ledger.watchingRemote()).toBe(true);
+  expect(ledger.watchingRemote(now)).toBe(true);
   // The re-check let it go: its window is closed.
   put("child", 1, null);
-  expect(ledger.watchingRemote()).toBe(false);
+  expect(ledger.watchingRemote(now)).toBe(false);
+  // A stop its machine never confirmed holds the end for a day from when it was given up on.
+  put("stopped", 1, now - 1000, 1);
+  expect(ledger.watchingRemote(now)).toBe(true);
+  expect(ledger.watchingRemote(now + RECHECK_WINDOW_MS)).toBe(false);
 });
 
 it("checking for a watched remote child reads only bounded indexes (ADR 0170)", () => {
@@ -87,10 +92,13 @@ it("checking for a watched remote child reads only bounded indexes (ADR 0170)", 
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
-  expect(new ChildLedger(traced).watchingRemote()).toBe(false);
+  expect(new ChildLedger(traced).watchingRemote(now)).toBe(false);
   expect(plans).toEqual([
     // A partial index holding only rows with settled=0: scanning it reads only working children.
     "SCAN machine_children USING COVERING INDEX machine_children_unsettled",
-    "SEARCH machine_children USING COVERING INDEX machine_children_settled (settled=? AND settled_at>?)",
+    // Ordinary watches: every settled child the re-check still tracks, a bounded range.
+    "SEARCH machine_children USING INDEX machine_children_settled (settled=? AND settled_at>?)",
+    // Stops never confirmed: the last 24 hours of that range.
+    "SEARCH machine_children USING INDEX machine_children_settled (settled=? AND settled_at>?)",
   ]);
 });

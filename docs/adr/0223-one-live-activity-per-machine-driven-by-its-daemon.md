@@ -106,12 +106,15 @@ the parent can't prove it stayed quiet.
    working there (one whose pairing was lost included), or a settled child the re-check still
    tracks: until its final check, sent at or after its 24-hour mark, is answered and the ledger
    lets it go. A clock alone never lets it go, so a child that starts again just before its mark
-   while its machine is unreachable keeps the `end` held. A stop never confirmed counts while its
-   window lasts. Once none is watched and the machine has been quiet for 120 seconds, the `end`
-   goes.
-2. **The check is bounded (ADR 0170).** Two `LIMIT 1` reads: the `machine_children_unsettled`
-   partial index, and `settled_at IS NOT NULL` on `machine_children_settled`, a range seek.
-   Neither reads the settled history. They read the ledger directly, so the rule holds before the machines
+   while its machine is unreachable keeps the `end` held. A stop never confirmed is the
+   exception: its machine may never answer again, so it holds the `end` for 24 hours from when
+   it was given up on, and its cancel keeps going out after that. Once none is watched and the
+   machine has been quiet for 120 seconds, the `end` goes.
+2. **The check is bounded (ADR 0170).** Three `LIMIT 1` reads: the `machine_children_unsettled`
+   partial index; ordinary watches by `settled_at IS NOT NULL` on `machine_children_settled`,
+   a range seek; and stops never confirmed by the last 24 hours of that range. None reads the
+   settled history. The ordinary read can step over stops still in that range, which are only
+   the stops whose machine never answered again: each also keeps a cancel retry going. They read the ledger directly, so the rule holds before the machines
    service starts.
 3. **A held `end` is looked at again on the delivery lane's own timer**, one second later, with
    no other loop. While nothing has changed, that look reads only the two bounded queries; the

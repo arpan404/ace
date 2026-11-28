@@ -76,7 +76,7 @@ function lane() {
   let paused: Promise<void> | undefined;
   const delivery = createActivityDelivery({
     store: counted,
-    remoteWatched: () => ledger.watchingRemote(),
+    remoteWatched: (at) => ledger.watchingRemote(at),
     gateway: {
       async sendActivity(_address, prepare) {
         if (paused) await paused;

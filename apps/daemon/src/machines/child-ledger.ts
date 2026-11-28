@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentId, MachineMessage, MachineThreadView, ProviderKind, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { RECHECK_WINDOW_MS } from "./child-recheck.ts";
 
 export const ChildRow = z.object({
   id: ThreadId,
@@ -478,14 +479,16 @@ export class ChildLedger {
     });
   }
   /**
-   * Whether any child on another machine is still watched: working there (lost ones included),
-   * or settled with its re-check window still open, until the re-check retires it (its
-   * `settled_at` cleared), whatever the clock says. A child that starts again just before its
-   * 24-hour mark, its final check unanswered, stays watched. A stop never confirmed counts while
-   * its window lasts. A machine's Live Activity holds its end while one is (ADR 0223, amendment
-   * 1). Two LIMIT 1 reads by bounded indexes, never the settled history.
+   * Whether any child on another machine is still watched at wall time `now`, so a machine's
+   * Live Activity holds its end (ADR 0223, amendment 1):
+   * - one working there, lost ones included;
+   * - an ordinary settled child until the re-check retires it (its `settled_at` cleared once its
+   *   final check is answered), whatever the clock says;
+   * - a stop never confirmed (`stopped_unconfirmed` set) for 24 hours from when it was given
+   *   up on. Its machine may never answer, so the clock ends that one; its cancel goes on.
+   * Three LIMIT 1 reads by bounded indexes, never the settled history.
    */
-  watchingRemote(): boolean {
+  watchingRemote(now: number): boolean {
     return this.store.atomic(
       (db) =>
         db
@@ -495,9 +498,14 @@ export class ChildLedger {
           .get() !== undefined ||
         db
           .prepare(
-            "SELECT 1 FROM machine_children INDEXED BY machine_children_settled WHERE settled=1 AND settled_at IS NOT NULL LIMIT 1",
+            "SELECT 1 FROM machine_children INDEXED BY machine_children_settled WHERE settled=1 AND settled_at IS NOT NULL AND stopped_unconfirmed=0 LIMIT 1",
           )
-          .get() !== undefined,
+          .get() !== undefined ||
+        db
+          .prepare(
+            "SELECT 1 FROM machine_children INDEXED BY machine_children_settled WHERE settled=1 AND settled_at>? AND stopped_unconfirmed<>0 LIMIT 1",
+          )
+          .get(now - RECHECK_WINDOW_MS) !== undefined,
     );
   }
   /** Machines with a child to read: working there, or settled and still tracked. */

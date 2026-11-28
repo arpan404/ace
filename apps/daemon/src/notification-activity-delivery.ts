@@ -21,10 +21,10 @@ const keyOf = (target: LiveActivitySendTarget) => `${target.environment}\n${targ
 interface Options {
   store: Store;
   /**
-   * Whether a child this machine delegated to another one is still watched. Polling can't prove
-   * such a child stayed quiet, so the end waits until none is.
+   * Whether a child this machine delegated to another one is still watched at wall time `now`.
+   * Polling can't prove such a child stayed quiet, so the end waits until none is.
    */
-  remoteWatched?: () => boolean;
+  remoteWatched?: (now: number) => boolean;
   gateway: ActivitySender;
   targets(): Promise<LiveActivitySendTarget[]>;
   guard(): (target: LiveActivitySendTarget) => boolean;
@@ -193,7 +193,7 @@ export function createActivityDelivery(options: Options) {
     }
     // A remote child may start again unseen: no end while one is watched. Looked at again on
     // this lane's own timer, a second from now.
-    if (next?.event === "end" && options.remoteWatched?.()) {
+    if (next?.event === "end" && options.remoteWatched?.(now())) {
       stream.heldAt = changes;
       arm(elapsed() + rereadMs);
       return;
@@ -218,7 +218,7 @@ export function createActivityDelivery(options: Options) {
     }
     // Its end is held for a remote child and nothing has changed since: only the bounded gate is
     // looked at again (ADR 0170). The state is built once more when it opens.
-    if (stream.heldAt === changes && options.remoteWatched?.()) {
+    if (stream.heldAt === changes && options.remoteWatched?.(now())) {
       arm(elapsed() + rereadMs);
       return;
     }
