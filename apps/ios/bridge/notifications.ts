@@ -3,8 +3,8 @@ import { ClientError, type ClientCore } from "@ace/client";
 import {
   AppState,
   InteractionId,
+  LiveActivitySync,
   NotificationPreferences,
-  PhoneLiveActivity,
   ThreadId,
   type Notification,
   type NotificationAddress,
@@ -49,8 +49,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     phone: PhoneNotificationPrefs.optional(),
     /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
     push: PhonePush.nullable().optional(),
-    /** This machine's Live Activity tokens and slot (ADR 0223); absent while they are off. */
-    liveActivity: PhoneLiveActivity.optional(),
+    /** This phone's Live Activity tokens for this machine (ADR 0223); absent: no activity. */
+    liveActivity: LiveActivitySync.optional(),
   }),
   z.object({
     type: z.literal("notifications.feedApplied"),
@@ -127,12 +127,12 @@ export class NotificationBridge {
   /** Swift's push token and key; without one the daemon sends alerts on the socket only. */
   #push: PhonePush | null = null;
   /** Swift's Live Activity tokens for this machine; registered with the address. */
-  #liveActivity: PhoneLiveActivity | undefined;
+  #liveActivity: LiveActivitySync | undefined;
   /**
    * The tokens this connection's daemon was last registered with; null: none; undefined: not
    * known (a new connection), so the next reconcile registers them again.
    */
-  #toldLiveActivity: PhoneLiveActivity | null | undefined;
+  #toldLiveActivity: LiveActivitySync | null | undefined;
   /** The push address last registered with this machine, kept between launches. */
   #pushKept: KeptValue | undefined;
   /** What this connection has told the daemon; unknown again after every reconnect. */
@@ -708,7 +708,7 @@ function unparsable(error: unknown): boolean {
   );
 }
 /** The same tokens, environment, frequency and slot: nothing new to register. */
-function sameLiveActivity(a: PhoneLiveActivity | null, b: PhoneLiveActivity | null): boolean {
+function sameLiveActivity(a: LiveActivitySync | null, b: LiveActivitySync | null): boolean {
   if (!a || !b) return a === b;
   return (
     a.startToken === b.startToken &&

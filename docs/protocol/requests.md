@@ -3765,7 +3765,7 @@ Example:
 | type | yes | `"notification.register"` |  |
 | requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
-| liveActivity | no | [PhoneLiveActivity.json](schema/PhoneLiveActivity.json) |  |
+| liveActivity | no | [LiveActivitySync.json](schema/LiveActivitySync.json) |  |
 
 Example:
 

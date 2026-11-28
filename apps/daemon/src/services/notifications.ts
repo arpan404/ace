@@ -1,9 +1,20 @@
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
+import type { NotificationTransport, PushGatewayTransport } from "@ace/notify";
 import { repeatableWarmup } from "./warmup.ts";
-import { loadNotificationChannels } from "../notification-config.ts";
+import { loadNotificationChannels, pushTarget } from "../notification-config.ts";
+import { followRemotePushSetting } from "../notification-live-activity.ts";
 import { createDaemonNotifications } from "../notifications.ts";
 import type { ServiceContext } from "./types.ts";
+
+/** The push transport's Live Activity operations, when it is ace's gateway (ADR 0223). */
+function activityGateway(
+  push: NotificationTransport | undefined,
+): PushGatewayTransport | undefined {
+  if (typeof (push as Partial<PushGatewayTransport> | undefined)?.registerActivity !== "function")
+    return undefined;
+  return push as PushGatewayTransport;
+}
 export async function startNotifications(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services, log, onListen } = context;
 
@@ -11,6 +22,11 @@ export async function startNotifications(context: ServiceContext): Promise<void>
     ? { channels: options.notificationChannels, close: () => {} }
     : await loadNotificationChannels({ dataDir: config.dataDir, settings: services.settings });
   resources.own(configured.close);
+  const gateway = activityGateway(configured.channels.push);
+  const settings = services.settings;
+  // An organization's host never stores or registers a personal phone's activity tokens: its
+  // counts would be the host's whole inbox (ADR 0221). The socket already refuses members.
+  const liveActivityAllowed = () => context.orgHost?.org() === undefined;
   // Nothing saved needs delivery while no client is connected: the worker starts when one does.
   const retained = notificationsRetained(join(config.dataDir, "notifications.sqlite"));
   const notifications = createDaemonNotifications(
@@ -23,10 +39,47 @@ export async function startNotifications(context: ServiceContext): Promise<void>
       signal: context.signal,
       slept: !retained,
       ...(options.notificationWorker ? { spawn: options.notificationWorker } : {}),
+      ...(gateway
+        ? {
+            liveActivity: {
+              gateway,
+              target: () => pushTarget(settings),
+              allowed: liveActivityAllowed,
+            },
+          }
+        : {}),
     },
   );
   resources.onShutdown(notifications.stop);
   resources.own(() => notifications.close());
+  if (gateway) {
+    // Push settings are read live and followed, so turning push off removes the tokens without
+    // waiting for the phone to sync again.
+    if (settings) {
+      try {
+        const stopSetting = await followRemotePushSetting(
+          settings,
+          (enabled) => notifications.service.liveActivitySetting(enabled),
+          (error) => log.log("error", "Live Activity settings follow failed", logError(error)),
+        );
+        resources.own(stopSetting);
+      } catch (error) {
+        // The alert service must still come up; activity registration waits for a retry.
+        log.log("warn", `Live Activity settings are unavailable: ${String(error)}`);
+      }
+    }
+    // An organization's host keeps no personal phone's activity tokens: their counts would be
+    // the host's whole inbox, and a member's phone may register none at all (ADR 0221).
+    const clearForOrg = () => {
+      if (context.orgHost?.org() === undefined) return;
+      void notifications.service
+        .clearLiveActivity()
+        .catch((error: unknown) => log.log("error", "Live Activity clear failed", logError(error)));
+    };
+    clearForOrg();
+    const stopOrg = context.orgHost?.onChange?.(clearForOrg);
+    if (stopOrg) resources.own(stopOrg);
+  }
   // A cursor reply proves the worker has opened its store, even when the log is empty.
   if (retained) await notifications.open();
   services.notifications = notifications.service;
@@ -201,6 +254,15 @@ export function createNotificationsSession({
               await options.notifications.updatePresence(sessionId, device, message);
             } else if (message.type === "notification.register") {
               await options.notifications.register(device, message.device);
+              // Persisted before the phone hears success. One install's linked ids share the
+              // tokens (ADR 0115), and an older daemon may not store them at all.
+              if (options.notifications.syncLiveActivity) {
+                const { ids: linked } = capLinked(
+                  options.store.devices.linked(device, (options.now ?? Date.now)()),
+                  linkedLimit,
+                );
+                await options.notifications.syncLiveActivity(device, linked, message.liveActivity);
+              }
               if (message.requestId)
                 send({ type: "notification.register.result", requestId: message.requestId });
             } else if (message.type === "notification.preferences")

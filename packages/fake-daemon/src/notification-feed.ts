@@ -2,7 +2,7 @@ import type {
   ClientMessage,
   Notification,
   NotificationAddress,
-  PhoneLiveActivity,
+  LiveActivitySync,
   ServerMessage,
 } from "@ace/protocol";
 
@@ -23,7 +23,7 @@ export class FakeNotificationFeed {
   private unregistered = new Set<string>();
   private head = 0;
   private addresses = new Map<string, NotificationAddress>();
-  private liveActivities = new Map<string, PhoneLiveActivity>();
+  private liveActivities = new Map<string, LiveActivitySync>();
   private checkpoints = new Map<string, number>();
   private acks: { device: string; id: string }[] = [];
   private pushRefused: "invalid_message" | "unsupported" | false = false;
@@ -33,7 +33,7 @@ export class FakeNotificationFeed {
     return this.addresses.get(device);
   }
   /** The Live Activity tokens `device` registered last; none once a registration omits them. */
-  liveActivity(device: string): PhoneLiveActivity | undefined {
+  liveActivity(device: string): LiveActivitySync | undefined {
     return this.liveActivities.get(device);
   }
   /** The alert ids `device` acknowledged (`notification.ack`), oldest first. */

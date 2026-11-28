@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Agent, BackgroundTask, Command, Event } from "./index.ts";
+import {
+  Agent,
+  BackgroundTask,
+  Command,
+  Event,
+  LiveActivitySync,
+  NotificationRegister,
+} from "./index.ts";
 
 const agent = {
   id: "agt_child",
@@ -63,5 +70,66 @@ describe("protocol schemas", () => {
     });
     expect(task.ambient).toBe(false);
     expect(task.status).toBe("unknown");
+  });
+});
+
+describe("live activity sync", () => {
+  const liveActivity = {
+    startToken: "a1".repeat(32),
+    activityToken: "b2".repeat(32),
+    environment: "sandbox",
+    frequentUpdates: true,
+    slot: 3,
+  };
+
+  it("registers a phone's live activity tokens beside its push address", () => {
+    const parsed = NotificationRegister.parse({
+      type: "notification.register",
+      device: { channel: "websocket", platform: "phone" },
+      liveActivity,
+    });
+    expect(parsed.liveActivity).toEqual(liveActivity);
+  });
+
+  it("keeps a registration without live activity tokens", () => {
+    const parsed = NotificationRegister.parse({
+      type: "notification.register",
+      device: { channel: "websocket", platform: "phone" },
+    });
+    expect(parsed.liveActivity).toBeUndefined();
+  });
+
+  it("allows either token alone and the ends of the slot range", () => {
+    expect(
+      LiveActivitySync.safeParse({ ...liveActivity, activityToken: undefined, slot: 0 }).success,
+    ).toBe(true);
+    expect(
+      LiveActivitySync.safeParse({ ...liveActivity, startToken: undefined, slot: 15 }).success,
+    ).toBe(true);
+  });
+
+  it("refuses a slot outside the phone's sixteen machines", () => {
+    for (const slot of [-1, 16, 2.5]) {
+      expect(LiveActivitySync.safeParse({ ...liveActivity, slot }).success).toBe(false);
+    }
+  });
+
+  it("refuses a token outside APNs' length or alphabet", () => {
+    for (const startToken of ["a".repeat(15), "a".repeat(401), "not-hex"]) {
+      expect(LiveActivitySync.safeParse({ ...liveActivity, startToken }).success).toBe(false);
+    }
+    expect(LiveActivitySync.safeParse({ ...liveActivity, activityToken: null }).success).toBe(
+      false,
+    );
+  });
+
+  it("requires the APNs environment and whether frequent updates are on", () => {
+    const { environment: _environment, ...withoutEnvironment } = liveActivity;
+    const { frequentUpdates: _frequentUpdates, ...withoutFrequentUpdates } = liveActivity;
+    expect(LiveActivitySync.safeParse(withoutEnvironment).success).toBe(false);
+    expect(LiveActivitySync.safeParse(withoutFrequentUpdates).success).toBe(false);
+    expect(
+      LiveActivitySync.safeParse({ ...liveActivity, environment: "development" }).success,
+    ).toBe(false);
   });
 });

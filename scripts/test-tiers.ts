@@ -48,6 +48,8 @@ export const nodeOnlySuites = [
   "apps/daemon/src/org-access.process.test.ts",
   // Its Spade requests and streams ending with a member's standing (ADR 0209 §4.2), same harness.
   "apps/daemon/src/org-host-spade-lapse.process.test.ts",
+  // A member's notification feed and activity refusal on that host (ADR 0221), same harness.
+  "apps/daemon/src/org-notification-feed.process.test.ts",
   // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
   // the same harness, so the same reason.
   "apps/daemon/src/cli-bot-publish-market.process.test.ts",

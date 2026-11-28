@@ -9,8 +9,13 @@ import {
   type NotificationState,
 } from "@ace/notify";
 import type { DeviceId, Notification } from "@ace/protocol";
-import { allows } from "./devices.ts";
+import type { PushGatewayTarget } from "@ace/notify";
+import { activeDevice, allows } from "./devices.ts";
 import { createAckTracker } from "./notification-ack.ts";
+import {
+  createLiveActivityRegistrar,
+  type LiveActivityGateway,
+} from "./notification-live-activity.ts";
 import { failureDelay, maySleep, wakeDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
 import { acceptIntents, dropIntents, isNotice } from "./notification-intents.ts";
@@ -36,11 +41,17 @@ export type NotificationAccess = Pick<
   | "feed"
   | "disconnect"
   | "revoke"
+  | "syncLiveActivity"
+  | "liveActivityTargets"
+  | "clearLiveActivity"
+  | "dropLiveActivityToken"
   | "drain"
   | "close"
 > & {
   /** A phone took a live `notification` frame; waiting deliveries may skip the push. */
   acknowledge(device: DeviceId, id: string): void;
+  /** `notifications.remotePush` changed: off clears the tokens, on registers what is stored. */
+  liveActivitySetting(enabled: boolean): Promise<void>;
 };
 export interface DaemonNotifications {
   service: NotificationAccess;
@@ -70,6 +81,19 @@ interface Runtime {
    * through. Events before it (a crash, say) are delivered normally.
    */
   slept?: boolean;
+  /**
+   * Live Activity tokens to the push gateway (ADR 0223). Absent where no gateway is configured:
+   * a phone's tokens are then not stored, and #2760 has nothing to push with.
+   */
+  liveActivity?: {
+    gateway: LiveActivityGateway;
+    /** The push switch and gateway origin, read live (ADR 0106). */
+    target: () => PushGatewayTarget | Promise<PushGatewayTarget>;
+    /** Where Live Activities may not be used at all, such as an organization's host. */
+    allowed?: () => boolean | Promise<boolean>;
+    /** Whether an id that synced a token still holds a current pairing with read access. */
+    authorize?: (devices: readonly DeviceId[]) => boolean;
+  };
 }
 interface Awake {
   worker: NotificationWorker;
@@ -78,6 +102,10 @@ interface Awake {
   /** The first worker's first reply, for startup. Recovery asks whichever worker is current. */
   opened: Promise<void>;
   ready?: Promise<void>;
+  /** Which `ready` a successful Live Activity resume covered; a restart resumes again. */
+  resumedFor?: Promise<void> | undefined;
+  resumingFor?: Promise<void> | undefined;
+  resuming?: Promise<void>;
 }
 const unrefDelay = (run: () => void, milliseconds: number) => {
   const timer = setTimeout(run, milliseconds);
@@ -168,7 +196,13 @@ export function createDaemonNotifications(
       windowMs,
       alertsFrom: Math.max(0, alertsFrom),
       ...(sleptAfter ? { sleptAfter } : {}),
-      onRestart: () => kick(),
+      onRestart: () => {
+        if (current?.worker !== worker) return;
+        // A restarted worker may have lost or replayed store state: catch up and let the
+        // Live Activity resume replay unconfirmed cleanup before anything registers again.
+        delete current.ready;
+        kick();
+      },
       signal,
       ...(runtime.spawn ? { spawn: runtime.spawn } : {}),
       onState(next) {
@@ -256,6 +290,54 @@ export function createDaemonNotifications(
     await worker.forgetSleep();
     cancelled();
   };
+  let resumeFailures = 0;
+  let cancelResumeRetry: (() => void) | undefined;
+  /** A failed cleanup is retried detached with backoff; a later run does not hammer it. */
+  const scheduleResumeRetry = (awake: Awake) => {
+    // A resume that succeeded earlier no longer covers this failure: the retry must run it.
+    delete awake.resumedFor;
+    if (closed || cancelResumeRetry) return;
+    resumeFailures++;
+    cancelResumeRetry = delay(() => {
+      cancelResumeRetry = undefined;
+      if (closed || current !== awake) return;
+      resumeOnce(awake).catch(report);
+    }, failureDelay(resumeFailures));
+  };
+  /**
+   * Once a catch-up succeeded, replay unconfirmed cleanup and register activity tokens. It is
+   * never awaited by a cold worker acquisition: a cleanup's own worker RPC may be what wakes
+   * the worker, and resume would otherwise wait on the write queue it is holding. The delivery
+   * run awaits it instead; failures retry on their own bounded lane.
+   */
+  const resumeOnce = (awake: Awake): Promise<void> => {
+    const ready = awake.ready;
+    if (!ready) return Promise.resolve();
+    if (awake.resumedFor === ready) return Promise.resolve();
+    if (cancelResumeRetry) return Promise.resolve();
+    if (awake.resumingFor === ready) return awake.resuming ?? Promise.resolve();
+    awake.resumingFor = ready;
+    const resuming = ready
+      .then(() => resumeLiveActivity())
+      .then((done) => {
+        if (done) {
+          awake.resumedFor = ready;
+          resumeFailures = 0;
+        } else scheduleResumeRetry(awake);
+      })
+      .catch((error: unknown) => {
+        report(error);
+        scheduleResumeRetry(awake);
+      })
+      .finally(() => {
+        if (awake.resuming === resuming) {
+          delete awake.resuming;
+          delete awake.resumingFor;
+        }
+      });
+    awake.resuming = resuming;
+    return resuming;
+  };
   const awaken = async (): Promise<Awake> => {
     for (;;) {
       cancelled();
@@ -312,6 +394,7 @@ export function createDaemonNotifications(
             if (awake.ready === ready) delete awake.ready;
             throw error;
           });
+          await resumeOnce(awake);
           const caughtUp = await awake.attached.recover();
           if (closed) return;
           const more = caughtUp && (await acceptIntents(store, awake.worker, []));
@@ -399,13 +482,91 @@ export function createDaemonNotifications(
   const ifAwake = async (call: (worker: NotificationWorker) => Promise<void>): Promise<void> => {
     if (current) await use(call);
   };
+  /**
+   * Unregister or revoke work the worker did not confirm. The device stays fenced, so none of
+   * its tokens are used, until a restart or recovery replays the cleanup successfully.
+   */
+  const pendingCleanups = new Map<string, { device: DeviceId; run: () => Promise<void> }>();
+  const replayCleanups = async (): Promise<boolean> => {
+    for (const [key, entry] of pendingCleanups) {
+      try {
+        await entry.run();
+        await registrar?.forgetMissing();
+      } catch (error) {
+        report(error);
+        return false;
+      }
+      pendingCleanups.delete(key);
+      registrar?.clearFence(entry.device);
+    }
+    return true;
+  };
+  const cleanupDevice = async (device: DeviceId, cleanup: () => Promise<void>): Promise<void> => {
+    // Fenced before the call: a slow or failing cleanup never leaves the tokens usable.
+    registrar?.fenceDevice(device);
+    const key = String(device);
+    try {
+      await cleanup();
+      await registrar?.forgetMissing();
+    } catch (error) {
+      pendingCleanups.set(key, { device, run: cleanup });
+      // The retry lane replays it even if no worker restart follows this failure.
+      if (current) scheduleResumeRetry(current);
+      throw error;
+    }
+    pendingCleanups.delete(key);
+    registrar?.clearFence(device);
+  };
+  const resumeLiveActivity = async (): Promise<boolean> => {
+    if (!registrar) return true;
+    if (!(await replayCleanups())) return false;
+    try {
+      await registrar.resume();
+      return true;
+    } catch (error) {
+      report(error);
+      return false;
+    }
+  };
+  /** Live Activity tokens and their gateway handles, when a gateway is configured. */
+  const registrar = runtime.liveActivity
+    ? createLiveActivityRegistrar({
+        tokens: {
+          sync: (device, linked, input) =>
+            use((worker) => worker.syncLiveActivity(device, linked, input)),
+          targets: () => use((worker) => worker.liveActivityTargets()),
+          clear: () => use((worker) => worker.clearLiveActivity()),
+          drop: (address) => use((worker) => worker.dropLiveActivityToken(address)),
+        },
+        gateway: runtime.liveActivity.gateway,
+        target: runtime.liveActivity.target,
+        ...(runtime.liveActivity.allowed ? { allowed: runtime.liveActivity.allowed } : {}),
+        authorize:
+          runtime.liveActivity.authorize ??
+          // A record the store no longer holds is an account-only alias, authorized elsewhere.
+          ((devices) =>
+            devices.some((id) => {
+              const paired = store.devices.get(id);
+              return (
+                paired === undefined || (activeDevice(paired, now()) && allows(paired, "read"))
+              );
+            })),
+        now,
+        signal,
+        report,
+        delay,
+        cleanupFailed: () => {
+          if (current) scheduleResumeRetry(current);
+        },
+      })
+    : undefined;
   const service: NotificationAccess = {
     cursor: (abort) => use((worker) => worker.cursor(abort)),
     ingest: (events, coverage) => use((worker) => worker.ingest(events, coverage)),
     connectDevice: (device) => use((worker) => worker.connectDevice(device)),
     pushAddresses: (devices) => use((worker) => worker.pushAddresses(devices)),
     register: (device, address) => use((worker) => worker.register(device, address)),
-    unregister: (device) => use((worker) => worker.unregister(device)),
+    unregister: (device) => cleanupDevice(device, () => use((worker) => worker.unregister(device))),
     getPreferences: (device) => use((worker) => worker.getPreferences(device)),
     preferences: (device, input) => use((worker) => worker.preferences(device, input)),
     notify: (notification) => use((worker) => worker.notify(notification)),
@@ -418,7 +579,23 @@ export function createDaemonNotifications(
     feed: (device, afterCursor, checkpoint, linked) =>
       use((worker) => worker.feed(device, afterCursor, checkpoint, linked)),
     disconnect: (session) => ifAwake((worker) => worker.disconnect(session)),
-    revoke: (device, abort) => ifAwake((worker) => worker.revoke(device, abort)),
+    revoke: (device, abort) => {
+      if (!current) return Promise.resolve();
+      return cleanupDevice(device, () => use((worker) => worker.revoke(device, abort)));
+    },
+    syncLiveActivity: (device, linked, input) =>
+      registrar
+        ? registrar.sync(device, linked, input)
+        : use((worker) => worker.syncLiveActivity(device, linked, input)),
+    liveActivityTargets: () => (registrar ? registrar.targets() : Promise.resolve([])),
+    clearLiveActivity: () =>
+      registrar ? registrar.clear() : use((worker) => worker.clearLiveActivity()),
+    dropLiveActivityToken: (address) =>
+      registrar ? registrar.drop(address) : use((worker) => worker.dropLiveActivityToken(address)),
+    liveActivitySetting: (enabled) => {
+      if (!registrar) return Promise.resolve();
+      return enabled ? registrar.resume() : registrar.clear();
+    },
     drain: () => use((worker) => worker.drain()),
     close: () => close(),
   };
@@ -432,6 +609,10 @@ export function createDaemonNotifications(
   let stopped: Promise<void> | undefined;
   const stop = () => {
     closed = true;
+    pendingCleanups.clear();
+    cancelResumeRetry?.();
+    cancelResumeRetry = undefined;
+    registrar?.stop();
     deliveryLifetime.abort();
     cancelTimer?.();
     disarmSleep();
