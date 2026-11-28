@@ -27,13 +27,19 @@ import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
 
+/** What the list waits for while a window's refused subscribe waits to be asked again. */
+const refusedReason = (half: SidebarHalf) => `refused:${half}`;
 /** The read cursor of a thread the device never marked read. */
 const unread = { lastSeenSeq: 0, updatedAt: null };
 
 export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
-  #failure: ClientError | undefined;
+  /**
+   * Each window's refusal (Home's, the archive's), until that window's own snapshot lands: one
+   * window's answer never clears what the other was refused.
+   */
+  #refused = new Map<SidebarHalf, ClientError>();
   get error() {
-    return this.#failure;
+    return this.#refused.get("home") ?? this.#refused.get("archive");
   }
   #persistence: Persistence | undefined;
   #binding: SnapshotBinding | undefined;
@@ -151,11 +157,52 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   reject(id: string, error: ClientError): void {
     if (id !== this.#wire && id !== this.#archiveWire) return;
-    this.#failure = error;
+    const half: SidebarHalf = id === this.#archiveWire ? "archive" : "home";
+    this.#refused.set(half, error);
+    // Refused is not answered: the window still waits, and the rows it holds are a copy the
+    // daemon hasn't confirmed, until its own snapshot lands.
     this.#pending.delete(id);
-    if (id === this.#archiveWire) this.#archiveWire = undefined;
+    this.#pending.add(refusedReason(half));
+    if (half === "archive") this.#archiveWire = undefined;
     else this.#wire = undefined;
-    this.#notifications.emit(["error", "sync"]);
+    if (half === "archive" ? this.#archive : this.#home) this.#confirm([half], true);
+    this.#notifications.emit(["error", "sync", "unconfirmed"]);
+    // A refusal never rests while the list is held, as a thread's doesn't: the daemon may turn
+    // a subscribe down for a moment (busy, at its subscription limit). Without asking again the
+    // list stays unconfirmed for the rest of the socket. One over this client's own limit
+    // fails the same way every time: it rests. Each window backs off on its own.
+    if (this.#refs && error.code !== "limit" && !this.#waits.has(half)) {
+      const failures = this.#failures.get(half) ?? 0;
+      this.#failures.set(half, failures + 1);
+      const wait = Math.min(30_000, 500 * 2 ** failures);
+      this.#waits.set(
+        half,
+        this.#delay(wait, () => {
+          this.#waits.delete(half);
+          this.#askAgain(half);
+        }),
+      );
+    }
+  }
+  /** The refused window's subscribe, once more on the same socket; the other is left alone. */
+  #askAgain(half: SidebarHalf): void {
+    if (!this.#refs || !this.#ready() || this.#startup.phase === "waiting") return;
+    if (half === "home" && !this.#wire)
+      this.#subscribeHome([...this.#pending].filter((reason) => reason !== refusedReason("home")));
+    if (half === "archive" && this.#filter.archived && !this.#archiveWire) this.#subscribeArchive();
+  }
+  /** Stops every wait to ask a refused window again. */
+  #cancelRetries(): void {
+    for (const cancel of this.#waits.values()) cancel();
+    this.#waits.clear();
+  }
+  /** The archive window is gone: what it was refused or waited for goes with it. */
+  #forgetArchive(): void {
+    this.#refused.delete("archive");
+    this.#pending.delete(refusedReason("archive"));
+    this.#waits.get("archive")?.();
+    this.#waits.delete("archive");
+    this.#failures.delete("archive");
   }
   #view: ThreadListView | undefined;
   #memory = new FilterMemory();
@@ -205,12 +252,19 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#archiveWire = undefined;
     this.#archive = undefined;
     this.#confirm(["archive"], false);
+    this.#forgetArchive();
     if (input.archived) this.#adopt("archive");
     if (projectChanged) {
       if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
       this.#wire = undefined;
       this.#home = undefined;
       this.#confirm(["home"], false);
+      // Another project's list: what this one was refused, and its wait to ask again, say
+      // nothing of it. Its own first refusal starts its own backoff.
+      this.#refused.delete("home");
+      this.#failures.delete("home");
+      this.#waits.get("home")?.();
+      this.#waits.delete("home");
       this.#adopt("home");
     }
     // While the list starts, no filter change subscribes: the first subscribe goes for the
@@ -253,7 +307,17 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #delay: (milliseconds: number, run: () => void) => () => void;
+  /** Each refused window's wait before it is asked again, as its cancel. */
+  #waits = new Map<SidebarHalf, () => void>();
+  /** Each window's refusals in a row, for its backoff; its snapshot resets it. */
+  #failures = new Map<SidebarHalf, number>();
   #wire: string | undefined;
+  /**
+   * Home was subscribed on this socket. The welcome's replay may come later and call
+   * `reconnect` again: a Home refused meanwhile is left to its own retry, never asked at once.
+   */
+  #homeSent = false;
   #refs = 0;
   #homeSnapshotAllowed = true;
   #archiveSnapshotAllowed = true;
@@ -262,9 +326,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    delay: (milliseconds: number, run: () => void) => () => void,
     persistence?: Persistence,
   ) {
     this.#persistence = persistence;
+    this.#delay = delay;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
@@ -302,7 +368,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return this.#notifications.tap(tap);
   }
   export(): SidebarExport {
-    const failure = this.#failure;
+    const failure = this.error;
     return {
       ...(this.syncing ? { syncing: true } : {}),
       ...(this.unconfirmed ? { unconfirmed: true } : {}),
@@ -332,6 +398,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         released = true;
         if (--this.#refs === 0 && this.#startup.phase === "waiting")
           this.#drive({ type: "released" });
+        if (this.#refs === 0) this.#cancelRetries();
         if (this.#refs === 0 && this.#wire) {
           this.#await(["released"]);
           // Kept unfollowed: what a warm view paints from it is no longer confirmed.
@@ -362,12 +429,19 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (source === "derived") return undefined;
     return source === "remembered" ? this.#rememberedResume : resumeOf(this.#home);
   }
+  /** Home, and the archive when it is shown: what the list waited for before goes. */
   #subscribe(): void {
+    this.#subscribeHome([]);
+    if (this.#filter.archived) this.#subscribeArchive();
+  }
+  /** Home's window alone; the list waits for its snapshot beside `waiting`. */
+  #subscribeHome(waiting: readonly string[]): void {
     // One subscription per window: a new one replaces the one it tracked.
     if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
     this.#homeSnapshotAllowed = true;
+    this.#homeSent = true;
     this.#wire = this.#id();
-    this.#await([this.#wire]);
+    this.#await([...waiting, this.#wire]);
     const resume = this.#resume();
     this.#send({
       type: "subscribe",
@@ -383,17 +457,20 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       },
       // No cursor: a windowed list starts from a fresh window, or resumes the one it holds.
     });
-    if (this.#filter.archived) this.#subscribeArchive();
   }
   #subscribeArchive(): void {
+    const was = this.syncing;
     if (this.#archiveWire) {
       this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
       this.#pending.delete(this.#archiveWire);
     }
+    // The new wire takes the old one's place before anyone is told: a watcher never reads an
+    // empty wait in between and takes the list for current.
+    this.#pending.delete(refusedReason("archive"));
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
-    if (!this.#pending.size) this.#notifications.emit(["sync"]);
     this.#pending.add(this.#archiveWire);
+    if (!was) this.#notifications.emit(["sync"]);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#archiveWire,
@@ -410,9 +487,13 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
     if (this.#startup.phase === "waiting") this.#drive({ type: "connected" });
-    else if (this.#refs && !this.#wire) this.#subscribe();
+    else if (this.#refs && !this.#wire && !this.#homeSent) this.#subscribe();
   }
   disconnect(): void {
+    this.#homeSent = false;
+    // The next socket subscribes afresh; a refusal on this one waits for nothing.
+    this.#cancelRetries();
+    this.#failures.clear();
     if (this.#startup.phase === "waiting") this.#drive({ type: "disconnected" });
     if (this.#refs) this.#await(["disconnected"]);
     this.#wire = undefined;
@@ -472,7 +553,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         this.reject(message.subscriptionId, new ClientError("limit"));
         return;
       }
-      this.#failure = undefined;
+      this.#refused.delete(archived ? "archive" : "home");
+      this.#failures.delete(archived ? "archive" : "home");
       if (message.subscriptionId === this.#archiveWire) this.#archive = view;
       else this.#home = view;
       this.#confirm([archived ? "archive" : "home"], false);

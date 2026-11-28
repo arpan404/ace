@@ -393,6 +393,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       options.id,
       () => this.connection.subscribable,
+      (milliseconds, run) => options.scheduler.set(milliseconds, run),
       this.#persistence(),
     );
     this.connection.onHello(() => {
@@ -732,6 +733,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       this.options.id,
       () => this.connection.subscribable,
+      (milliseconds, run) => this.options.scheduler.set(milliseconds, run),
       this.#persistence(),
     );
     this.#collections.add(sidebar);
