@@ -13,7 +13,33 @@ version = '0.1.0'
 android {
   namespace 'dev.ace.nativeui'
   defaultConfig { versionCode 1; versionName '0.1.0' }
-  buildFeatures { compose true }
+  buildFeatures { compose true; buildConfig true }
+  buildTypes {
+    debug {
+      buildConfigField "String", "ACE_EXECUTION_MODE", '"debug-fixture"'
+    }
+    release {
+      buildConfigField "String", "ACE_EXECUTION_MODE", '"production"'
+    }
+    measurement {
+      initWith release
+      // ace-native depends on Expo modules that have no measurement variant;
+      // fall back to their release variant (the app declares the same fallback).
+      matchingFallbacks = ["release"]
+      buildConfigField "String", "ACE_EXECUTION_MODE", '"measurement-fixture"'
+    }
+  }
+  // The instrumented source set is not a build type, so AGP never compiles it
+  // unless it is wired in here. Debug and measurement get the input hooks;
+  // release keeps only src/release/java and never sees the probe or metrics.
+  sourceSets {
+    debug {
+      java.srcDirs += 'src/instrumented/java'
+    }
+    measurement {
+      java.srcDirs += 'src/instrumented/java'
+    }
+  }
 }
 dependencies {
   if (findProject(':expo-ui') != null) {
@@ -25,4 +51,7 @@ dependencies {
   implementation 'androidx.compose.ui:ui-android:1.10.6'
   implementation 'androidx.compose.material3:material3-android:1.5.0-alpha17'
   implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+  testImplementation 'com.squareup.okhttp3:okhttp-tls:4.12.0'
 }

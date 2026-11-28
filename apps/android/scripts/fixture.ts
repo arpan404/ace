@@ -1,6 +1,7 @@
 import { ThreadId } from "@ace/protocol";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
+import { admissionCommandIds, parseAdmissionsRequest } from "./fixture-admissions.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -85,6 +86,28 @@ const stream = setInterval(() => {
 }, 100);
 const server = createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
+  let pathname: string | undefined;
+  try {
+    pathname = new URL(request.url ?? "", "http://127.0.0.1").pathname;
+  } catch {
+    pathname = undefined;
+  }
+  if (pathname === "/admissions") {
+    const parsed = parseAdmissionsRequest(request.url, request.method);
+    if (!parsed.ok) {
+      response.statusCode = parsed.status;
+      response.end(JSON.stringify({ error: parsed.error }));
+      return;
+    }
+    const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(parsed.threadId) });
+    if (view?.kind !== "thread") {
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: "thread_not_found" }));
+      return;
+    }
+    response.end(JSON.stringify({ commandIds: admissionCommandIds(view, parsed.probe) }));
+    return;
+  }
   if (request.url === "/metrics") {
     const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("stream-thread") });
     const replayAdmissions =

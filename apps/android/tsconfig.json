@@ -8,5 +8,5 @@
     "types": ["react", "node"],
     "customConditions": ["react-native"]
   },
-  "include": ["src", "index.ts", "modules/**/*.ts", "modules/**/*.tsx", "plugins", "scripts"]
+  "include": ["src", "index.ts", "modules/**/*.ts", "modules/**/*.tsx", "plugins"]
 }

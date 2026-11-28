@@ -1,5 +1,9 @@
 # iOS and Android over Tailscale
 
+For Android implementation sequencing, see the
+[full iOS parity plan](../plans/android-ios-parity.md), including milestones,
+bounded task IDs, acceptance checks and release gates beyond pairing.
+
 Target both platforms using the existing clients: SwiftUI with JavaScriptCore on
 iOS, Expo with Compose and Hermes on Android. The shared `@ace/client` owns
 reconnect, snapshots, replay, durable commands and canonical agent state.

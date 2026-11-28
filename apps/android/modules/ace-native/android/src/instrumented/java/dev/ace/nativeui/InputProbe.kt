@@ -2,7 +2,6 @@ package dev.ace.nativeui
 
 import android.app.Activity
 import android.app.Instrumentation
-import android.content.pm.ApplicationInfo
 import android.os.SystemClock
 import android.view.KeyEvent
 import java.util.concurrent.CountDownLatch
@@ -16,8 +15,8 @@ class InputProbe(private val metrics: InputMetrics) {
   private val active = AtomicBoolean(false)
 
   fun run(activity: Activity, count: Int): Map<String, Any> {
-    check(activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-      "Input probing is unavailable in release builds"
+    check(BuildConfig.ACE_EXECUTION_MODE != "production") {
+      "Input probing is unavailable in this build"
     }
     require(count in 1..120)
     check(active.compareAndSet(false, true)) { "An input probe is already running" }

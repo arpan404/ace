@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
-import { TextInput, View, Text, findNodeHandle } from "react-native";
+import { AppState, TextInput, View, Text, findNodeHandle } from "react-native";
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { AceHost, useTheme, tokens, textStyle } from "./theme.tsx";
@@ -11,24 +11,35 @@ import {
   inputMetrics,
   probeInput,
 } from "./input-metrics.ts";
-import { ComposerDraft } from "./composer-draft.ts";
+import { isInstrumentedBuild } from "./native-mode.ts";
+import { ComposerDraft, type DraftStore } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
+import { resolveComposerSubmitBehavior, shouldSubmitOnReturn } from "./composer-submit.ts";
 export function Composer({
   threadId,
+  draftKey,
+  drafts,
   client,
   notify,
+  returnSends = false,
 }: {
   threadId: string;
+  /** Where this composer's unsent words are kept; null keeps them only on screen. */
+  draftKey: string | null;
+  drafts: DraftStore | null;
   client: ClientApi;
   notify(text: string): void;
+  returnSends?: boolean;
 }) {
   const input = useRef<TextInput>(null);
+  // Probe and metrics exist only in fixture builds; production fails closed to plain composing.
+  const instrumented = useMemo(() => isInstrumentedBuild(), []);
   useEffect(
     () => () => {
-      void stopInputMetrics();
+      if (instrumented) void stopInputMetrics().catch(() => undefined);
     },
-    [],
+    [instrumented],
   );
   const theme = useTheme();
   const [inputHeight, setInputHeight] = useState<number>(tokens.dimensions.touchTarget);
@@ -46,18 +57,33 @@ export function Composer({
       ),
     [client, threadId],
   );
+  // Leaving the thread, backgrounding, or a killed app keeps the unsent words:
+  // follow loads this thread's draft and flushes the one followed before.
+  // Backgrounding awaits the write to give it its best chance, but the OS can
+  // still kill the app mid-write: drafts are exact across navigation and
+  // relaunch, best-effort across kills.
+  useEffect(() => {
+    model.follow(draftKey, drafts);
+  }, [model, draftKey, drafts]);
+  useEffect(() => () => model.flush(), [model]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") void model.flushAsync();
+    });
+    return () => subscription.remove();
+  }, [model]);
   const { text: draft, saving } = useSelection(model.selection);
   useLayoutEffect(() => {
-    if (!__DEV__) return;
+    if (!instrumented) return;
     void commitInput(draft.length);
-    if (__DEV__ && draft.length > 0 && draft.length % 20 === 0) {
+    if (draft.length > 0 && draft.length % 20 === 0) {
       void Promise.all([inputMetrics(), fontEvidence()])
         .then(([m, font]) => {
           console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
         })
         .catch(() => console.info("AceSpikeMetrics unavailable"));
     }
-  }, [draft]);
+  }, [draft, instrumented]);
   async function send() {
     try {
       if ((await model.send()) === "saved")
@@ -67,7 +93,7 @@ export function Composer({
     }
   }
   async function measure() {
-    if (!__DEV__ || probeActive.current) return;
+    if (!instrumented || probeActive.current) return;
     probeActive.current = true;
     console.info("AceSpikeProbe started");
     setProbing(true);
@@ -102,7 +128,7 @@ export function Composer({
       <TextInput
         ref={input}
         onFocus={() => {
-          if (!__DEV__) return;
+          if (!instrumented) return;
           const tag = findNodeHandle(input.current);
           if (tag !== null)
             void watchInput(tag).catch(() => notify("Input measurement is unavailable"));
@@ -125,8 +151,14 @@ export function Composer({
         underlineColorAndroid="transparent"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
-        submitBehavior={__DEV__ ? "submit" : "newline"}
-        onSubmitEditing={__DEV__ ? () => void measure() : undefined}
+        submitBehavior={resolveComposerSubmitBehavior(returnSends, instrumented)}
+        onSubmitEditing={
+          instrumented
+            ? () => void measure()
+            : shouldSubmitOnReturn(returnSends, instrumented)
+              ? () => void send()
+              : undefined
+        }
         value={draft}
         onChangeText={(text) => model.edit(text)}
         style={{
@@ -151,7 +183,7 @@ export function Composer({
         </Text>
         <AceHost>
           <Row>
-            {__DEV__ ? (
+            {instrumented ? (
               <AceButton
                 label="Probe"
                 kind="secondary"

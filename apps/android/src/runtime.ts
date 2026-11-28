@@ -3,20 +3,42 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { openDatabaseAsync } from "expo-sqlite";
 import { randomUUID, getRandomBytes } from "expo-crypto";
 import { Linking } from "react-native";
+import { assertBundleMatchesMode, type FixtureMode } from "./execution-mode.ts";
 import { replayProbe } from "./replay-probe.ts";
-import { sqliteOutbox } from "./storage.ts";
+import { sqliteDraftPersistence, sqliteOutbox } from "./storage.ts";
+import { ThreadDraftStore, memoryDraftPersistence } from "./thread-drafts.ts";
+
+const spikeHost = "android-spike-host";
+const spikeDevice = "android-spike-device";
 
 export interface Runtime {
   client: ClientApi;
+  /** Unsent composer words per machine+thread, opened before the UI reads them. */
+  drafts: ThreadDraftStore;
+  hostId: string;
   close(): Promise<void>;
 }
-/** Explicitly debug-only loopback fixture. Production pairing uses pinned native TLS. */
-export async function fixtureRuntime(): Promise<Runtime> {
-  if (!__DEV__) throw new Error("The fixture connection is unavailable in a release build.");
+/** Explicitly fixture-only loopback runtime. Production pairing uses pinned native TLS. */
+export async function fixtureRuntime(mode: FixtureMode): Promise<Runtime> {
+  assertBundleMatchesMode(mode, __DEV__);
   const db = await openDatabaseAsync("ace-outbox.db");
   let client: ClientApi | undefined;
   try {
-    const storage = await sqliteOutbox(db, "android-spike-host/android-spike-device");
+    const storage = await sqliteOutbox(db, `${spikeHost}/${spikeDevice}`);
+    // Drafts must never take down the runtime: like iOS (which reads missing
+    // or corrupt drafts as empty), a failed draft load or table setup falls
+    // back to memory-only words for this launch.
+    let drafts: ThreadDraftStore;
+    try {
+      drafts = new ThreadDraftStore(
+        await sqliteDraftPersistence(db, `${spikeHost}/${spikeDevice}`),
+      );
+      await drafts.open();
+    } catch {
+      console.warn("AceDraftsUnavailable");
+      drafts = new ThreadDraftStore(memoryDraftPersistence());
+      await drafts.open();
+    }
     const scheduler: Scheduler = {
       set(ms, callback) {
         const timer = setTimeout(callback, ms);
@@ -43,6 +65,8 @@ export async function fixtureRuntime(): Promise<Runtime> {
     );
     return {
       client: startedClient,
+      drafts,
+      hostId: spikeHost,
       async close() {
         try {
           await startedClient.close();

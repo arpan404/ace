@@ -21,10 +21,16 @@ const withAceProbe: ConfigPlugin = (config) => {
         "app/src/androidTest/java/dev/ace/android/benchmark",
       );
       await mkdir(directory, { recursive: true });
-      await copyFile(
-        join(mod.modRequest.projectRoot, "benchmark/SpikeInstrumentation.kt"),
-        join(directory, "SpikeInstrumentation.kt"),
-      );
+      for (const name of [
+        "SpikeInstrumentation.kt",
+        "FixtureSendScenario.kt",
+        "FixtureDevServer.kt",
+      ]) {
+        await copyFile(
+          join(mod.modRequest.projectRoot, `benchmark/${name}`),
+          join(directory, name),
+        );
+      }
       return mod;
     },
   ]);
