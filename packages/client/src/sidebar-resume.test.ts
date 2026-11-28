@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { harness, memory, thread } from "./read-snapshots.fixture.ts";
+import { harness, hostId, memory, thread } from "./read-snapshots.fixture.ts";
 
 /*
  * The thread list resumes from the revision it holds: after a reconnect or a filter switch it
@@ -289,6 +289,41 @@ test("another project's Home list starts its own backoff, never the rest of the 
       project.scope.kind === "threads" &&
       project.scope.window?.project,
   ).toBe("web");
+  collection.close();
+  await f.client.close();
+});
+
+test("a welcome's late replay leaves a refused Home to its own retry and the archive's wire alone", async () => {
+  // Saving the daemon's identity takes a while: the welcome's replay comes after the list's answers.
+  const bound = Promise.withResolvers<void>();
+  const f = harness(memory().storage, 32, {
+    host: hostId,
+    outbox: {
+      load: async () => null,
+      save: async () => {},
+      hostBinding: { load: async () => null, save: () => bound.promise },
+    },
+  });
+  const collection = f.client.threadsCollection();
+  const store = collection.threads().store;
+  await collection.threadsWindow({ archived: true });
+  await f.start();
+  f.elapse(250);
+  await f.subscribed("threads");
+  at(f, false, listOf([placed("a", "p", "inbox", 3)], 7));
+  at(f, true, listOf([placed("old", "p", "settled", 1)], 7));
+  const archive = windowWire(f, true);
+  const home = windowWire(f, false);
+  f.deliver({ type: "error", subscriptionId: home, code: "unavailable", message: "Busy" });
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  bound.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The replay is no new socket: Home waits out its backoff, and the archive keeps its wire.
+  expect(windowWire(f, false)).toBe(home);
+  expect(windowWire(f, true)).toBe(archive);
+  f.elapse(500);
+  await expect.poll(() => windowWire(f, false)).not.toBe(home);
+  expect(windowWire(f, true)).toBe(archive);
   collection.close();
   await f.client.close();
 });

@@ -313,6 +313,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   /** Each window's refusals in a row, for its backoff; its snapshot resets it. */
   #failures = new Map<SidebarHalf, number>();
   #wire: string | undefined;
+  /**
+   * Home was subscribed on this socket. The welcome's replay may come later and call
+   * `reconnect` again: a Home refused meanwhile is left to its own retry, never asked at once.
+   */
+  #homeSent = false;
   #refs = 0;
   #homeSnapshotAllowed = true;
   #archiveSnapshotAllowed = true;
@@ -434,6 +439,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     // One subscription per window: a new one replaces the one it tracked.
     if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
     this.#homeSnapshotAllowed = true;
+    this.#homeSent = true;
     this.#wire = this.#id();
     this.#await([...waiting, this.#wire]);
     const resume = this.#resume();
@@ -481,9 +487,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
     if (this.#startup.phase === "waiting") this.#drive({ type: "connected" });
-    else if (this.#refs && !this.#wire) this.#subscribe();
+    else if (this.#refs && !this.#wire && !this.#homeSent) this.#subscribe();
   }
   disconnect(): void {
+    this.#homeSent = false;
     // The next socket subscribes afresh; a refusal on this one waits for nothing.
     this.#cancelRetries();
     this.#failures.clear();
