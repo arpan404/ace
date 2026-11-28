@@ -72,11 +72,14 @@ function lane() {
       return typeof value === "function" ? value.bind(base) : value;
     },
   });
+  /** While set, a send waits for it before it prepares its body, as a slow gateway lookup does. */
+  let paused: Promise<void> | undefined;
   const delivery = createActivityDelivery({
     store: counted,
     remoteWatched: (at) => ledger.watchingRemote(at),
     gateway: {
       async sendActivity(_address, prepare) {
+        if (paused) await paused;
         const body = prepare();
         if (!body) return { status: "skipped" };
         sent.push(body);
@@ -128,6 +131,15 @@ function lane() {
     elapsed: () => elapsed,
     read: () => delivery.run(),
     snapshots: () => snapshots,
+    /** The next sends wait in the gateway until `release`. */
+    pauseSends() {
+      const gate = Promise.withResolvers<void>();
+      paused = gate.promise;
+      return () => {
+        paused = undefined;
+        gate.resolve();
+      };
+    },
     fired: () => fired,
     /**
      * Time passes `ms`: each timer the lane armed fires when it comes due, and the run it starts
@@ -280,4 +292,18 @@ it("a held end checks only the remote children on each tick, not the whole activ
   activity.remoteChild("remote-a", { settled: true });
   await activity.tick(2000);
   expect(activity.events().at(-1)).toBe("end");
+});
+
+it("a delegation that lands while the end waits on the gateway holds it", async () => {
+  const activity = lane();
+  await settled(activity);
+  activity.advance(121_000);
+  const release = activity.pauseSends();
+  const sending = activity.read();
+  await new Promise((resolve) => setImmediate(resolve));
+  // The parent delegates to another machine while the gateway looks up the handle.
+  activity.remoteChild("remote-a", { settled: false });
+  release();
+  await sending;
+  expect(activity.events()).not.toContain("end");
 });
