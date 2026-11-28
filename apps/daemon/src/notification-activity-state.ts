@@ -55,6 +55,34 @@ function activityEvent({ payload }: Event): boolean {
     case "background_task.started":
     case "background_task.updated":
       return true;
+    case "item.created":
+    case "item.updated":
+      return payload.item.type === "delegation.started";
+    default:
+      return false;
+  }
+}
+
+/**
+ * Work started, even if it is over before the next read: the quiet grace starts again. A read
+ * only sees the state at that moment, so a command that ran between two reads would otherwise
+ * leave the old deadline in place.
+ */
+function busyTransition({ payload }: Event): boolean {
+  switch (payload.type) {
+    case "thread.updated":
+      return payload.status !== undefined && !settled.has(payload.status.state);
+    case "queue.updated":
+      return (payload.pendingCount ?? 0) > 0;
+    case "agent.status":
+      return payload.status.state !== "idle" && payload.status.state !== "interrupted";
+    case "background_task.started":
+      return true;
+    case "background_task.updated":
+      return payload.status === "running";
+    case "item.created":
+    case "item.updated":
+      return payload.item.type === "delegation.started" && payload.item.phase !== "settled";
     default:
       return false;
   }
@@ -106,14 +134,17 @@ export function activityState(store: Store, now: () => number, finished: (seq: n
       if (!activityEvent(event)) continue;
       relevant = true;
       const { payload, threadId } = event;
-      if (payload.type === "thread.updated" && payload.status) {
+      // A delegated child's work keeps its parent's tree busy, so only a deleted or hosted
+      // thread is left out here.
+      if (busyTransition(event)) {
         const entry = store.readThread(threadId);
-        if (!entry || !visible(entry)) continue;
-        if (!settled.has(payload.status.state)) settledSince = undefined;
-        if (payload.status.state === "done" && !stoppedByPerson(entry)) finished(event.seq);
+        if (entry && entry.deletedAt === undefined && entry.host === undefined)
+          settledSince = undefined;
       }
-      if (payload.type === "queue.updated" && (payload.pendingCount ?? 0) > 0)
-        settledSince = undefined;
+      if (payload.type === "thread.updated" && payload.status?.state === "done") {
+        const entry = store.readThread(threadId);
+        if (entry && visible(entry) && !stoppedByPerson(entry)) finished(event.seq);
+      }
     }
     return relevant;
   }
