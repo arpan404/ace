@@ -225,3 +225,35 @@ test("asking Home again leaves the archive's subscription alone, and Home keeps 
   collection.close();
   await f.client.close();
 });
+
+test("asking the archive again never tells a watcher the list is current before its snapshot", async () => {
+  const { f, collection, store } = await sidebar();
+  at(f, false, listOf([placed("a", "p", "inbox", 3)], 7));
+  // No archived rows were ever kept: opening the archive paints nothing from memory.
+  await collection.threadsWindow({ archived: true });
+  // A watcher keeps what it was last told, as a screen's freshness gate does.
+  const syncing = store.select(["sync"], (list) => list.syncing);
+  let told = syncing.getSnapshot();
+  const stop = syncing.subscribe(() => {
+    told = syncing.getSnapshot();
+  });
+  f.deliver({
+    type: "error",
+    subscriptionId: windowWire(f, true),
+    code: "unavailable",
+    message: "Busy",
+  });
+  await expect.poll(() => store.error?.code).toBe("daemon");
+  expect(told).toBe(true);
+  const refused = windowWire(f, true);
+  f.elapse(500);
+  await expect.poll(() => windowWire(f, true)).not.toBe(refused);
+  // Asked again, not answered: the watcher still holds that the list is syncing.
+  expect(told).toBe(true);
+  expect(syncing.getSnapshot()).toBe(true);
+  at(f, true, listOf([placed("old", "p", "settled", 1)], 9));
+  expect(told).toBe(false);
+  stop();
+  collection.close();
+  await f.client.close();
+});

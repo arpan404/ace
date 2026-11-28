@@ -450,15 +450,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     });
   }
   #subscribeArchive(): void {
+    const was = this.syncing;
     if (this.#archiveWire) {
       this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
       this.#pending.delete(this.#archiveWire);
     }
+    // The new wire takes the old one's place before anyone is told: a watcher never reads an
+    // empty wait in between and takes the list for current.
     this.#pending.delete(refusedReason("archive"));
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
-    if (!this.#pending.size) this.#notifications.emit(["sync"]);
     this.#pending.add(this.#archiveWire);
+    if (!was) this.#notifications.emit(["sync"]);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#archiveWire,
