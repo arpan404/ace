@@ -1,20 +1,25 @@
 import type { ProviderGoal } from "@ace/protocol";
 import { pluralCount } from "./counts.ts";
 import { goalTitle, goalUsage } from "./goal.ts";
+import type { ContextUsage } from "./queue.ts";
 import { timedWords, type TurnActivity } from "./turn-activity.ts";
 import { waitWords } from "./wait-words.ts";
 
 /*
  * The phone's live pill: one capsule over the composer that says what the thread is doing now
  * ("Working for 1m 14s") and, beside it, what else is live ("2 subagents", "1 command",
- * "2 queued", "Pursuing goal"). Each part names the sheet it opens. While a request card is in
+ * "2 queued", "Pursuing goal") and, last, how full the context is ("62% context"), which stays
+ * at rest too, as the web's work card keeps it. Each part names the sheet it opens. While a request card is in
  * the composer's strip the pill steps aside: the card is what needs the person. A tree that waits
  * on the person with no card here (a delegated child asks in its own thread) keeps that on the
  * pill, with who asks, so the phone never hides that the tree waits on a human.
  */
 
-/** What a part of the pill opens: the agent tree (with background commands), the queue, the goal. */
-export type PillOpens = "agents" | "queue" | "goal";
+/**
+ * What a part of the pill opens: the agent tree (with background commands), the queue, the goal,
+ * or the context with its Compact.
+ */
+export type PillOpens = "agents" | "queue" | "goal" | "context";
 
 /** The pill's lead: the thread's own state, with its timer when it has one. */
 export interface PillStatus {
@@ -34,7 +39,7 @@ export interface PillStatus {
 }
 
 export interface PillSegment {
-  kind: "subagents" | "commands" | "queue" | "goal";
+  kind: "subagents" | "commands" | "queue" | "goal" | "context";
   label: string;
   opens: PillOpens;
   /** An active goal while the thread works sweeps like the status. */
@@ -60,6 +65,8 @@ export interface LivePillFacts {
    * a status that would say it twice. Live work still shows.
    */
   holdShown?: boolean | undefined;
+  /** How full the root agent's context is, once a sample arrived (`contextUsage`). */
+  context?: ContextUsage | undefined;
 }
 
 /** "Waiting on 2": the root does nothing itself while its subagents work. */
@@ -157,12 +164,21 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
       ...(detail ? { detail } : {}),
     });
   }
+  // As the web's readout: "62% context", or the token count alone when the window is unknown.
+  const context = facts.context;
+  if (context)
+    segments.push({
+      kind: "context",
+      label: context.percent === undefined ? context.short : `${context.short} context`,
+      opens: "context",
+      live: false,
+    });
   return segments;
 }
 
 /**
  * The pill, or undefined while a request card is in the strip (the owner's rule: nothing beside
- * what needs the person) or when nothing is live, queued or pursued.
+ * what needs the person) or when nothing is live, queued or pursued and no context is known.
  */
 export function livePill(facts: LivePillFacts): LivePill | undefined {
   if (facts.requestShown) return undefined;

@@ -1,8 +1,7 @@
-import { contextUsage, type ContextUsage } from "@ace/ui-core";
+import { compactRefusal, contextCompacting, contextUsage, type ContextUsage } from "@ace/ui-core";
 import { useAgent, useThread, useThreadMeta } from "@ace/client-react";
 import { useThreadField } from "@ace/client-react/thread-field";
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { compactionBlocked } from "@ace/core";
 import { ArrowsInSimpleIcon } from "@ace/icons";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -44,16 +43,10 @@ export function useContextControl(threadId: string): ContextControl {
   const compact = useCompactCommand(threadId);
   const [sending, setSending] = useState(false);
   const usage = contextUsage(meter);
-  const compacting = agent?.status.state === "working" && agent.status.activity === "compacting";
-  const working = compactionBlocked(agent?.status);
+  const compacting = contextCompacting(agent?.status);
   const supported = thread?.capabilities?.compaction === true;
   const pending = sending || compacting;
-  // A provider compacts its own idle context: its turn, or the person's question, comes first.
-  const reason = compacting
-    ? "Compacting now"
-    : working
-      ? "Wait for this turn to finish"
-      : undefined;
+  const reason = compactRefusal(agent?.status);
   const run = useCallback(() => {
     setSending(true);
     void compact().finally(() => setSending(false));
